@@ -126,11 +126,58 @@ describe("Mirror", () => {
     await t.mirror.tick();
     expect(t.frames()).toHaveLength(1);
 
+    let forcedAt = -1;
     for (let i = 0; i < 60; i++) {
       t.advance(10);
       t.mirror.write(String(i % 10));
       await t.mirror.tick();
+      if (forcedAt < 0 && t.frames().length === 2) forcedAt = i;
     }
-    expect(t.frames().length).toBeGreaterThan(1);
+    expect(forcedAt).toBe(50);
+  });
+
+  it("a primeira rajada depois de um período quieto também espera assentar", async () => {
+    const t = setup({ settleMs: 30, maxDeferMs: 500 });
+    t.mirror.setViewers(1);
+    await t.mirror.tick();
+    expect(t.frames()).toHaveLength(1);
+    t.advance(1000);
+    t.mirror.write("x");
+    await t.mirror.tick();
+    expect(t.frames()).toHaveLength(1);
+    t.advance(40);
+    await t.mirror.tick();
+    expect(t.frames()).toHaveLength(2);
+  });
+
+  it("erro num tick vai para onError e não rejeita", async () => {
+    const errors: unknown[] = [];
+    const t = setup({
+      onError: (error) => errors.push(error),
+      send: (message) => {
+        if (message.type === "frame") throw new Error("falhou");
+        return true;
+      },
+    });
+    t.mirror.setViewers(1);
+    t.mirror.write("a");
+    await expect(t.mirror.tick()).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe("falhou");
+  });
+
+  it("stop durante um tick em andamento não envia nada nem lança", async () => {
+    const errors: unknown[] = [];
+    const t = setup({ onError: (error) => errors.push(error) });
+    t.mirror.setViewers(1);
+    t.mirror.write("a");
+    const pending = t.mirror.tick();
+    t.mirror.stop();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.frames()).toHaveLength(0);
+    expect(errors).toHaveLength(0);
+    await expect(t.mirror.tick()).resolves.toBeUndefined();
+    expect(t.frames()).toHaveLength(0);
+    void pending;
   });
 });

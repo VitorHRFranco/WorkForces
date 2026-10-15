@@ -20,6 +20,8 @@ export interface MirrorOptions {
   /** …adiando no máximo este tempo. */
   maxDeferMs?: number;
   maxFrameBytes?: number;
+  /** Chamada quando um tick falha; o tick nunca rejeita. */
+  onError?: (error: unknown) => void;
 }
 
 /**
@@ -37,7 +39,8 @@ export class Mirror {
   private dirty = true;
   private ticking = false;
   private lastWriteAt = Number.NEGATIVE_INFINITY;
-  private lastFrameAt = Number.NEGATIVE_INFINITY;
+  private deferringSince: number | null = null;
+  private stopped = false;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: MirrorOptions) {
@@ -66,7 +69,6 @@ export class Mirror {
     if (n > 0 && this.viewers === 0) {
       this.differ.reset();
       this.dirty = true;
-      this.lastFrameAt = this.now();
     }
     this.viewers = n;
   }
@@ -79,7 +81,7 @@ export class Mirror {
   }
 
   async tick(): Promise<void> {
-    if (this.ticking) return;
+    if (this.ticking || this.stopped) return;
     this.ticking = true;
     try {
       const now = this.now();
@@ -87,10 +89,14 @@ export class Mirror {
       if (state) this.options.send({ type: "status", state });
       if (this.viewers === 0 || !this.dirty) return;
       const settling = now - this.lastWriteAt < this.settleMs;
-      if (settling && now - this.lastFrameAt < this.maxDeferMs) return;
+      if (settling) {
+        this.deferringSince ??= now;
+        if (now - this.deferringSince < this.maxDeferMs) return;
+      }
+      this.deferringSince = null;
       this.dirty = false;
-      this.lastFrameAt = now;
       await this.headless.flush();
+      if (this.stopped || this.viewers === 0) return;
       const snapshot = takeSnapshot(this.headless.term, this.options.patterns, this.headless.isCursorVisible());
       for (const frame of this.differ.next(snapshot)) {
         if (!this.options.send({ type: "frame", ...frame })) {
@@ -99,6 +105,8 @@ export class Mirror {
           break;
         }
       }
+    } catch (error) {
+      this.options.onError?.(error);
     } finally {
       this.ticking = false;
     }
@@ -110,6 +118,7 @@ export class Mirror {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.headless.dispose();
