@@ -10,7 +10,11 @@ import {
 import WebSocket from "ws";
 import { reconnectDelay } from "./backoff.js";
 
-export const MAX_BUFFERED_BYTES = 1024 * 1024;
+/**
+ * Maior que o maior quadro-chave possível (500×200 com cor 24 bits ≈ 4,2 MB);
+ * senão um quadro-chave grande nunca termina de sair.
+ */
+export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 export class ServerUrlError extends Error {}
 

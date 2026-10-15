@@ -46,7 +46,7 @@ export class Mirror {
   constructor(private readonly options: MirrorOptions) {
     this.headless = createHeadless(options.cols, options.rows);
     this.differ = new FrameDiffer(options.maxFrameBytes);
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => performance.now());
     this.settleMs = options.settleMs ?? 30;
     this.maxDeferMs = options.maxDeferMs ?? 500;
   }

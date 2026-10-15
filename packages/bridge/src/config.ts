@@ -40,7 +40,7 @@ export function loadConfig(dir: string): Config {
   }
   let data: unknown;
   try {
-    data = JSON.parse(raw.replace(/^﻿/, ""));
+    data = JSON.parse(raw.replace(/^\uFEFF/, ""));
   } catch {
     throw new ConfigError(`${file} não é um JSON válido`);
   }

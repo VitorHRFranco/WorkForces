@@ -1,4 +1,4 @@
-import { spawn as spawnChild } from "node:child_process";
+import { spawn as spawnChild, type ChildProcess } from "node:child_process";
 import nodePty from "@lydell/node-pty";
 import type { MaskPattern } from "../masking/mask.js";
 import { Mirror } from "../mirror/mirror.js";
@@ -38,7 +38,7 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
   const cols = io.stdout.columns || 80;
   const rows = io.stdout.rows || 24;
   const ptyOptions = {
-    name: "xterm-256color",
+    name: options.env.TERM ?? "xterm-256color",
     cols,
     rows,
     cwd: options.cwd,
@@ -110,11 +110,31 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
 
 /** Sem terminal (pipes, scripts): roda o claude direto, sem PTY e sem espelhar. */
 export function runDirect(command: ResolvedCommand, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
-  const child = command.viaCmd
-    ? spawnChild(comspec(env), [cmdArguments(command)], { cwd, env, stdio: "inherit", windowsVerbatimArguments: true })
-    : spawnChild(command.file, command.args, { cwd, env, stdio: "inherit" });
+  // Ctrl+C/Ctrl+Break: o filho recebe o sinal do console e decide; o invólucro só repassa o código dele.
+  const ignoreSignal = (): void => {};
+  process.on("SIGINT", ignoreSignal);
+  process.on("SIGBREAK", ignoreSignal);
+  const release = (): void => {
+    process.removeListener("SIGINT", ignoreSignal);
+    process.removeListener("SIGBREAK", ignoreSignal);
+  };
+  let child: ChildProcess;
+  try {
+    child = command.viaCmd
+      ? spawnChild(comspec(env), [cmdArguments(command)], { cwd, env, stdio: "inherit", windowsVerbatimArguments: true })
+      : spawnChild(command.file, command.args, { cwd, env, stdio: "inherit" });
+  } catch (error) {
+    release();
+    throw error;
+  }
   return new Promise((resolve) => {
-    child.on("error", () => resolve(127));
-    child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    child.on("error", () => {
+      release();
+      resolve(127);
+    });
+    child.on("exit", (code, signal) => {
+      release();
+      resolve(code ?? (signal ? 1 : 0));
+    });
   });
 }
