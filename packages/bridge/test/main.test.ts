@@ -5,6 +5,8 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { main } from "../src/main.js";
+import { stripAnsi } from "./helpers/ansi.js";
+import { waitUntil } from "./helpers/wait.js";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 
@@ -59,5 +61,25 @@ describe("main", () => {
     const env = { ...process.env, WORKFORCES_HOME: home(), WORKFORCES_CLAUDE_BIN: process.execPath };
     const { ctx } = context(["claude", FAKE, "--once"], env);
     expect(await main(ctx)).toBe(5);
+  });
+
+  it("repete os avisos depois que o Claude sai", async () => {
+    const stdin = Object.assign(new PassThrough(), { isTTY: true });
+    const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
+    const stderr = new PassThrough();
+    let out = "";
+    let err = "";
+    stdout.on("data", (chunk: Buffer) => {
+      out += chunk.toString("utf8");
+    });
+    stderr.on("data", (chunk: Buffer) => {
+      err += chunk.toString("utf8");
+    });
+    const env = { ...process.env, WORKFORCES_HOME: home(), WORKFORCES_CLAUDE_BIN: process.execPath };
+    const done = main({ argv: ["claude", FAKE], env, cwd: process.cwd(), io: { stdin, stdout, stderr }, platform: process.platform });
+    await waitUntil(() => stripAnsi(out).includes("OLÁ_DO_FALSO"), 15_000, "saída do falso");
+    stdin.write("sair\r");
+    expect(await done).toBe(7);
+    expect(err.split("sem login no escritório").length - 1).toBe(2);
   });
 });

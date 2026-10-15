@@ -51,7 +51,7 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
   }
   if (!shouldUsePty(ctx.io)) return runDirect(resolved, ctx.cwd, ctx.env);
 
-  // Avisos só antes de abrir o Claude: depois disso, a ponte não escreve no terminal.
+  // Avisos antes de abrir o Claude e de novo depois que ele sai; durante a sessão, a ponte não escreve no terminal.
   const warnings: string[] = [];
   const patterns = [...BUILTIN_PATTERNS, ...compileExtraPatterns(config.secretPatterns, (message) => warnings.push(message))];
   let socketUrl: string | null = null;
@@ -97,6 +97,8 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
       : null;
 
   const code = await runInPty({ command: resolved, cwd: ctx.cwd, env: ctx.env, io: ctx.io, agentId, patterns, connect, log });
+  // No Windows o ConPTY limpa a tela ao iniciar e apaga os avisos: repete-os ao sair.
+  for (const warning of warnings) ctx.io.stderr.write(`escritorio: ${warning}\n`);
   if (state.fatal) ctx.io.stderr.write(`escritorio: ${state.fatal}\n`);
   return code;
 }
