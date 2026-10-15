@@ -25,6 +25,8 @@ describe("BUILTIN_PATTERNS", () => {
     ["npm", "npm_" + "h".repeat(36), dots(40)],
     ["workforces", "wf_" + "i".repeat(24), dots(27)],
     ["jwt", "eyJ" + "j".repeat(10) + ".eyJ" + "k".repeat(10) + "." + "l".repeat(10), dots(38)],
+    ["jwt incompleto", "eyJ" + "a".repeat(10) + ".eyJ" + "b".repeat(12), dots(29)],
+    ["bearer", "Authorization: Bearer " + "t".repeat(24), "Authorization: Bearer " + dots(24)],
     ["senha em URL", "postgres://app:" + "s3nhaForte" + "@db:5432", "postgres://app:" + dots(10) + "@db:5432"],
     ["variável de ambiente", "DB_PASSWORD=hunter22", "DB_PASSWORD=" + dots(8)],
     ["JSON", '"password": "hunter22"', '"password": "' + dots(8) + '"'],
@@ -44,6 +46,16 @@ describe("BUILTIN_PATTERNS", () => {
     "task-" + "x".repeat(25),
   ])("não mascara %j", (input) => {
     expect(maskText(input)).toBe(input);
+  });
+});
+
+describe("findMaskRanges", () => {
+  it("acha segredo na fronteira entre blocos de texto longo", () => {
+    const token = "ghp_" + "a".repeat(36);
+    const text = "x".repeat(4080) + " " + token + " " + "y".repeat(6000);
+    const masked = maskText(text);
+    expect(masked.slice(4081, 4121)).toBe(dots(40));
+    expect(masked.replace(/•/g, "")).toBe(text.replace(token, ""));
   });
 });
 

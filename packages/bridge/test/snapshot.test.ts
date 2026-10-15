@@ -78,6 +78,32 @@ describe("takeSnapshot", () => {
     expect(s.text[1]).toBe("│ " + dots(10) + " resto" + " ".repeat(13) + "│");
   });
 
+  it("mascara token quebrado pela TUI numa caixa", async () => {
+    const row0 = "│ " + "x".repeat(14) + " " + "sk-ant-api03" + "  │";
+    const row1 = "│ " + "-" + "Q".repeat(25) + "   │";
+    const s = await snap(32, 3, at(0, 0) + row0 + at(1, 0) + row1);
+    expect(s.text[0]).toBe("│ " + "x".repeat(14) + " " + dots(12) + "  │");
+    expect(s.text[1]).toBe("│ " + dots(26) + "   │");
+  });
+
+  it("mascara JWT longo quebrado numa caixa", async () => {
+    const jwt = "eyJ" + "a".repeat(30) + ".eyJ" + "b".repeat(30) + "." + "c".repeat(20);
+    const s = await snap(
+      32,
+      4,
+      at(0, 0) + "│ " + jwt.slice(0, 28) + " │" +
+        at(1, 0) + "│ " + jwt.slice(28, 56) + " │" +
+        at(2, 0) + "│ " + jwt.slice(56, 84) + " │" +
+        at(3, 0) + "│ " + jwt.slice(84) + " ".repeat(24) + " │",
+    );
+    expect(s.text).toEqual([
+      "│ " + dots(28) + " │",
+      "│ " + dots(28) + " │",
+      "│ " + dots(28) + " │",
+      "│ " + dots(4) + " ".repeat(24) + " │",
+    ]);
+  });
+
   it("não continua quando o segredo termina longe da borda", async () => {
     const s = await snap(60, 3, at(0, 0) + "DB_PASSWORD=hunter22" + at(1, 0) + "DB_HOST=localhost");
     expect(s.text[0]).toBe("DB_PASSWORD=" + dots(8));

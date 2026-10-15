@@ -45,8 +45,9 @@ export function takeSnapshot(term: Terminal, patterns: readonly MaskPattern[], c
   const lineAt: LineAt = (w) => buffer.getLine(first + w);
   const masked = Array.from({ length: total }, () => new Set<number>());
 
-  // 1. Padrões sobre linhas lógicas: linhas quebradas pelo terminal são unidas.
-  forEachLogicalLine(lineAt, total, (start, end) => maskLogicalLine(lineAt, start, end, cols, patterns, masked));
+  // 1. Padrões sobre linhas lógicas: linhas quebradas pelo terminal são unidas, e também
+  //    as que encostam na borda (a TUI quebra palavras longas sem marcar a linha como quebrada).
+  forEachPatternLine(lineAt, total, cols, (start, end) => maskLogicalLine(lineAt, start, end, cols, patterns, masked));
 
   // 2. Blocos de chave privada, detectados sobre as linhas lógicas.
   applyKeyMarkers(collectKeyMarkers(lineAt, total, cols), cols, masked);
@@ -81,6 +82,17 @@ function forEachLogicalLine(lineAt: LineAt, total: number, fn: (start: number, e
   }
 }
 
+/** Como `forEachLogicalLine`, mas une também a linha seguinte quando a atual encosta na borda. */
+function forEachPatternLine(lineAt: LineAt, total: number, cols: number, fn: (start: number, end: number) => void): void {
+  let start = 0;
+  while (start < total) {
+    let end = start + 1;
+    while (end < total && (lineAt(end)?.isWrapped || lastContentCol(lineAt(end - 1), cols) >= cols - CONTINUATION_MARGIN)) end++;
+    fn(start, end);
+    start = end;
+  }
+}
+
 function maskLogicalLine(
   lineAt: LineAt,
   start: number,
@@ -94,7 +106,12 @@ function maskLogicalLine(
   for (let row = start; row < end; row++) {
     const line = lineAt(row);
     if (!line) continue;
-    for (let col = 0; col < cols; col++) {
+    // Linha unida por encostar na borda (não pelo terminal): começa no primeiro conteúdo.
+    const from = row > start && !line.isWrapped ? firstContentCol(line, cols) : 0;
+    // Se a próxima foi unida por encostar na borda, esta termina no último conteúdo.
+    const next = row + 1 < end ? lineAt(row + 1) : undefined;
+    const to = next && !next.isWrapped ? lastContentCol(line, cols) + 1 : cols;
+    for (let col = from; col < to; col++) {
       const cell = line.getCell(col);
       if (!cell) break;
       const width = cell.getWidth();
@@ -156,6 +173,15 @@ function applyKeyMarkers(markers: readonly KeyMarker[], cols: number, masked: Se
       for (let r = row; r <= marker.endRow; r++) maskRow(r);
     }
   }
+}
+
+/** Primeira coluna com conteúdo (pula células vazias e bordas); `cols` se não houver. */
+function firstContentCol(line: IBufferLine, cols: number): number {
+  for (let col = 0; col < cols; col++) {
+    const chars = line.getCell(col)?.getChars() ?? "";
+    if (chars !== "" && !BORDER.test(chars)) return col;
+  }
+  return cols;
 }
 
 function lastContentCol(line: IBufferLine | undefined, cols: number): number {

@@ -52,6 +52,13 @@ describe("serializeRow", () => {
     expect(stripAnsi(serializeRow(colored.term.buffer.active.getLine(0), 20))).toBe("abc  ");
   });
 
+  it("não deixa passar título, OSC 52 nem hyperlink", async () => {
+    const source = await screen(40, "\x1b]0;titulo\x07\x1b]52;c;ZGFkb3M=\x07\x1b]8;;https://exemplo\x07link\x1b]8;;\x07ok");
+    const line = serializeRow(source.term.buffer.active.getLine(0), 40);
+    expect(line).not.toContain("\x1b]");
+    expect(stripAnsi(line)).toBe("linkok");
+  });
+
   it("linha inexistente ou vazia vira texto vazio", async () => {
     const empty = await screen(20, "");
     expect(serializeRow(empty.term.buffer.active.getLine(0), 20)).toBe("");
