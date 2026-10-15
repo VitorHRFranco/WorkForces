@@ -25,9 +25,49 @@ describe("takeSnapshot", () => {
   });
 
   it("une linhas quebradas pelo terminal antes de aplicar os padrões", async () => {
-    const s = await snap(20, 3, "senha=" + "x".repeat(30));
-    expect(s.text[0]).toBe("senha=" + dots(14));
-    expect(s.text[1]).toBe(dots(16));
+    const s = await snap(20, 4, "x".repeat(17) + " " + "ghp_" + "a".repeat(36));
+    expect(s.text).toEqual(["x".repeat(17) + " " + dots(2), dots(20), dots(18), ""]);
+  });
+
+  it("detecta o BEGIN quebrado pelo terminal e mascara até o fim", async () => {
+    const s = await snap(30, 4, "x".repeat(20) + "-----BEGIN " + "PRIVATE KEY-----" + "Q".repeat(40));
+    expect(s.text).toEqual([dots(30), dots(30), dots(30), dots(30)]);
+  });
+
+  it("mascara chave mais alta que a tela (BEGIN no histórico)", async () => {
+    const begin = "-----BEGIN " + "OPENSSH PRIVATE KEY-----";
+    const end = "-----END " + "OPENSSH PRIVATE KEY-----";
+    const body = Array.from({ length: 10 }, (_, i) => "b3BlbnNzaC" + i).join("\r\n");
+    const headless = createHeadless(40, 5);
+    headless.write(begin + "\r\n" + body);
+    await headless.flush();
+    const first = takeSnapshot(headless.term, BUILTIN_PATTERNS, true).lines.map(stripAnsi);
+    headless.write("\r\n" + end + "\r\n" + "depois");
+    await headless.flush();
+    const second = takeSnapshot(headless.term, BUILTIN_PATTERNS, true).lines.map(stripAnsi);
+    headless.dispose();
+    expect(first).toEqual([dots(40), dots(40), dots(40), dots(40), dots(40)]);
+    expect(second).toEqual([dots(40), dots(40), dots(40), dots(40), "depois"]);
+  });
+
+  it("mascara END sem BEGIN na janela", async () => {
+    const begin = "-----BEGIN " + "OPENSSH PRIVATE KEY-----";
+    const end = "-----END " + "OPENSSH PRIVATE KEY-----";
+    const body = Array.from({ length: 150 }, (_, i) => "b3BlbnNzaC" + i);
+    const s = await snap(40, 5, [begin, ...body, end, "depois"].join("\r\n"));
+    expect(s.text).toEqual([dots(40), dots(40), dots(40), dots(40), "depois"]);
+  });
+
+  it("mascara token quebrado que começou acima da tela", async () => {
+    const s = await snap(20, 3, "ghp_" + "a".repeat(76));
+    expect(s.text).toEqual([dots(20), dots(20), dots(20)]);
+  });
+
+  it("mascara chave PGP", async () => {
+    const begin = "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----";
+    const end = "-----END " + "PGP PRIVATE KEY BLOCK-----";
+    const s = await snap(50, 4, at(0, 0) + "antes" + at(1, 0) + begin + at(2, 0) + "lQOYBF" + at(3, 0) + end);
+    expect(s.text).toEqual(["antes", dots(50), dots(50), dots(50)]);
   });
 
   it("continua a máscara na linha seguinte quando o segredo encosta na borda", async () => {

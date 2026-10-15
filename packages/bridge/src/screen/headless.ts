@@ -6,6 +6,9 @@ import type { Terminal } from "@xterm/headless";
 const { Terminal: HeadlessTerminal } = xtermHeadless;
 const { Unicode11Addon } = unicode11;
 
+/** Histórico existe só para o mascaramento olhar acima da tela; nunca é enviado. */
+export const SCROLLBACK_LINES = 100;
+
 export interface Headless {
   readonly term: Terminal;
   isCursorVisible(): boolean;
@@ -17,7 +20,7 @@ export interface Headless {
 }
 
 export function createHeadless(cols: number, rows: number): Headless {
-  const term = new HeadlessTerminal({ cols, rows, scrollback: 0, allowProposedApi: true });
+  const term = new HeadlessTerminal({ cols, rows, scrollback: SCROLLBACK_LINES, allowProposedApi: true });
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = "11";
 
