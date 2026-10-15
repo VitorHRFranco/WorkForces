@@ -27,6 +27,8 @@ export interface PtyRunOptions {
   log?: (message: string) => void;
 }
 
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 export function shouldUsePty(io: { stdin: { isTTY?: boolean }; stdout: { isTTY?: boolean } }): boolean {
   return Boolean(io.stdin.isTTY && io.stdout.isTTY);
 }
@@ -52,9 +54,14 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
     rows,
     patterns: options.patterns,
     send: (message) => link?.send(message) ?? false,
-    onError: (error) => options.log?.(`erro no espelho: ${error instanceof Error ? error.message : String(error)}`),
+    onError: (error) => options.log?.(`erro no espelho: ${errorMessage(error)}`),
   });
-  link = options.connect?.({ cols, rows }, { onOpen: () => mirror.connectionOpened(), onViewers: (n) => mirror.setViewers(n) }) ?? null;
+  try {
+    link = options.connect?.({ cols, rows }, { onOpen: () => mirror.connectionOpened(), onViewers: (n) => mirror.setViewers(n) }) ?? null;
+  } catch (error) {
+    options.log?.(`não consegui conectar ao escritório: ${errorMessage(error)}`);
+    link = null;
+  }
   mirror.start();
 
   // Caminho rápido primeiro; o espelho só recebe uma cópia.
@@ -71,11 +78,15 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
   io.stdin.resume();
 
   const onResize = () => {
-    const newCols = io.stdout.columns || cols;
-    const newRows = io.stdout.rows || rows;
-    child.resize(newCols, newRows);
-    mirror.resize(newCols, newRows);
-    link?.updateSize(newCols, newRows);
+    try {
+      const newCols = io.stdout.columns || cols;
+      const newRows = io.stdout.rows || rows;
+      child.resize(newCols, newRows);
+      mirror.resize(newCols, newRows);
+      link?.updateSize(newCols, newRows);
+    } catch (error) {
+      options.log?.(`erro ao redimensionar: ${errorMessage(error)}`);
+    }
   };
   io.stdout.on("resize", onResize);
 
@@ -85,9 +96,14 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
       io.stdin.removeListener("data", onInput);
       if (io.stdin.isTTY) io.stdin.setRawMode?.(false);
       io.stdin.pause();
-      mirror.stop();
-      link?.close();
-      resolve(exitCode);
+      try {
+        mirror.stop();
+        link?.close();
+      } catch (error) {
+        options.log?.(`erro ao encerrar: ${errorMessage(error)}`);
+      } finally {
+        resolve(exitCode);
+      }
     });
   });
 }

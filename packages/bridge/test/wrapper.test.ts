@@ -19,19 +19,19 @@ import { sleep, waitUntil } from "./helpers/wait.js";
 const FAKE = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 const fakeCommand = (...args: string[]): ResolvedCommand => ({ file: process.execPath, args: [FAKE, ...args], viaCmd: false });
 
-function run(command: ResolvedCommand, connect: Connector | null, agentId = randomUUID()) {
+function run(command: ResolvedCommand, connect: Connector | null, agentId = randomUUID(), log?: (message: string) => void) {
   const fake = fakeIO();
-  const done = runInPty({ command, cwd: process.cwd(), env: process.env, io: fake.io, agentId, patterns: BUILTIN_PATTERNS, connect });
+  const done = runInPty({ command, cwd: process.cwd(), env: process.env, io: fake.io, agentId, patterns: BUILTIN_PATTERNS, connect, log });
   return { fake, done, agentId };
 }
 
-function realConnector(url: string): Connector {
+function realConnector(url: string, logs: string[] = []): Connector {
   return (size, events) => {
     const connection = new AgentConnection({
       url,
       token: "wf_teste",
       hello: { agentId: randomUUID(), label: "teste", ...size },
-      log: () => {},
+      log: (message) => logs.push(message),
       handlers: { ...events, onFatal: () => {} },
     });
     connection.start();
@@ -91,8 +91,10 @@ describe("runInPty", () => {
       socket.send(JSON.stringify({ type: "viewers", n: 1 }));
     });
     const url = `ws://127.0.0.1:${(wss.address() as AddressInfo).port}/ws/bridge`;
-    const { fake, done } = run(fakeCommand(), realConnector(url));
+    const logs: string[] = [];
+    const { fake, done } = run(fakeCommand(), realConnector(url, logs));
     await fake.waitFor("OLÁ_DO_FALSO");
+    await waitUntil(() => logs.filter((line) => line.includes("inválida")).length >= 2, 15_000, "mensagens recebidas do servidor");
     const early = await Promise.race([done.then(() => "saiu"), sleep(1500).then(() => "vivo")]);
     expect(early).toBe("vivo");
     fake.type("sair\r");
@@ -111,6 +113,37 @@ describe("runInPty", () => {
     expect(await done).toBe(7);
     expect(fake.errors()).toBe("");
     expect(fake.output()).not.toContain("escritorio:");
+  });
+
+  it("redimensionar logo depois que o Claude sai não derruba o invólucro", async () => {
+    const { fake, done } = run(fakeCommand(), null);
+    await fake.waitFor("OLÁ_DO_FALSO");
+    fake.type("sair\r");
+    let finished = false;
+    void done.then(() => {
+      finished = true;
+    });
+    const timer = setInterval(() => {
+      if (finished) clearInterval(timer);
+      else fake.io.stdout.emit("resize");
+    }, 50);
+    try {
+      expect(await done).toBe(7);
+    } finally {
+      clearInterval(timer);
+    }
+  });
+
+  it("falha ao criar a conexão não deixa o Claude órfão", async () => {
+    const logs: string[] = [];
+    const connect: Connector = () => {
+      throw new Error("token ruim");
+    };
+    const { fake, done } = run(fakeCommand(), connect, randomUUID(), (message) => logs.push(message));
+    await fake.waitFor("OLÁ_DO_FALSO");
+    fake.type("sair\r");
+    expect(await done).toBe(7);
+    expect(logs.some((line) => line.includes("não consegui conectar ao escritório: token ruim"))).toBe(true);
   });
 
   it.runIf(process.platform === "win32")("roda um claude.cmd numa pasta com espaços", async () => {
