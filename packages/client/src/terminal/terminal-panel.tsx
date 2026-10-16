@@ -41,7 +41,7 @@ export function TerminalPanel({
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.open(element);
-    const state: FrameState = { lastSeq: null, resyncRequestedAt: Date.now() };
+    const state: FrameState = { lastSeq: null, lastResyncAt: Date.now() };
     handle.current = {
       agentId: agent.id,
       apply: (frame) => {

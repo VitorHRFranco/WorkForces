@@ -1,11 +1,11 @@
-import { CLOSE_CODES, ServerToClient, parseJson, type ClientToServer } from "@workforces/protocol";
+import { CLOSE_CODES, PROTOCOL_VERSION, ServerToClient, parseJson, type ClientToServer } from "@workforces/protocol";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting";
 
 export interface OfficeConnectionHandlers {
   onMessage(message: ServerToClient): void;
   onStatus(status: ConnectionStatus): void;
-  onEnd(reason: "unauthorized" | "replaced"): void;
+  onEnd(reason: "unauthorized" | "replaced" | "outdated"): void;
 }
 
 export class OfficeConnection {
@@ -14,6 +14,7 @@ export class OfficeConnection {
   private timer: number | undefined;
   private stableTimer: number | undefined;
   private stopped = false;
+  private sent: number[] = [];
 
   constructor(private readonly handlers: OfficeConnectionHandlers) {}
 
@@ -37,7 +38,14 @@ export class OfficeConnection {
   }
 
   private send(message: ClientToServer): void {
-    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    // Teto de 10 mensagens por segundo (o servidor corta em 20/s com 4008). Um watch descartado é refeito
+    // pelo caminho de "gap" depois de 3 s ou pelo welcome.
+    const now = Date.now();
+    this.sent = this.sent.filter((time) => now - time < 1_000);
+    if (this.sent.length >= 10) return;
+    this.sent.push(now);
+    this.socket.send(JSON.stringify(message));
   }
 
   private connect(): void {
@@ -51,7 +59,19 @@ export class OfficeConnection {
       this.handlers.onStatus("connected");
     };
     socket.onmessage = (event) => {
-      const message = parseJson(ServerToClient, String(event.data));
+      const text = String(event.data);
+      // Lê só o envelope do welcome antes do esquema completo: um servidor de versão nova pode não validar no esquema antigo.
+      try {
+        const envelope: unknown = JSON.parse(text);
+        if (typeof envelope === "object" && envelope !== null && "type" in envelope && envelope.type === "welcome" && "protocol" in envelope && envelope.protocol !== PROTOCOL_VERSION) {
+          this.stop();
+          this.handlers.onEnd("outdated");
+          return;
+        }
+      } catch {
+        // JSON inválido: o parseJson abaixo descarta.
+      }
+      const message = parseJson(ServerToClient, text);
       if (message) this.handlers.onMessage(message);
     };
     socket.onclose = (event) => {

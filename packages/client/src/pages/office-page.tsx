@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type AgentInfo, type Me } from "@workforces/protocol";
+import type { AgentInfo, Me } from "@workforces/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, api, errorText } from "../api";
 import { AgentList } from "../office/agent-list";
@@ -15,7 +15,6 @@ export function OfficePage() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [watching, setWatching] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [ended, setEnded] = useState(false);
   const [modal, setModal] = useState<"tokens" | "invite" | null>(null);
   const connection = useRef<OfficeConnection | null>(null);
   const terminal = useRef<TerminalHandle | null>(null);
@@ -34,18 +33,12 @@ export function OfficePage() {
     if (!me) return;
     const end = (text: string) => {
       endedRef.current = true;
-      setEnded(true);
       setNotice(text);
     };
     const conn = new OfficeConnection({
       onMessage: (message) => {
         switch (message.type) {
           case "welcome":
-            if (message.protocol !== PROTOCOL_VERSION) {
-              end("O escritório foi atualizado. Recarregue a página.");
-              conn.stop();
-              break;
-            }
             setAgents(message.agents);
             if (watchingRef.current) conn.watch(watchingRef.current);
             break;
@@ -80,6 +73,7 @@ export function OfficePage() {
       },
       onEnd: (reason) => {
         if (reason === "unauthorized") navigate("/login", { replace: true });
+        else if (reason === "outdated") end("O escritório foi atualizado. Recarregue a página.");
         else end("O escritório foi aberto em outra aba. Recarregue esta página para usá-lo aqui.");
       },
     });
