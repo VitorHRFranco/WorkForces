@@ -64,6 +64,7 @@ describe("findMaskRanges", () => {
       ["a.", "a.".repeat(75000)],
       ["eyJ", "eyJ".repeat(50000)],
       ["a×30 + :", ("a".repeat(30) + ":").repeat(5000)],
+      ["-eyJ", "-eyJ".repeat(20000)],
     ];
     for (const [name, input] of inputs) {
       const started = performance.now();
