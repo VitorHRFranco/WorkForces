@@ -112,7 +112,7 @@ describe("runInPty", () => {
     fake.type("sair\r");
     expect(await done).toBe(7);
     expect(fake.errors()).toBe("");
-    expect(fake.output()).not.toContain("escritorio:");
+    expect(fake.output()).not.toContain("workforces:");
   });
 
   it("redimensionar logo depois que o Claude sai não derruba o invólucro", async () => {

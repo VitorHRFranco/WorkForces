@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "escritorio": "./dist/cli.js"
+    "workforces": "./dist/cli.js"
   },
   "files": ["dist"],
   "scripts": {

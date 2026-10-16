@@ -137,7 +137,7 @@ export class AgentConnection implements AgentLink {
       if (this.closed) return;
       if (code === CLOSE_CODES.unauthorized) {
         this.closed = true;
-        this.options.handlers.onFatal("token revogado ou inválido: rode `escritorio login`");
+        this.options.handlers.onFatal("token revogado ou inválido: rode `workforces login`");
         return;
       }
       if (code === CLOSE_CODES.protocolMismatch) {

@@ -17,8 +17,8 @@ describe("loadConfig", () => {
   });
 
   it("aceita arquivo salvo com BOM", () => {
-    write("\uFEFF" + JSON.stringify({ server: "https://escritorio.exemplo", token: "wf_teste" }));
-    expect(loadConfig(dir)).toMatchObject({ server: "https://escritorio.exemplo", token: "wf_teste" });
+    write("\uFEFF" + JSON.stringify({ server: "https://workforces.exemplo", token: "wf_teste" }));
+    expect(loadConfig(dir)).toMatchObject({ server: "https://workforces.exemplo", token: "wf_teste" });
   });
 
   it("recusa JSON quebrado", () => {

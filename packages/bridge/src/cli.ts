@@ -5,7 +5,7 @@ import { main } from "./main.js";
 main({ argv: process.argv.slice(2), env: process.env, cwd: process.cwd(), io: process, platform: process.platform }).then(
   (code) => process.exit(code),
   (err: unknown) => {
-    process.stderr.write(`escritorio: erro inesperado: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+    process.stderr.write(`workforces: erro inesperado: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
     process.exit(1);
   },
 );

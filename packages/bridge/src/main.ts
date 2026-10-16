@@ -7,7 +7,7 @@ import { compileExtraPatterns } from "./masking/mask.js";
 import { BUILTIN_PATTERNS } from "./masking/patterns.js";
 import { AgentConnection, ServerUrlError, bridgeSocketUrl } from "./net/agent-connection.js";
 
-const USAGE = `uso: escritorio <comando>
+const USAGE = `uso: workforces <comando>
 
 comandos:
   claude [args…]   roda o Claude Code espelhando o terminal no escritório
@@ -28,7 +28,7 @@ export async function main(ctx: MainContext): Promise<number> {
     ctx.io.stdout.write(USAGE);
     return 0;
   }
-  ctx.io.stderr.write(`escritorio: comando desconhecido: ${command}\n${USAGE}`);
+  ctx.io.stderr.write(`workforces: comando desconhecido: ${command}\n${USAGE}`);
   return 2;
 }
 
@@ -40,13 +40,13 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
     config = loadConfig(dir);
   } catch (err) {
     if (!(err instanceof ConfigError)) throw err;
-    ctx.io.stderr.write(`escritorio: ${err.message}\n`);
+    ctx.io.stderr.write(`workforces: ${err.message}\n`);
     return 2;
   }
 
   const resolved = resolveClaude(args, { env: ctx.env, platform: ctx.platform });
   if (!resolved) {
-    ctx.io.stderr.write("escritorio: não encontrei o `claude` no PATH\n");
+    ctx.io.stderr.write("workforces: não encontrei o `claude` no PATH\n");
     return 127;
   }
   if (!shouldUsePty(ctx.io)) return runDirect(resolved, ctx.cwd, ctx.env);
@@ -66,7 +66,7 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
     warnings.push("sem login no escritório; rodando sem espelhar");
   }
   for (const warning of warnings) {
-    ctx.io.stderr.write(`escritorio: ${warning}\n`);
+    ctx.io.stderr.write(`workforces: ${warning}\n`);
     log(warning);
   }
 
@@ -98,7 +98,7 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
 
   const code = await runInPty({ command: resolved, cwd: ctx.cwd, env: ctx.env, io: ctx.io, agentId, patterns, connect, log });
   // No Windows o ConPTY limpa a tela ao iniciar e apaga os avisos: repete-os ao sair.
-  for (const warning of warnings) ctx.io.stderr.write(`escritorio: ${warning}\n`);
-  if (state.fatal) ctx.io.stderr.write(`escritorio: ${state.fatal}\n`);
+  for (const warning of warnings) ctx.io.stderr.write(`workforces: ${warning}\n`);
+  if (state.fatal) ctx.io.stderr.write(`workforces: ${state.fatal}\n`);
   return code;
 }

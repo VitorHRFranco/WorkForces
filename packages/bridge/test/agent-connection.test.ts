@@ -103,13 +103,13 @@ describe("AgentConnection", () => {
     });
     await sleep(1200);
     expect(reconnected).toBe(false);
-    expect(events.fatal[0]).toContain("escritorio login");
+    expect(events.fatal[0]).toContain("workforces login");
   });
 });
 
 describe("bridgeSocketUrl", () => {
   it("converte para ws/wss e fixa o caminho", () => {
-    expect(bridgeSocketUrl("https://escritorio.exemplo", false)).toBe("wss://escritorio.exemplo/ws/bridge");
+    expect(bridgeSocketUrl("https://workforces.exemplo", false)).toBe("wss://workforces.exemplo/ws/bridge");
     expect(bridgeSocketUrl("http://localhost:4599", false)).toBe("ws://localhost:4599/ws/bridge");
     expect(bridgeSocketUrl("http://10.0.0.5:8080", true)).toBe("ws://10.0.0.5:8080/ws/bridge");
   });
