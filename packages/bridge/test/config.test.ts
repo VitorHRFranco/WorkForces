@@ -1,8 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ConfigError, configDir, labelFor, loadConfig } from "../src/config.js";
+import { Config, ConfigError, configDir, labelFor, loadConfig, saveConfig } from "../src/config.js";
 
 let dir: string;
 const write = (content: string) => writeFileSync(join(dir, "config.json"), content);
@@ -51,5 +51,14 @@ describe("labelFor", () => {
 
   it("corta em 64 caracteres", () => {
     expect(labelFor(`/tmp/${"x".repeat(80)}`, [], "linux")).toHaveLength(64);
+  });
+});
+
+describe("saveConfig", () => {
+  it("falha ao gravar não deixa o temporário", () => {
+    mkdirSync(join(dir, "config.json"));
+    writeFileSync(join(dir, "config.json", "x"), "");
+    expect(() => saveConfig(dir, Config.parse({ token: "wf_" + "z".repeat(43) }))).toThrow();
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

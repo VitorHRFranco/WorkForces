@@ -30,10 +30,7 @@ export async function runLogin(args: string[], ctx: MainContext): Promise<number
   if (input.startsWith("wf_")) {
     return fail(ctx, "o token não vai na linha de comando: rode `workforces login <url>` e cole o token quando ele for pedido", 2);
   }
-  if (URL.canParse(input)) {
-    const parsed = new URL(input);
-    if (parsed.username || parsed.password) return fail(ctx, "tire o usuário e a senha da URL do servidor", 2);
-  }
+  if (input.includes("@")) return fail(ctx, "tire o usuário e a senha da URL do servidor", 2);
   try {
     bridgeSocketUrl(input, insecure);
   } catch (error) {
@@ -67,7 +64,8 @@ export async function runLogin(args: string[], ctx: MainContext): Promise<number
   if (response.status >= 300 && response.status < 400) {
     try {
       const origin = new URL(response.headers.get("location") ?? "", server).origin;
-      return fail(ctx, `o servidor redirecionou para ${origin}; rode o login com esse endereço`, 1);
+      if (origin !== server) return fail(ctx, `o servidor redirecionou para ${origin}; rode o login com esse endereço`, 1);
+      return fail(ctx, "o servidor respondeu com um redirecionamento", 1);
     } catch {
       return fail(ctx, "o servidor respondeu com um redirecionamento", 1);
     }
@@ -77,7 +75,11 @@ export async function runLogin(args: string[], ctx: MainContext): Promise<number
   const who = WhoAmIResponse.safeParse(await response.json().catch(() => null));
   if (!who.success) return fail(ctx, `a resposta de ${server} não parece de um escritório WorkForces`, 1);
 
-  saveConfig(loaded.dir, { ...loaded.config, server, token, insecure });
+  try {
+    saveConfig(loaded.dir, { ...loaded.config, server, token, insecure });
+  } catch (error) {
+    return fail(ctx, `não consegui gravar o config: ${(error as Error).message}`, 1);
+  }
   ctx.io.stdout.write(`conectado ao escritório como ${who.data.name}\n`);
   return 0;
 }
@@ -86,7 +88,11 @@ export function runLogout(ctx: MainContext): number {
   const loaded = load(ctx);
   if ("error" in loaded) return fail(ctx, loaded.error, 2);
   const { server: _server, token: _token, ...rest } = loaded.config;
-  saveConfig(loaded.dir, { ...rest, insecure: false });
+  try {
+    saveConfig(loaded.dir, { ...rest, insecure: false });
+  } catch (error) {
+    return fail(ctx, `não consegui gravar o config: ${(error as Error).message}`, 1);
+  }
   ctx.io.stdout.write("login esquecido nesta máquina\n");
   return 0;
 }

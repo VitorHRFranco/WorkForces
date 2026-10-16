@@ -21,8 +21,9 @@ export function readSecret(prompt: string, io: WrapperIO): Promise<string> {
     const onData = (chunk: string | Buffer) => {
       for (const char of String(chunk)) {
         if (char === "\r" || char === "\n") return finish();
+        if (char === "\u0003") return finish(new Error("cancelado"));
         if (escape === "start") {
-          escape = char === "[" ? "csi" : char === "O" ? "ss3" : "none";
+          escape = char === "[" ? "csi" : char === "O" ? "ss3" : char === "\u001b" ? "start" : "none";
           continue;
         }
         if (escape === "csi") {
@@ -37,7 +38,6 @@ export function readSecret(prompt: string, io: WrapperIO): Promise<string> {
           escape = "start";
           continue;
         }
-        if (char === "\u0003") return finish(new Error("cancelado"));
         if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
         else if (char >= " ") value += char;
       }

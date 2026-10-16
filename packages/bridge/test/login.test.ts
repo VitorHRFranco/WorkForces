@@ -134,6 +134,16 @@ describe("workforces login", () => {
     }
   });
 
+  it("Ctrl+C dentro de sequência de escape cancela e ESC ESC [ D não deixa resto", async () => {
+    const url = await whoamiServer();
+    const cancelled = await run(["login", url], home(), `${TOKEN.slice(0, 5)}\u001b[\u0003`);
+    expect(cancelled.code).toBe(1);
+    expect(cancelled.err).toContain("login cancelado");
+    const dir = home();
+    expect((await run(["login", url], dir, `${TOKEN.slice(0, 10)}\u001b\u001b[D${TOKEN.slice(10)}\n`)).code).toBe(0);
+    expect(readConfig(dir)).toMatchObject({ token: TOKEN });
+  });
+
   it("não aceita token nem senha na linha de comando", async () => {
     const dir = home();
     const token = await run(["login", TOKEN], dir);
@@ -142,6 +152,9 @@ describe("workforces login", () => {
     const password = await run(["login", "http://ana:segredo@127.0.0.1:4600"], dir);
     expect(password.code).toBe(2);
     expect(password.err).not.toContain("segredo");
+    const noScheme = await run(["login", "ana:segredo@127.0.0.1:4600"], dir);
+    expect(noScheme.code).toBe(2);
+    expect(noScheme.err).not.toContain("segredo");
   });
 
   it("não segue redirecionamento e diz para onde ele apontava", async () => {
