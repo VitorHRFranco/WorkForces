@@ -14,5 +14,3 @@ pnpm typecheck
 pnpm build
 pnpm test
 ```
-
-Checagem manual no Windows: [docs/manual-check-windows.md](docs/manual-check-windows.md).
