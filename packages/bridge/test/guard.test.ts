@@ -14,6 +14,7 @@ describe("withSessionGuard", () => {
       async () => {
         expect(process.listenerCount("uncaughtException")).toBe(before.exceptions + 1);
         expect(process.listenerCount("unhandledRejection")).toBe(before.rejections + 1);
+        expect(process.listeners("warning")).toHaveLength(1);
         process.emitWarning("aviso de teste");
         await new Promise((resolve) => setTimeout(resolve, 10));
         return 42;
@@ -21,6 +22,25 @@ describe("withSessionGuard", () => {
     );
     expect(result).toBe(42);
     expect(logs.join("\n")).toContain("aviso do Node: aviso de teste");
+    expect(process.listenerCount("uncaughtException")).toBe(before.exceptions);
+    expect(process.listenerCount("unhandledRejection")).toBe(before.rejections);
+    expect(process.listeners("warning")).toEqual(before.warnings);
+  });
+
+  it("restaura os ouvintes quando a sessão lança", async () => {
+    const before = {
+      exceptions: process.listenerCount("uncaughtException"),
+      rejections: process.listenerCount("unhandledRejection"),
+      warnings: process.listeners("warning"),
+    };
+    await expect(
+      withSessionGuard(
+        () => {},
+        async () => {
+          throw new Error("x");
+        },
+      ),
+    ).rejects.toThrow("x");
     expect(process.listenerCount("uncaughtException")).toBe(before.exceptions);
     expect(process.listenerCount("unhandledRejection")).toBe(before.rejections);
     expect(process.listeners("warning")).toEqual(before.warnings);

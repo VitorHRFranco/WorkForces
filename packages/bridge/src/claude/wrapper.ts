@@ -92,10 +92,14 @@ export function runInPty(options: PtyRunOptions): Promise<number> {
 
   return new Promise((resolve) => {
     child.onExit(({ exitCode }) => {
-      io.stdout.removeListener("resize", onResize);
-      io.stdin.removeListener("data", onInput);
-      if (io.stdin.isTTY) io.stdin.setRawMode?.(false);
-      io.stdin.pause();
+      try {
+        io.stdout.removeListener("resize", onResize);
+        io.stdin.removeListener("data", onInput);
+        if (io.stdin.isTTY) io.stdin.setRawMode?.(false);
+        io.stdin.pause();
+      } catch (error) {
+        options.log?.(`erro ao restaurar o terminal: ${errorMessage(error)}`);
+      }
       try {
         mirror.stop();
         link?.close();

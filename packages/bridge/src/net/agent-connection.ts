@@ -147,8 +147,8 @@ export class AgentConnection implements AgentLink {
     });
 
     socket.on("error", (err) => {
-      // Um proxy (ou servidor) que recusa o upgrade com 401/403 não manda o código 4001.
-      if (/Unexpected server response: (401|403)\b/.test(err.message)) this.rejected = true;
+      // Um proxy (ou servidor) que pede autenticação no upgrade (401) não manda o código 4001; um 403 de intermediário pode ser passageiro e segue o backoff.
+      if (/Unexpected server response: 401\b/.test(err.message)) this.rejected = true;
       this.options.log(`erro na conexão: ${err.message}`);
     });
 

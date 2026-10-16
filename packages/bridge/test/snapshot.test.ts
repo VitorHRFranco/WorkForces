@@ -141,3 +141,11 @@ describe("takeSnapshot", () => {
     expect(s.cursor.x).toBe(3);
   });
 });
+
+describe("createHeadless", () => {
+  it("não deixa o xterm escrever no console do usuário", () => {
+    const headless = createHeadless(10, 5);
+    expect(headless.term.options.logLevel).toBe("off");
+    headless.dispose();
+  });
+});

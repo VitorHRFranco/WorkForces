@@ -95,7 +95,7 @@ describe("main", () => {
     stderr.on("data", (chunk: Buffer) => (err += chunk.toString("utf8")));
     const env = { ...process.env, WORKFORCES_HOME: dir, WORKFORCES_CLAUDE_BIN: process.execPath };
     const done = main({ argv: ["claude", FAKE], env, cwd: process.cwd(), io: { stdin, stdout, stderr }, platform: process.platform });
-    await waitUntil(() => out.includes("OLÁ_DO_FALSO"), 15_000, "fake abriu");
+    await waitUntil(() => stripAnsi(out).includes("OLÁ_DO_FALSO"), 15_000, "fake abriu");
     stdin.write("sair\r");
     expect(await done).toBe(7);
     expect(err.match(/sem TLS/g)?.length).toBe(2);

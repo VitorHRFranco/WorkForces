@@ -143,6 +143,19 @@ describe("AgentConnection", () => {
     expect(delays(events.logs)).toEqual([]);
     http.close();
   });
+
+  it("HTTP 403 no upgrade não para a ponte", async () => {
+    const http = createHttpServer();
+    http.on("upgrade", (_request, socket) => socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"));
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    const port = (http.address() as AddressInfo).port;
+    const { connection, events } = makeConnection(`ws://127.0.0.1:${port}/ws/bridge`, { random: () => 0 });
+    connection.start();
+    await waitUntil(() => delays(events.logs).length >= 1, 5000, "nova tentativa");
+    expect(events.fatal).toEqual([]);
+    connection.close();
+    http.close();
+  });
 });
 
 describe("bridgeSocketUrl", () => {

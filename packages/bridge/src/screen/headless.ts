@@ -20,7 +20,7 @@ export interface Headless {
 }
 
 export function createHeadless(cols: number, rows: number): Headless {
-  const term = new HeadlessTerminal({ cols, rows, scrollback: SCROLLBACK_LINES, allowProposedApi: true });
+  const term = new HeadlessTerminal({ cols, rows, scrollback: SCROLLBACK_LINES, allowProposedApi: true, logLevel: "off" });
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = "11";
 
