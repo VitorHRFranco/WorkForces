@@ -45,9 +45,13 @@ export function takeSnapshot(term: Terminal, patterns: readonly MaskPattern[], c
   const lineAt: LineAt = (w) => buffer.getLine(first + w);
   const masked = Array.from({ length: total }, () => new Set<number>());
 
-  // 1. Padrões sobre linhas lógicas: linhas quebradas pelo terminal são unidas, e também
-  //    as que encostam na borda (a TUI quebra palavras longas sem marcar a linha como quebrada).
-  forEachPatternLine(lineAt, total, cols, (start, end) => maskLogicalLine(lineAt, start, end, cols, patterns, masked));
+  // 1. Padrões sobre linhas lógicas, em duas versões cujas máscaras se somam: só as linhas
+  //    quebradas pelo terminal, e também as que encostam na borda (a TUI quebra palavras longas
+  //    sem marcar a linha). A união pela borda tira o separador entre as linhas; a primeira
+  //    versão garante que ela nunca desfaz uma máscara.
+  const maskGroup = (start: number, end: number) => maskLogicalLine(lineAt, start, end, cols, patterns, masked);
+  forEachLogicalLine(lineAt, total, maskGroup);
+  forEachEdgeJoinedLine(lineAt, total, cols, maskGroup);
 
   // 2. Blocos de chave privada, detectados sobre as linhas lógicas.
   applyKeyMarkers(collectKeyMarkers(lineAt, total, cols), cols, masked);
@@ -83,7 +87,7 @@ function forEachLogicalLine(lineAt: LineAt, total: number, fn: (start: number, e
 }
 
 /** Como `forEachLogicalLine`, mas une também a linha seguinte quando a atual encosta na borda. */
-function forEachPatternLine(lineAt: LineAt, total: number, cols: number, fn: (start: number, end: number) => void): void {
+function forEachEdgeJoinedLine(lineAt: LineAt, total: number, cols: number, fn: (start: number, end: number) => void): void {
   let start = 0;
   while (start < total) {
     let end = start + 1;

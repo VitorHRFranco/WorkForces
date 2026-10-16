@@ -14,7 +14,7 @@ export const BUILTIN_PATTERNS: readonly MaskPattern[] = [
   { name: "google-api-key", regex: /\bAIza[0-9A-Za-z_-]{35}/dg },
   { name: "npm-token", regex: /\bnpm_[A-Za-z0-9]{36}/dg },
   { name: "workforces-token", regex: /\bwf_[A-Za-z0-9_-]{20,}/dg },
-  { name: "jwt", regex: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*)?/dg },
+  { name: "jwt", regex: /\beyJ[A-Za-z0-9_-]{8,256}\.eyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*)?/dg },
   { name: "bearer", regex: /\bBearer\s+([A-Za-z0-9._~+\/=-]{16,})/dgi, group: 1 },
   { name: "url-password", regex: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s:/@]+:([^\s@/]+)@/dgi, group: 1 },
   {

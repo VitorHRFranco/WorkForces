@@ -50,12 +50,26 @@ describe("BUILTIN_PATTERNS", () => {
 });
 
 describe("findMaskRanges", () => {
-  it("acha segredo na fronteira entre blocos de texto longo", () => {
-    const token = "ghp_" + "a".repeat(36);
-    const text = "x".repeat(4080) + " " + token + " " + "y".repeat(6000);
+  it("mascara um JWT longo inteiro num texto longo", () => {
+    const jwt = "eyJ" + "a".repeat(40) + ".eyJ" + "b".repeat(1400) + "." + "c".repeat(43);
+    const text = "x".repeat(7000) + " " + jwt + " fim";
     const masked = maskText(text);
-    expect(masked.slice(4081, 4121)).toBe(dots(40));
-    expect(masked.replace(/•/g, "")).toBe(text.replace(token, ""));
+    expect(masked.slice(7001, 7001 + jwt.length)).toBe(dots(jwt.length));
+    expect(masked.endsWith(" fim")).toBe(true);
+  });
+
+  it("padrões embutidos não travam em texto patológico", () => {
+    const inputs: [string, string][] = [
+      ["tokentoken", "tokentoken".repeat(15000)],
+      ["a.", "a.".repeat(75000)],
+      ["eyJ", "eyJ".repeat(50000)],
+      ["a×30 + :", ("a".repeat(30) + ":").repeat(5000)],
+    ];
+    for (const [name, input] of inputs) {
+      const started = performance.now();
+      findMaskRanges(input, BUILTIN_PATTERNS);
+      expect(performance.now() - started, name).toBeLessThan(3000);
+    }
   });
 });
 

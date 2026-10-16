@@ -8,32 +8,16 @@ export interface MaskPattern {
 
 export type Range = readonly [start: number, end: number];
 
-/** Textos maiores que isto são analisados em blocos, para limitar o custo de cada regex. */
-export const MAX_SCAN_CHARS = 4096;
-/** Sobreposição entre blocos consecutivos, para não perder segredo na fronteira. */
-export const SCAN_OVERLAP = 512;
-
 export function findMaskRanges(text: string, patterns: readonly MaskPattern[]): Range[] {
   const found: [number, number][] = [];
-  if (text.length <= MAX_SCAN_CHARS) {
-    scan(text, 0, patterns, found);
-  } else {
-    for (let start = 0; ; start += MAX_SCAN_CHARS - SCAN_OVERLAP) {
-      scan(text.slice(start, start + MAX_SCAN_CHARS), start, patterns, found);
-      if (start + MAX_SCAN_CHARS >= text.length) break;
-    }
-  }
-  return mergeRanges(found);
-}
-
-function scan(text: string, offset: number, patterns: readonly MaskPattern[], found: [number, number][]): void {
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern.regex)) {
       const span: readonly number[] | undefined =
         pattern.group === undefined ? [match.index, match.index + match[0].length] : match.indices?.[pattern.group];
-      if (span && span[1]! > span[0]!) found.push([offset + span[0]!, offset + span[1]!]);
+      if (span && span[1]! > span[0]!) found.push([span[0]!, span[1]!]);
     }
   }
+  return mergeRanges(found);
 }
 
 export function mergeRanges(ranges: [number, number][]): Range[] {

@@ -104,6 +104,15 @@ describe("takeSnapshot", () => {
     ]);
   });
 
+  it("unir pela borda não esconde token que começa na linha seguinte", async () => {
+    const anthropic = await snap(40, 3, at(0, 0) + "x".repeat(33) + " fim" + at(1, 0) + "sk-ant-" + "Q".repeat(25));
+    expect(anthropic.text[0]).toBe("x".repeat(33) + " fim");
+    expect(anthropic.text[1]).toBe(dots(32));
+    const github = await snap(40, 3, at(0, 0) + "x".repeat(33) + " fim" + at(1, 0) + "ghp_" + "a".repeat(36));
+    expect(github.text[0]).toBe("x".repeat(33) + " fim");
+    expect(github.text[1]).toBe(dots(40));
+  });
+
   it("não continua quando o segredo termina longe da borda", async () => {
     const s = await snap(60, 3, at(0, 0) + "DB_PASSWORD=hunter22" + at(1, 0) + "DB_HOST=localhost");
     expect(s.text[0]).toBe("DB_PASSWORD=" + dots(8));
