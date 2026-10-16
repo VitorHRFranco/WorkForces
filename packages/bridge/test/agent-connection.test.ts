@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -27,7 +28,7 @@ function nextConnection(wss: WebSocketServer) {
   });
 }
 
-function makeConnection(url: string, extra: { random?: () => number } = {}) {
+function makeConnection(url: string, extra: { random?: () => number; stableMs?: number } = {}) {
   const events = { open: 0, viewers: [] as number[], fatal: [] as string[], logs: [] as string[] };
   const agentId = randomUUID();
   const connection = new AgentConnection({
@@ -104,6 +105,43 @@ describe("AgentConnection", () => {
     await sleep(1200);
     expect(reconnected).toBe(false);
     expect(events.fatal[0]).toContain("workforces login");
+  });
+
+  const delays = (logs: string[]) =>
+    logs.map((line) => /nova tentativa em (\d+) ms/.exec(line)?.[1]).filter((value): value is string => value !== undefined).map(Number);
+
+  it("não volta ao início da espera se a conexão cai logo depois de abrir", async () => {
+    const { wss, url } = await startServer();
+    wss.on("connection", (socket) => socket.once("message", () => socket.close(1011)));
+    const { connection, events } = makeConnection(url, { random: () => 0 });
+    connection.start();
+    await waitUntil(() => delays(events.logs).length >= 2, 8000, "duas reconexões");
+    expect(delays(events.logs).slice(0, 2)).toEqual([800, 1600]);
+    connection.close();
+  });
+
+  it("volta ao início da espera depois de uma conexão estável", async () => {
+    const { wss, url } = await startServer();
+    wss.on("connection", (socket) => socket.once("message", () => setTimeout(() => socket.close(1011), 150)));
+    const { connection, events } = makeConnection(url, { random: () => 0, stableMs: 50 });
+    connection.start();
+    await waitUntil(() => delays(events.logs).length >= 2, 8000, "duas reconexões");
+    expect(delays(events.logs).slice(0, 2)).toEqual([800, 800]);
+    connection.close();
+  });
+
+  it("HTTP 401 no upgrade também é fatal", async () => {
+    const http = createHttpServer();
+    http.on("upgrade", (_request, socket) => socket.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n"));
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    const port = (http.address() as AddressInfo).port;
+    const { connection, events } = makeConnection(`ws://127.0.0.1:${port}/ws/bridge`, { random: () => 0 });
+    connection.start();
+    await waitUntil(() => events.fatal.length === 1, 5000, "onFatal");
+    expect(events.fatal[0]).toContain("workforces login");
+    await sleep(1200);
+    expect(delays(events.logs)).toEqual([]);
+    http.close();
   });
 });
 

@@ -82,4 +82,22 @@ describe("main", () => {
     expect(await done).toBe(7);
     expect(err.split("sem login no escritório").length - 1).toBe(2);
   });
+
+  it("avisa quando o login usa HTTP sem TLS (--insecure)", async () => {
+    const dir = home();
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ server: "http://127.0.0.2:9", token: "wf_" + "x".repeat(43), insecure: true }));
+    const stdin = Object.assign(new PassThrough(), { isTTY: true });
+    const stdout = Object.assign(new PassThrough(), { isTTY: true, columns: 100, rows: 30 });
+    const stderr = new PassThrough();
+    let out = "";
+    let err = "";
+    stdout.on("data", (chunk: Buffer) => (out += chunk.toString("utf8")));
+    stderr.on("data", (chunk: Buffer) => (err += chunk.toString("utf8")));
+    const env = { ...process.env, WORKFORCES_HOME: dir, WORKFORCES_CLAUDE_BIN: process.execPath };
+    const done = main({ argv: ["claude", FAKE], env, cwd: process.cwd(), io: { stdin, stdout, stderr }, platform: process.platform });
+    await waitUntil(() => out.includes("OLÁ_DO_FALSO"), 15_000, "fake abriu");
+    stdin.write("sair\r");
+    expect(await done).toBe(7);
+    expect(err.match(/sem TLS/g)?.length).toBe(2);
+  });
 });

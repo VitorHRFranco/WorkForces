@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { runLogin, runLogout } from "./commands/login.js";
 import { resolveClaude } from "./claude/resolve.js";
+import { withSessionGuard } from "./guard.js";
 import { runDirect, runInPty, shouldUsePty, type Connector, type WrapperIO } from "./claude/wrapper.js";
 import { ConfigError, configDir, labelFor, loadConfig, type Config } from "./config.js";
 import { fileLogger } from "./log.js";
@@ -63,6 +64,9 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
   if (config.server && config.token) {
     try {
       socketUrl = bridgeSocketUrl(config.server, config.insecure);
+      if (config.insecure && new URL(config.server).protocol === "http:") {
+        warnings.push("conexão sem TLS (--insecure): o terminal espelhado trafega sem criptografia");
+      }
     } catch (err) {
       if (!(err instanceof ServerUrlError)) throw err;
       warnings.push(`${err.message}; rodando sem espelhar`);
@@ -101,7 +105,9 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
         }
       : null;
 
-  const code = await runInPty({ command: resolved, cwd: ctx.cwd, env: ctx.env, io: ctx.io, agentId, patterns, connect, log });
+  const code = await withSessionGuard(log, () =>
+    runInPty({ command: resolved, cwd: ctx.cwd, env: ctx.env, io: ctx.io, agentId, patterns, connect, log }),
+  );
   // No Windows o ConPTY limpa a tela ao iniciar e apaga os avisos: repete-os ao sair.
   for (const warning of warnings) ctx.io.stderr.write(`workforces: ${warning}\n`);
   if (state.fatal) ctx.io.stderr.write(`workforces: ${state.fatal}\n`);
