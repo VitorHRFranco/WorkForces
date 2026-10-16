@@ -53,10 +53,15 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   const clients = new Map<number, ClientConnection>();
 
   app.server.on("upgrade", (request: IncomingMessage, socket, head) => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname;
-    if (path === "/ws/bridge") bridgeServer.handleUpgrade(request, socket, head, (ws) => onBridge(ws, request));
-    else if (path === "/ws/client") clientServer.handleUpgrade(request, socket, head, (ws) => onClient(ws, request));
-    else socket.destroy();
+    try {
+      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      if (path === "/ws/bridge") bridgeServer.handleUpgrade(request, socket, head, (ws) => onBridge(ws, request));
+      else if (path === "/ws/client") clientServer.handleUpgrade(request, socket, head, (ws) => onClient(ws, request));
+      else socket.destroy();
+    } catch {
+      // Alvo malformado que o parser HTTP aceita: sem isto, o processo cairia.
+      socket.destroy();
+    }
   });
 
   function onBridge(ws: WebSocket, request: IncomingMessage): void {
@@ -81,6 +86,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     }, helloTimeoutMs);
 
     ws.on("message", (data, isBinary) => {
+      if (ws.readyState !== ws.OPEN) return;
       if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       const message = isBinary ? null : parseJson(AgentToServer, data.toString());
       if (!message) return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
@@ -128,6 +134,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
 
     ws.on("message", (data, isBinary) => {
+      if (ws.readyState !== ws.OPEN) return;
       if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       const message = isBinary ? null : parseJson(ClientToServer, data.toString());
       if (!message) return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
@@ -143,7 +150,10 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
 
   const sweep = setInterval(() => {
     for (const bridge of bridges) {
-      if (!accounts.tokens.isValid(bridge.tokenId)) bridge.ws.close(CLOSE_CODES.unauthorized, "token revogado");
+      if (!accounts.tokens.isValid(bridge.tokenId)) {
+        hub.closeBridgesForToken(bridge.tokenId);
+        bridge.ws.close(CLOSE_CODES.unauthorized, "token revogado");
+      }
     }
     for (const client of clients.values()) {
       if (!accounts.sessions.lookup(client.sessionId)) client.ws.close(CLOSE_CODES.unauthorized, "sessão encerrada");

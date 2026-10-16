@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { disableUser } from "../src/accounts/index.js";
 import { bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message } from "./helpers/live.js";
@@ -53,6 +54,22 @@ describe("conexão da ponte", () => {
     expect(await garbage.closed).toBe(4000);
     const silent = bridgeSocket(server, token.token);
     expect(await silent.closed).toBe(4000);
+  });
+
+  it("pedido de upgrade malformado não derruba o servidor", async () => {
+    const server = await live();
+    const port = Number(new URL(server.wsBase).port);
+    const raw = connect(port, "127.0.0.1");
+    raw.on("error", () => {});
+    const ended = new Promise<void>((resolve) => {
+      raw.on("close", () => resolve());
+      setTimeout(resolve, 500);
+    });
+    raw.write("GET //[ HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n");
+    await ended;
+    raw.destroy();
+    expect((await server.app.inject({ method: "GET", url: "/api/health" })).statusCode).toBe(200);
+    expect(await bridgeSocket(server, "wf_errado").closed).toBe(4001);
   });
 
   it("recusa agentId de outra pessoa", async () => {
@@ -136,9 +153,12 @@ describe("repasse de quadros", () => {
   it("revogar o token pela API derruba a ponte com 4001", async () => {
     const server = await live();
     const ana = await person(server, "ana");
+    const agentId = randomUUID();
     const bridge = bridgeSocket(server, ana.token.token);
     await bridge.opened();
-    bridge.send(hello(randomUUID()));
+    bridge.send(hello(agentId));
+    const viewer = clientSocket(server, ana.session);
+    await viewer.waitFor(knowsAgent(agentId), "agente da ana");
     const response = await server.app.inject({
       method: "DELETE",
       url: `/api/tokens/${ana.token.id}`,
@@ -146,6 +166,17 @@ describe("repasse de quadros", () => {
       payload: {},
     });
     expect(response.statusCode).toBe(204);
+    expect(await bridge.closed).toBe(4001);
+    await viewer.waitFor((m) => m.type === "agentUpdated" && (m.agent as Message).connected === false, "agente desconectado");
+  });
+
+  it("token revogado antes do hello não registra o agente", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    server.accounts.tokens.revoke(ana.user.id, ana.token.id);
+    bridge.send(hello(randomUUID()));
     expect(await bridge.closed).toBe(4001);
   });
 
