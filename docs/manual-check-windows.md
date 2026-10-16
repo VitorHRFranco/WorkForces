@@ -4,15 +4,21 @@ Use um projeto de brinquedo, nunca um projeto da empresa.
 
 ## Preparação
 
-Troque `<pasta do repositório>` pelo caminho do seu clone.
+No PowerShell, dentro da pasta do repositório (a que tem este `docs/`):
 
 ```powershell
-cd <pasta do repositório>
 pnpm install
 pnpm build
-# atalho para esta sessão do PowerShell
-function escritorio { node <pasta do repositório>\packages\bridge\dist\cli.js @args }
 ```
+
+O comando `escritorio` ainda não é instalado no sistema. Para criar um atalho, rode isto **em cada janela do PowerShell** que for usar, ainda dentro da pasta do repositório:
+
+```powershell
+$repo = $PWD.Path
+function escritorio { node "$repo\packages\bridge\dist\cli.js" @args }
+```
+
+Depois disso, pode entrar (`cd`) na pasta do projeto de brinquedo: o atalho continua valendo naquela janela.
 
 ## 1. Sem login (só o caminho rápido)
 
@@ -25,8 +31,8 @@ Num projeto de brinquedo, no Windows Terminal e depois no terminal integrado do 
 
 ## 2. Com o visualizador de desenvolvimento
 
-1. Terminal A (maior que o B): `node packages/bridge/scripts/dev-viewer.mjs`
-2. Terminal B:
+1. Terminal A (maior que o B), na pasta do repositório: `node packages/bridge/scripts/dev-viewer.mjs`
+2. Terminal B: uma janela nova do PowerShell. Crie o atalho como na Preparação, entre no projeto de brinquedo e rode:
 
    ```powershell
    $env:WORKFORCES_HOME = "$env:TEMP\wf-dev"
