@@ -1,7 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 
-export function navigate(path: string): void {
-  if (location.pathname !== path) history.pushState(null, "", path);
+export function navigate(path: string, options: { replace?: boolean } = {}): void {
+  if (location.pathname !== path) {
+    if (options.replace) history.replaceState(null, "", path);
+    else history.pushState(null, "", path);
+  }
   dispatchEvent(new PopStateEvent("popstate"));
 }
 

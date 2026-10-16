@@ -1,10 +1,11 @@
 import { MIN_PASSWORD_LENGTH } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
-import { api, errorText } from "../api";
+import { ApiError, api, errorText } from "../api";
 import { navigate } from "../router";
 
 export function InvitePage({ code }: { code: string }) {
   const [valid, setValid] = useState<boolean | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -14,7 +15,10 @@ export function InvitePage({ code }: { code: string }) {
   useEffect(() => {
     api.inviteStatus(code).then(
       (status) => setValid(status.valid),
-      () => setValid(false),
+      (failure: unknown) => {
+        if (failure instanceof ApiError && failure.status < 500) setValid(false);
+        else setUnreachable(true);
+      },
     );
   }, [code]);
 
@@ -26,7 +30,7 @@ export function InvitePage({ code }: { code: string }) {
     setError(null);
     try {
       await api.acceptInvite(code, name, password);
-      navigate("/");
+      navigate("/", { replace: true });
     } catch (failure) {
       setError(errorText(failure));
     } finally {
@@ -39,10 +43,19 @@ export function InvitePage({ code }: { code: string }) {
     navigate("/login");
   };
 
+  if (unreachable) {
+    return (
+      <main class="card">
+        <p class="error" role="alert">
+          Não consegui conferir o convite. Tente de novo em instantes.
+        </p>
+      </main>
+    );
+  }
   if (valid === null) {
     return (
       <main class="card">
-        <p>Conferindo o convite…</p>
+        <p role="status">Conferindo o convite…</p>
       </main>
     );
   }
@@ -50,7 +63,7 @@ export function InvitePage({ code }: { code: string }) {
     return (
       <main class="card">
         <h1>WorkForces</h1>
-        <p class="error">Este convite é inválido ou já foi usado. Peça um novo a quem administra o escritório.</p>
+        <p class="error" role="alert">Este convite é inválido ou já foi usado. Peça um novo a quem administra o escritório.</p>
         <a href="/login" onClick={toLogin}>
           Ir para o login
         </a>
@@ -63,17 +76,17 @@ export function InvitePage({ code }: { code: string }) {
       <form onSubmit={submit}>
         <label>
           Nome (2 a 32 letras, números, ponto, _ ou -)
-          <input value={name} onInput={(e) => setName(e.currentTarget.value)} autocomplete="username" required />
+          <input value={name} onInput={(e) => setName(e.currentTarget.value)} autocomplete="username" autocapitalize="none" spellcheck={false} maxLength={32} required />
         </label>
         <label>
           Senha (pelo menos {MIN_PASSWORD_LENGTH} caracteres)
-          <input type="password" value={password} onInput={(e) => setPassword(e.currentTarget.value)} autocomplete="new-password" required />
+          <input type="password" value={password} onInput={(e) => setPassword(e.currentTarget.value)} autocomplete="new-password" minLength={MIN_PASSWORD_LENGTH} maxLength={200} required />
         </label>
         <label>
           Repita a senha
-          <input type="password" value={confirm} onInput={(e) => setConfirm(e.currentTarget.value)} autocomplete="new-password" required />
+          <input type="password" value={confirm} onInput={(e) => setConfirm(e.currentTarget.value)} autocomplete="new-password" minLength={MIN_PASSWORD_LENGTH} maxLength={200} required />
         </label>
-        {error && <p class="error">{error}</p>}
+        {error && <p class="error" role="alert">{error}</p>}
         <button type="submit" disabled={busy}>
           Criar conta e entrar
         </button>

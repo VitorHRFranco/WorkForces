@@ -2,20 +2,21 @@ import { useRef, useState } from "preact/hooks";
 
 export function CopyField({ value }: { value: string }) {
   const input = useRef<HTMLInputElement>(null);
-  const [copied, setCopied] = useState(false);
+  const [label, setLabel] = useState("Copiar");
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
+      setLabel("Copiado");
     } catch {
-      input.current?.select(); // sem área de transferência (ex.: http fora de localhost): seleciona para Ctrl+C
+      input.current?.select();
+      setLabel("Selecionado: aperte Ctrl+C"); // sem área de transferência (ex.: http fora de localhost): seleciona para Ctrl+C
     }
   };
   return (
     <div class="copy">
       <input ref={input} readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
       <button type="button" onClick={copy}>
-        {copied ? "Copiado" : "Copiar"}
+        {label}
       </button>
     </div>
   );

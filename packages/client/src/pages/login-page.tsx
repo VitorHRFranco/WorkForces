@@ -14,7 +14,7 @@ export function LoginPage() {
     setError(null);
     try {
       await api.login(name, password);
-      navigate("/");
+      navigate("/", { replace: true });
     } catch (failure) {
       setError(errorText(failure));
     } finally {
@@ -28,13 +28,13 @@ export function LoginPage() {
       <form onSubmit={submit}>
         <label>
           Nome
-          <input value={name} onInput={(e) => setName(e.currentTarget.value)} autocomplete="username" required />
+          <input value={name} onInput={(e) => setName(e.currentTarget.value)} autocomplete="username" autocapitalize="none" spellcheck={false} required />
         </label>
         <label>
           Senha
           <input type="password" value={password} onInput={(e) => setPassword(e.currentTarget.value)} autocomplete="current-password" required />
         </label>
-        {error && <p class="error">{error}</p>}
+        {error && <p class="error" role="alert">{error}</p>}
         <button type="submit" disabled={busy}>
           Entrar
         </button>

@@ -12,6 +12,7 @@ export class OfficeConnection {
   private socket: WebSocket | null = null;
   private attempt = 0;
   private timer: number | undefined;
+  private stableTimer: number | undefined;
   private stopped = false;
 
   constructor(private readonly handlers: OfficeConnectionHandlers) {}
@@ -23,6 +24,7 @@ export class OfficeConnection {
   stop(): void {
     this.stopped = true;
     window.clearTimeout(this.timer);
+    window.clearTimeout(this.stableTimer);
     this.socket?.close(1000);
   }
 
@@ -44,7 +46,8 @@ export class OfficeConnection {
     this.socket = socket;
     this.handlers.onStatus(this.attempt === 0 ? "connecting" : "reconnecting");
     socket.onopen = () => {
-      this.attempt = 0;
+      // A espera só volta ao início depois de uma conexão estável.
+      this.stableTimer = window.setTimeout(() => (this.attempt = 0), 10_000);
       this.handlers.onStatus("connected");
     };
     socket.onmessage = (event) => {
@@ -52,11 +55,13 @@ export class OfficeConnection {
       if (message) this.handlers.onMessage(message);
     };
     socket.onclose = (event) => {
+      window.clearTimeout(this.stableTimer);
       if (this.stopped) return;
       if (event.code === CLOSE_CODES.unauthorized) return this.handlers.onEnd("unauthorized");
       if (event.code === CLOSE_CODES.replacedByNewTab) return this.handlers.onEnd("replaced");
       this.handlers.onStatus("reconnecting");
-      const delay = Math.min(30_000, 1_000 * 2 ** this.attempt++);
+      const base = Math.min(30_000, 1_000 * 2 ** this.attempt++);
+      const delay = base / 2 + Math.random() * (base / 2);
       this.timer = window.setTimeout(() => this.connect(), delay);
     };
   }

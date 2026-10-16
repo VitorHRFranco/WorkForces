@@ -31,7 +31,7 @@ export function InviteModal({ onClose }: { onClose: () => void }) {
           Gerar link de convite
         </button>
       )}
-      {error && <p class="error">{error}</p>}
+      {error && <p class="error" role="alert">{error}</p>}
     </Modal>
   );
 }

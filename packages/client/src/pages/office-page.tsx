@@ -1,6 +1,6 @@
-import type { AgentInfo, Me } from "@workforces/protocol";
+import { PROTOCOL_VERSION, type AgentInfo, type Me } from "@workforces/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api } from "../api";
+import { ApiError, api, errorText } from "../api";
 import { AgentList } from "../office/agent-list";
 import { OfficeConnection } from "../office/connection";
 import { InviteModal } from "../office/invite-modal";
@@ -10,24 +10,42 @@ import { TerminalPanel, type TerminalHandle } from "../terminal/terminal-panel";
 
 export function OfficePage() {
   const [me, setMe] = useState<Me | null>(null);
+  const [meFailed, setMeFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [watching, setWatching] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
   const [modal, setModal] = useState<"tokens" | "invite" | null>(null);
   const connection = useRef<OfficeConnection | null>(null);
   const terminal = useRef<TerminalHandle | null>(null);
   const watchingRef = useRef<string | null>(null);
+  const endedRef = useRef(false);
 
   useEffect(() => {
-    api.me().then(setMe, () => navigate("/login"));
-  }, []);
+    setMeFailed(false);
+    api.me().then(setMe, (failure: unknown) => {
+      if (failure instanceof ApiError && failure.status === 401) navigate("/login", { replace: true });
+      else setMeFailed(true);
+    });
+  }, [attempt]);
 
   useEffect(() => {
     if (!me) return;
+    const end = (text: string) => {
+      endedRef.current = true;
+      setEnded(true);
+      setNotice(text);
+    };
     const conn = new OfficeConnection({
       onMessage: (message) => {
         switch (message.type) {
           case "welcome":
+            if (message.protocol !== PROTOCOL_VERSION) {
+              end("O escritório foi atualizado. Recarregue a página.");
+              conn.stop();
+              break;
+            }
             setAgents(message.agents);
             if (watchingRef.current) conn.watch(watchingRef.current);
             break;
@@ -48,16 +66,21 @@ export function OfficePage() {
             }
             break;
           case "frame":
-            // Quadro perdido: pede a tela inteira de novo. Antes de o painel montar, os quadros são
-            // descartados; o painel pede a tela ao montar (onReady).
-            if (message.agentId === watchingRef.current && terminal.current?.apply(message) === "gap") conn.watch(message.agentId);
+            // Só "gap" pede a tela de novo (o apply já espaça os pedidos). Antes de o painel montar, os
+            // quadros são descartados; o painel pede a tela ao montar (onReady).
+            if (message.agentId === watchingRef.current && terminal.current?.agentId === message.agentId && terminal.current.apply(message) === "gap") {
+              conn.watch(message.agentId);
+            }
             break;
         }
       },
-      onStatus: (status) => setNotice(status === "reconnecting" ? "Reconectando ao escritório…" : null),
+      onStatus: (status) => {
+        if (endedRef.current) return;
+        setNotice(status === "reconnecting" ? "Reconectando ao escritório…" : null);
+      },
       onEnd: (reason) => {
-        if (reason === "unauthorized") navigate("/login");
-        else setNotice("O escritório foi aberto em outra aba. Recarregue esta página para usá-lo aqui.");
+        if (reason === "unauthorized") navigate("/login", { replace: true });
+        else end("O escritório foi aberto em outra aba. Recarregue esta página para usá-lo aqui.");
       },
     });
     connection.current = conn;
@@ -68,11 +91,12 @@ export function OfficePage() {
     };
   }, [me]);
 
+  // Só guarda o agente escolhido: quem pede a tela é o onReady do painel, que monta de novo a cada agente.
   const watch = (agentId: string) => {
+    if (endedRef.current) return;
     watchingRef.current = agentId;
     setWatching(agentId);
     setNotice(null);
-    connection.current?.watch(agentId);
   };
 
   const stopWatching = () => {
@@ -82,11 +106,35 @@ export function OfficePage() {
   };
 
   const logout = async () => {
-    await api.logout().catch(() => undefined);
-    navigate("/login");
+    try {
+      await api.logout();
+    } catch (failure) {
+      // A sessão continua válida no servidor: não navega.
+      setNotice(errorText(failure));
+      return;
+    }
+    navigate("/login", { replace: true });
   };
 
-  if (!me) return <p class="loading">Carregando…</p>;
+  if (meFailed) {
+    return (
+      <div class="card">
+        <p class="error" role="alert">
+          Não consegui falar com o escritório.
+        </p>
+        <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+  if (!me) {
+    return (
+      <p class="loading" role="status">
+        Carregando…
+      </p>
+    );
+  }
   const watched = agents.find((agent) => agent.id === watching) ?? null;
 
   return (
@@ -107,7 +155,11 @@ export function OfficePage() {
           Sair
         </button>
       </header>
-      {notice && <p class="notice">{notice}</p>}
+      {notice && (
+        <p class="notice" role="status">
+          {notice}
+        </p>
+      )}
       <main class="content">
         <aside class="sidebar">
           <h2>Agentes</h2>

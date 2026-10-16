@@ -5,7 +5,8 @@ import { useEffect, useRef } from "preact/hooks";
 import { applyFrame, type FrameState } from "./apply-frame";
 
 export interface TerminalHandle {
-  apply(frame: FrameBody): "ok" | "gap";
+  readonly agentId: string;
+  apply(frame: FrameBody): "ok" | "gap" | "waiting";
 }
 
 const CHAR_WIDTH_RATIO = 0.6;
@@ -40,8 +41,9 @@ export function TerminalPanel({
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.open(element);
-    const state: FrameState = { lastSeq: null };
+    const state: FrameState = { lastSeq: null, resyncRequestedAt: Date.now() };
     handle.current = {
+      agentId: agent.id,
       apply: (frame) => {
         if (frame.key) term.options.fontSize = fontSizeFor(element.clientWidth, frame.cols);
         return applyFrame(term, frame, state);
@@ -65,7 +67,7 @@ export function TerminalPanel({
           Fechar
         </button>
       </header>
-      <div class="terminal" ref={container} />
+      <div class="terminal-host" ref={container} />
     </section>
   );
 }
