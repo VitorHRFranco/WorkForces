@@ -46,7 +46,7 @@ Num projeto de brinquedo, no Windows Terminal e depois no terminal integrado do 
 5. Com a janela B estreita (~40 colunas), peça ao Claude para repetir um token falso longo (ex.: `ghp_` + 36 letras `a`) numa frase. No terminal A, o token aparece mascarado mesmo quebrado em duas linhas.
 6. Redimensione o terminal B: o A se redesenha inteiro com o novo tamanho.
 7. Feche o terminal A no meio da sessão: o Claude no B continua igual, sem nenhuma mensagem. Abra o A de novo: em até ~30 s a ponte reconecta e a tela volta.
-8. Saia do Claude e confira `$env:WORKFORCES_HOME\bridge.log`: há as linhas de reconexão e nenhum conteúdo da tela.
+8. Saia do Claude e, no terminal B, rode `Get-Content "$env:WORKFORCES_HOME\bridge.log"`: há as linhas de reconexão e nenhum conteúdo da tela.
 
 ## 3. Teclado e colagem (sem login basta)
 
