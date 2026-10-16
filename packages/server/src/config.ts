@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface ServerConfig {
@@ -42,7 +42,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
     publicUrl,
     dataDir: env.WF_DATA_DIR ?? join(homedir(), ".workforces-server"),
     // src/ e dist/ ficam no mesmo nível: ../../client/dist aponta para packages/client/dist nos dois.
-    clientDir: env.WF_CLIENT_DIR ?? fileURLToPath(new URL("../../client/dist", import.meta.url)),
+    clientDir: env.WF_CLIENT_DIR ? resolve(env.WF_CLIENT_DIR) : fileURLToPath(new URL("../../client/dist", import.meta.url)),
     insecure,
     trustProxy: isOn(env.WF_TRUST_PROXY),
   };

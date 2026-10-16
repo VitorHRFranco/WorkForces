@@ -23,7 +23,7 @@ export async function runServerCli(args: string[], env: NodeJS.ProcessEnv, out: 
   const isStart = command === "start" && rest.length === 0;
   const isDisable = command === "user" && rest[0] === "disable" && rest.length === 2;
   if (!isStart && !isDisable) {
-    if (command) {
+    if (command && command !== "help" && command !== "--help" && command !== "-h") {
       out.error(USAGE);
       return 2;
     }
@@ -41,8 +41,15 @@ export async function runServerCli(args: string[], env: NodeJS.ProcessEnv, out: 
   }
 
   if (isStart) {
-    const server = await startServer(config, { log: (message) => out.log(`[workforces] ${message}`) });
-    const stop = () => void server.app.close().then(() => process.exit(0));
+    let server: Awaited<ReturnType<typeof startServer>>;
+    try {
+      server = await startServer(config, { log: (message) => out.log(`[workforces] ${message}`) });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      out.error(`workforces-server: a porta ${config.port} já está em uso (WF_PORT)`);
+      return 1;
+    }
+    const stop = () => void server.app.close().then(() => process.exit(0), () => process.exit(1));
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
     return null;

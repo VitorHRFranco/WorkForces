@@ -1,3 +1,4 @@
+import { isAbsolute, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ServerConfigError, loadServerConfig } from "../src/config.js";
 
@@ -22,7 +23,10 @@ describe("loadServerConfig", () => {
       WF_CLIENT_DIR: "/cliente",
       WF_TRUST_PROXY: "1",
     });
-    expect(config).toMatchObject({ port: 8080, host: "0.0.0.0", dataDir: "/dados", clientDir: "/cliente", trustProxy: true });
+    expect(config).toMatchObject({ port: 8080, host: "0.0.0.0", dataDir: "/dados", clientDir: resolve("/cliente"), trustProxy: true });
+    const relative = loadServerConfig({ WF_CLIENT_DIR: "cliente/dist" }).clientDir;
+    expect(relative).toBe(resolve("cliente/dist"));
+    expect(isAbsolute(relative)).toBe(true);
     expect(config.publicUrl.origin).toBe("https://workforces.exemplo");
   });
 

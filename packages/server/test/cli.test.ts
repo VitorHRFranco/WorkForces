@@ -1,4 +1,6 @@
 import { mkdtempSync } from "node:fs";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +44,20 @@ describe("workforces-server user disable", () => {
     check.close();
   });
 
+  it("porta ocupada devolve 1 com mensagem amigável", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (blocker.address() as AddressInfo).port;
+      const { lines, out } = output();
+      const env = { WF_PORT: String(port), WF_HOST: "127.0.0.1", WF_DATA_DIR: mkdtempSync(join(tmpdir(), "wf-data-")) };
+      expect(await runServerCli(["start"], env, out)).toBe(1);
+      expect(lines.join("\n")).toContain("já está em uso");
+    } finally {
+      await new Promise((resolve) => blocker.close(resolve));
+    }
+  });
+
   it("banco ausente, uso errado e configuração insegura", async () => {
     const empty = mkdtempSync(join(tmpdir(), "wf-data-"));
     const a = output();
@@ -50,6 +66,10 @@ describe("workforces-server user disable", () => {
     const b = output();
     expect(await runServerCli(["voar"], {}, b.out)).toBe(2);
     expect(b.lines.join("\n")).toContain("uso: workforces-server");
+    const h = output();
+    expect(await runServerCli(["--help"], {}, h.out)).toBe(0);
+    expect(h.lines.join("\n")).toContain("uso: workforces-server");
+    expect(h.lines.join("\n")).not.toContain("ERRO");
     const c = output();
     expect(await runServerCli(["start"], { WF_PUBLIC_URL: "http://10.0.0.5" }, c.out)).toBe(2);
     expect(c.lines.join("\n")).toContain("HTTP sem TLS");

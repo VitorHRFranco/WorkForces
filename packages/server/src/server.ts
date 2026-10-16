@@ -53,7 +53,12 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
 /** Sobe o servidor; sem nenhuma conta, imprime um convite de admin (única vez em que um código vai para o log). */
 export async function startServer(config: ServerConfig, options: CreateServerOptions = {}): Promise<WorkforcesServer> {
   const server = createServer(config, options);
-  await server.app.listen({ port: config.port, host: config.host });
+  try {
+    await server.app.listen({ port: config.port, host: config.host });
+  } catch (error) {
+    await server.app.close().catch(() => {});
+    throw error;
+  }
   const { log } = server.ctx;
   log(`escritório no ar em ${config.publicUrl.origin} (escutando em ${config.host}:${config.port})`);
   if (config.insecure) log("WF_INSECURE ligado: o tráfego pode não ter TLS");

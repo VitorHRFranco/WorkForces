@@ -33,10 +33,12 @@ Configuração por variáveis de ambiente:
 | `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço que o navegador usa (links de convite e origem aceita) |
 | `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
 | `WF_CLIENT_DIR` | `packages/client/dist` | build do cliente web |
-| `WF_INSECURE` | desligado | permite `WF_PUBLIC_URL` com HTTP fora de localhost |
-| `WF_TRUST_PROXY` | desligado | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
+| `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost |
+| `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
 
 Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`.
+
+Rode com as mesmas variáveis `WF_*` do servidor: o comando abre o banco em `WF_DATA_DIR` e valida `WF_PUBLIC_URL`.
 
 ### Conectar a ponte
 
