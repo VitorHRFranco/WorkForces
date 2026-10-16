@@ -6,6 +6,8 @@ export function readSecret(prompt: string, io: WrapperIO): Promise<string> {
   return new Promise((resolve, reject) => {
     const tty = Boolean(io.stdin.isTTY);
     let value = "";
+    // Sequências de escape (setas, Home/End, colagem com bracketed paste) não fazem parte do segredo.
+    let escape: "none" | "start" | "csi" | "ss3" = "none";
     const finish = (error?: Error) => {
       io.stdin.removeListener("data", onData);
       io.stdin.removeListener("end", onEnd);
@@ -19,6 +21,22 @@ export function readSecret(prompt: string, io: WrapperIO): Promise<string> {
     const onData = (chunk: string | Buffer) => {
       for (const char of String(chunk)) {
         if (char === "\r" || char === "\n") return finish();
+        if (escape === "start") {
+          escape = char === "[" ? "csi" : char === "O" ? "ss3" : "none";
+          continue;
+        }
+        if (escape === "csi") {
+          if (char >= "@" && char <= "~") escape = "none";
+          continue;
+        }
+        if (escape === "ss3") {
+          escape = "none";
+          continue;
+        }
+        if (char === "\u001b") {
+          escape = "start";
+          continue;
+        }
         if (char === "\u0003") return finish(new Error("cancelado"));
         if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
         else if (char >= " ") value += char;

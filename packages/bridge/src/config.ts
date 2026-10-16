@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { LIMITS } from "@workforces/protocol";
@@ -61,6 +61,10 @@ export function labelFor(cwd: string, folders: Config["folders"], platform: Node
 }
 
 export function saveConfig(dir: string, config: Config): void {
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = join(dir, "config.json");
+  const temp = `${file}.${process.pid}.tmp`;
+  // O arquivo guarda o token da ponte: só o dono lê (no Windows o modo é ignorado).
+  writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temp, file);
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -13,8 +13,16 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close();
 });
 
-async function whoamiServer(host = "127.0.0.1"): Promise<string> {
+async function whoamiServer(host = "127.0.0.1", mode: "ok" | "html" | "redirect" = "ok"): Promise<string> {
   const server = createServer((request, response) => {
+    if (mode === "html" && request.url === "/api/bridge/whoami") {
+      response.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><p>login</p>");
+      return;
+    }
+    if (mode === "redirect") {
+      response.writeHead(302, { location: "http://127.0.0.1:9/qualquer" }).end();
+      return;
+    }
     if (request.url === "/api/bridge/whoami" && request.headers.authorization === `Bearer ${TOKEN}`) {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ name: "ana" }));
       return;
@@ -85,9 +93,64 @@ describe("workforces login", () => {
     const notToken = await run(["login", "http://127.0.0.1:1"], dir, "abc\n");
     expect(notToken.code).toBe(2);
     expect(notToken.err).toContain("não parece um token");
-    const offline = await run(["login", "http://127.0.0.1:1"], dir, `${TOKEN}\n`);
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const free = `http://127.0.0.1:${(probe.address() as AddressInfo).port}`;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    const offline = await run(["login", free], dir, `${TOKEN}\n`);
     expect(offline.code).toBe(1);
-    expect(offline.err).toContain("não consegui falar com http://127.0.0.1:1");
+    expect(offline.err).toContain(`não consegui falar com ${free}`);
+    expect(offline.err).toContain("ECONNREFUSED");
+  });
+
+  it("resposta que não é do escritório não salva nada", async () => {
+    const url = await whoamiServer("127.0.0.1", "html");
+    const dir = home();
+    const result = await run(["login", url], dir, `${TOKEN}\n`);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("não parece de um escritório");
+    expect(result.err).not.toContain("at ");
+    expect(() => readConfig(dir)).toThrow();
+  });
+
+  it.skipIf(process.platform === "win32")("o config com o token fica só para o dono", async () => {
+    const url = await whoamiServer();
+    const dir = home();
+    expect((await run(["login", url], dir, `${TOKEN}\n`)).code).toBe(0);
+    expect(statSync(join(dir, "config.json")).mode & 0o777).toBe(0o600);
+  });
+
+  it("ignora sequências de escape digitadas ou coladas no token", async () => {
+    const url = await whoamiServer();
+    const inputs = [
+      `${TOKEN.slice(0, 10)}\u001b[D${TOKEN.slice(10)}\n`,
+      `\u001b[200~${TOKEN}\u001b[201~\n`,
+      `${TOKEN.slice(0, 10)}\u001bOD${TOKEN.slice(10)}\n`,
+    ];
+    for (const input of inputs) {
+      const dir = home();
+      expect((await run(["login", url], dir, input)).code).toBe(0);
+      expect(readConfig(dir)).toMatchObject({ token: TOKEN });
+    }
+  });
+
+  it("não aceita token nem senha na linha de comando", async () => {
+    const dir = home();
+    const token = await run(["login", TOKEN], dir);
+    expect(token.code).toBe(2);
+    expect(token.err).not.toContain(TOKEN);
+    const password = await run(["login", "http://ana:segredo@127.0.0.1:4600"], dir);
+    expect(password.code).toBe(2);
+    expect(password.err).not.toContain("segredo");
+  });
+
+  it("não segue redirecionamento e diz para onde ele apontava", async () => {
+    const url = await whoamiServer("127.0.0.1", "redirect");
+    const dir = home();
+    const result = await run(["login", url], dir, `${TOKEN}\n`);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("redirecionou para http://127.0.0.1:9");
+    expect(() => readConfig(dir)).toThrow();
   });
 });
 
