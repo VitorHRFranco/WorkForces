@@ -1,0 +1,80 @@
+import type { TokenCreated, TokenInfo } from "@workforces/protocol";
+import { useEffect, useState } from "preact/hooks";
+import { api, errorText } from "../api";
+import { formatDate } from "../format";
+import { CopyField } from "./copy-field";
+import { Modal } from "./modal";
+
+export function TokensModal({ onClose }: { onClose: () => void }) {
+  const [tokens, setTokens] = useState<TokenInfo[]>([]);
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState<TokenCreated | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = () =>
+    api.listTokens().then(setTokens, (failure: unknown) => setError(errorText(failure)));
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const create = async (event: Event) => {
+    event.preventDefault();
+    setError(null);
+    try {
+      setCreated(await api.createToken(name));
+      setName("");
+      await reload();
+    } catch (failure) {
+      setError(errorText(failure));
+    }
+  };
+
+  const revoke = async (id: number) => {
+    setError(null);
+    try {
+      await api.revokeToken(id);
+      await reload();
+    } catch (failure) {
+      setError(errorText(failure));
+    }
+  };
+
+  return (
+    <Modal title="Tokens da ponte" onClose={onClose}>
+      <p class="muted">
+        Cada máquina usa um token para ligar o <code>workforces claude</code> ao escritório. Revogue o token de uma máquina que você não usa
+        mais: os agentes dela saem do escritório na hora.
+      </p>
+      {created && (
+        <div class="created">
+          <p>
+            <strong>Copie agora:</strong> este token não aparece de novo.
+          </p>
+          <CopyField value={created.token} />
+          <p>
+            Na sua máquina, rode <code>workforces login {location.origin}</code> e cole o token quando ele pedir.
+          </p>
+        </div>
+      )}
+      <form class="inline" onSubmit={create}>
+        <input placeholder="nome da máquina (ex.: notebook)" value={name} maxLength={40} onInput={(e) => setName(e.currentTarget.value)} required />
+        <button type="submit">Criar token</button>
+      </form>
+      {error && <p class="error">{error}</p>}
+      <ul class="tokens">
+        {tokens.map((token) => (
+          <li key={token.id}>
+            <span>{token.name}</span>
+            <button type="button" onClick={() => revoke(token.id)}>
+              Revogar
+            </button>
+            <span class="muted">
+              criado em {formatDate(token.createdAt)} · {token.lastUsedAt ? `usado em ${formatDate(token.lastUsedAt)}` : "nunca usado"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
+}
