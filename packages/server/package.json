@@ -1,0 +1,25 @@
+{
+  "name": "@workforces/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "workforces-server": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.6",
+    "@workforces/protocol": "workspace:*",
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.7",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/ws": "8.18.2"
+  }
+}
