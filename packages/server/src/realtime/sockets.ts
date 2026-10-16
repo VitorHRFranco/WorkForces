@@ -1,0 +1,160 @@
+import type { IncomingMessage } from "node:http";
+import {
+  AgentToServer,
+  CLOSE_CODES,
+  ClientToServer,
+  LIMITS,
+  PROTOCOL_VERSION,
+  parseJson,
+  type ServerToClient,
+} from "@workforces/protocol";
+import type { FastifyInstance } from "fastify";
+import { WebSocketServer, type WebSocket } from "ws";
+import type { AccountServices } from "../accounts/index.js";
+import type { AppContext } from "../context.js";
+import { SESSION_COOKIE, bearerToken, readCookie } from "../http/cookies.js";
+import { toMe } from "../http/routes.js";
+import type { BridgeLink, ClientLink, Hub } from "./hub.js";
+import { MessageRate } from "./rate.js";
+
+export interface SocketDeps {
+  ctx: AppContext;
+  accounts: AccountServices;
+  hub: Hub;
+}
+
+export interface SocketOptions {
+  sweepMs?: number;
+  helloTimeoutMs?: number;
+}
+
+const BRIDGE_MAX_PAYLOAD = LIMITS.maxFrameBytes + 16 * 1024;
+const CLIENT_MAX_PAYLOAD = 16 * 1024;
+const BRIDGE_MESSAGES_PER_SECOND = 100;
+const CLIENT_MESSAGES_PER_SECOND = 20;
+
+interface BridgeConnection {
+  ws: WebSocket;
+  tokenId: number;
+}
+
+interface ClientConnection {
+  ws: WebSocket;
+  sessionId: string;
+}
+
+export function registerSockets(app: FastifyInstance, deps: SocketDeps, options: SocketOptions = {}): void {
+  const { ctx, accounts, hub } = deps;
+  const origin = ctx.config.publicUrl.origin;
+  const helloTimeoutMs = options.helloTimeoutMs ?? 10_000;
+  const bridgeServer = new WebSocketServer({ noServer: true, maxPayload: BRIDGE_MAX_PAYLOAD });
+  const clientServer = new WebSocketServer({ noServer: true, maxPayload: CLIENT_MAX_PAYLOAD });
+  const bridges = new Set<BridgeConnection>();
+  const clients = new Map<number, ClientConnection>();
+
+  app.server.on("upgrade", (request: IncomingMessage, socket, head) => {
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (path === "/ws/bridge") bridgeServer.handleUpgrade(request, socket, head, (ws) => onBridge(ws, request));
+    else if (path === "/ws/client") clientServer.handleUpgrade(request, socket, head, (ws) => onClient(ws, request));
+    else socket.destroy();
+  });
+
+  function onBridge(ws: WebSocket, request: IncomingMessage): void {
+    ws.on("error", () => {});
+    const auth = accounts.tokens.verify(bearerToken(request.headers.authorization));
+    // Fecha depois do upgrade: a ponte entende 4001 como fatal e para de tentar.
+    if (!auth) return ws.close(CLOSE_CODES.unauthorized, "token inválido");
+    accounts.tokens.touch(auth.tokenId);
+    const connection: BridgeConnection = { ws, tokenId: auth.tokenId };
+    bridges.add(connection);
+    const link: BridgeLink = {
+      tokenId: auth.tokenId,
+      sendViewers: (n) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "viewers", n }));
+      },
+      close: (code, reason) => ws.close(code, reason),
+    };
+    const rate = new MessageRate(BRIDGE_MESSAGES_PER_SECOND, 1000, ctx.now);
+    let agentId: string | null = null;
+    const helloTimer = setTimeout(() => {
+      if (agentId === null) ws.close(CLOSE_CODES.invalidMessage, "hello não recebido");
+    }, helloTimeoutMs);
+
+    ws.on("message", (data, isBinary) => {
+      if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
+      const message = isBinary ? null : parseJson(AgentToServer, data.toString());
+      if (!message) return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
+      if (agentId === null) {
+        if (message.type !== "hello") return ws.close(CLOSE_CODES.invalidMessage, "esperava hello");
+        if (message.protocol !== PROTOCOL_VERSION) return ws.close(CLOSE_CODES.protocolMismatch, "versão do protocolo incompatível");
+        // Token revogado entre o upgrade e o hello: o hub ainda não conhece esta ponte.
+        if (!accounts.tokens.isValid(auth.tokenId)) return ws.close(CLOSE_CODES.unauthorized, "token revogado");
+        const result = hub.registerAgent({ id: auth.user.id, name: auth.user.name }, message, link);
+        if (!result.ok) return ws.close(CLOSE_CODES.invalidMessage, "agentId em uso");
+        agentId = message.agentId;
+        clearTimeout(helloTimer);
+        return;
+      }
+      if (message.type === "frame") hub.agentFrame(link, agentId, message);
+      else if (message.type === "status") hub.agentStatus(link, agentId, message.state);
+      else ws.close(CLOSE_CODES.invalidMessage, "hello repetido");
+    });
+
+    ws.on("close", () => {
+      clearTimeout(helloTimer);
+      bridges.delete(connection);
+      if (agentId !== null) hub.agentDisconnected(link, agentId);
+    });
+  }
+
+  function onClient(ws: WebSocket, request: IncomingMessage): void {
+    ws.on("error", () => {});
+    if (request.headers.origin !== origin) return ws.close(CLOSE_CODES.originNotAllowed, "origem não permitida");
+    const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const user = accounts.sessions.lookup(sessionId);
+    if (!user || !sessionId) return ws.close(CLOSE_CODES.unauthorized, "faça login");
+
+    clients.get(user.id)?.ws.close(CLOSE_CODES.replacedByNewTab, "aberto em outra aba");
+    const connection: ClientConnection = { ws, sessionId };
+    clients.set(user.id, connection);
+    const link: ClientLink = {
+      userId: user.id,
+      send: (message: ServerToClient) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
+      },
+      bufferedAmount: () => ws.bufferedAmount,
+    };
+    link.send({ type: "welcome", protocol: PROTOCOL_VERSION, me: toMe(user), agents: hub.addClient(link) });
+    const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
+
+    ws.on("message", (data, isBinary) => {
+      if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
+      const message = isBinary ? null : parseJson(ClientToServer, data.toString());
+      if (!message) return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
+      if (message.type === "unwatch") return hub.unwatch(link);
+      if (!hub.watch(link, message.agentId)) link.send({ type: "watchEnded", agentId: message.agentId, reason: "agent-gone" });
+    });
+
+    ws.on("close", () => {
+      hub.removeClient(link);
+      if (clients.get(user.id) === connection) clients.delete(user.id);
+    });
+  }
+
+  const sweep = setInterval(() => {
+    for (const bridge of bridges) {
+      if (!accounts.tokens.isValid(bridge.tokenId)) bridge.ws.close(CLOSE_CODES.unauthorized, "token revogado");
+    }
+    for (const client of clients.values()) {
+      if (!accounts.sessions.lookup(client.sessionId)) client.ws.close(CLOSE_CODES.unauthorized, "sessão encerrada");
+    }
+  }, options.sweepMs ?? 30_000);
+  sweep.unref();
+
+  app.addHook("preClose", async () => {
+    clearInterval(sweep);
+    for (const ws of [...bridgeServer.clients, ...clientServer.clients]) ws.terminate();
+    bridgeServer.close();
+    clientServer.close();
+  });
+}
