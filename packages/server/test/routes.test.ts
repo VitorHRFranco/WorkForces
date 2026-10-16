@@ -12,6 +12,17 @@ describe("login e sessão", () => {
     expect(cookie).toMatch(/^wf_session=[^;]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=1209600$/);
     const me = await app.inject({ method: "GET", url: "/api/me", headers: { cookie: cookieOf(response) } });
     expect(me.json()).toMatchObject({ name: "ana" });
+    expect(String(me.headers["set-cookie"])).toBe(`${cookieOf(response)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600`);
+  });
+
+  it("uma rajada simultânea respeita o limite", async () => {
+    const { app, accounts } = await setupApi();
+    await createUser(accounts, "ana");
+    const wrong = () => app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: { name: "ana", password: "errada-errada" } });
+    const responses = await Promise.all(Array.from({ length: 20 }, wrong));
+    const codes = responses.map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 401)).toHaveLength(10);
+    expect(codes.filter((c) => c === 429)).toHaveLength(10);
   });
 
   it("cookie ganha Secure quando o endereço público é https", async () => {
@@ -62,6 +73,20 @@ describe("proteção contra requisição forjada", () => {
     const form = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN }, payload: "name=ana&password=senha-forte-123" });
     expect(form.statusCode).toBe(415);
     for (const response of [foreign, noOrigin, plain, form]) expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+});
+
+describe("proteção contra requisição forjada (caminho codificado)", () => {
+  it("caminho codificado não escapa da proteção", async () => {
+    const { app, accounts } = await setupApi();
+    await createUser(accounts, "ana", { admin: true });
+    const login = await app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: { name: "ana", password: "senha-forte-123" } });
+    const cookie = cookieOf(login);
+    const plain = { cookie, "content-type": "text/plain" };
+    expect((await app.inject({ method: "POST", url: "/%61pi/logout", headers: plain, payload: "x" })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/%61pi/invites", headers: plain, payload: "x" })).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: "/api/tokens/1", headers: { cookie } })).statusCode).toBe(403);
   });
 });
 

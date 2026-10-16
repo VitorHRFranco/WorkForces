@@ -31,7 +31,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
 
   // Contra requisição forjada: origem exata e JSON (text/plain passa sem pré-checagem do navegador).
   app.addHook("onRequest", async (request, reply) => {
-    if (!request.url.startsWith("/api/") || !STATE_CHANGING.has(request.method)) return;
+    if (!STATE_CHANGING.has(request.method)) return;
     if (request.headers.origin !== origin) return reply.code(403).send({ error: "origem não permitida" });
     if (!String(request.headers["content-type"] ?? "").startsWith("application/json")) {
       return reply.code(415).send({ error: "use application/json" });
@@ -43,15 +43,15 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     if (!body.success) return reply.code(400).send({ error: "nome e senha são obrigatórios" });
     const ipKey = request.ip;
     const nameKey = nameKeyOf(body.data.name);
-    if (byIp.blocked(ipKey) || byName.blocked(nameKey)) {
+    // Registra antes do scrypt: uma rajada simultânea não passa toda pelo limite.
+    if (!byIp.tryAcquire(ipKey)) return reply.code(429).send({ error: "muitas tentativas; espere alguns minutos" });
+    if (!byName.tryAcquire(nameKey)) {
+      byIp.release(ipKey);
       return reply.code(429).send({ error: "muitas tentativas; espere alguns minutos" });
     }
     const user = await accounts.users.authenticate(body.data.name, body.data.password);
-    if (!user) {
-      byIp.fail(ipKey);
-      byName.fail(nameKey);
-      return reply.code(401).send({ error: "nome ou senha inválidos" });
-    }
+    if (!user) return reply.code(401).send({ error: "nome ou senha inválidos" });
+    byIp.release(ipKey);
     byName.reset(nameKey);
     return reply.header("set-cookie", sessionCookie(accounts.sessions.create(user.id), secure)).send(toMe(user));
   });
@@ -63,9 +63,10 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   });
 
   app.get("/api/me", async (request, reply) => {
-    const user = currentUser(request);
-    if (!user) return reply.code(401).send({ error: "faça login" });
-    return toMe(user);
+    const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const user = accounts.sessions.lookup(sessionId);
+    if (!user || !sessionId) return reply.code(401).send({ error: "faça login" });
+    return reply.header("set-cookie", sessionCookie(sessionId, secure)).send(toMe(user));
   });
 
   app.get<{ Params: { code: string } }>("/api/invites/:code", async (request) => ({ valid: accounts.invites.isValid(request.params.code) }));

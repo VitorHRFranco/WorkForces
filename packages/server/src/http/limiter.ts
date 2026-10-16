@@ -1,6 +1,6 @@
-/** Conta falhas por chave dentro de uma janela de tempo. */
+/** Conta tentativas por chave dentro de uma janela de tempo. */
 export class AttemptLimiter {
-  private readonly failures = new Map<string, number[]>();
+  private readonly attempts = new Map<string, number[]>();
 
   constructor(
     private readonly max: number,
@@ -8,25 +8,33 @@ export class AttemptLimiter {
     private readonly now: () => number,
   ) {}
 
-  blocked(key: string): boolean {
-    return this.recent(key).length >= this.max;
+  /** Registra uma tentativa; devolve false (sem registrar) se a chave já atingiu o limite. */
+  tryAcquire(key: string): boolean {
+    const recent = this.recent(key);
+    if (recent.length >= this.max) return false;
+    if (this.attempts.size > 10_000) this.prune();
+    this.attempts.set(key, [...recent, this.now()]);
+    return true;
   }
 
-  fail(key: string): void {
-    if (this.failures.size > 10_000) this.prune();
-    this.failures.set(key, [...this.recent(key), this.now()]);
+  /** Desfaz a tentativa mais recente (ex.: login certo não conta contra o IP). */
+  release(key: string): void {
+    const recent = this.recent(key);
+    recent.pop();
+    if (recent.length === 0) this.attempts.delete(key);
+    else this.attempts.set(key, recent);
   }
 
   reset(key: string): void {
-    this.failures.delete(key);
+    this.attempts.delete(key);
   }
 
   private recent(key: string): number[] {
     const cutoff = this.now() - this.windowMs;
-    return (this.failures.get(key) ?? []).filter((time) => time > cutoff);
+    return (this.attempts.get(key) ?? []).filter((time) => time > cutoff);
   }
 
   private prune(): void {
-    for (const key of this.failures.keys()) if (this.recent(key).length === 0) this.failures.delete(key);
+    for (const key of this.attempts.keys()) if (this.recent(key).length === 0) this.attempts.delete(key);
   }
 }
