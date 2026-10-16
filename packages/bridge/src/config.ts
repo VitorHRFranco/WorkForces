@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { LIMITS } from "@workforces/protocol";
@@ -58,4 +58,9 @@ export function labelFor(cwd: string, folders: Config["folders"], platform: Node
   const match = folders.find((folder) => normalize(folder.path) === here);
   const label = match?.alias ?? (basename(resolve(cwd)) || resolve(cwd));
   return label.slice(0, LIMITS.maxLabelLength);
+}
+
+export function saveConfig(dir: string, config: Config): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
 }

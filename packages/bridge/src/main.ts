@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runLogin, runLogout } from "./commands/login.js";
 import { resolveClaude } from "./claude/resolve.js";
 import { runDirect, runInPty, shouldUsePty, type Connector, type WrapperIO } from "./claude/wrapper.js";
 import { ConfigError, configDir, labelFor, loadConfig, type Config } from "./config.js";
@@ -10,7 +11,9 @@ import { AgentConnection, ServerUrlError, bridgeSocketUrl } from "./net/agent-co
 const USAGE = `uso: workforces <comando>
 
 comandos:
-  claude [args…]   roda o Claude Code espelhando o terminal no escritório
+  login <url> [--insecure]   conecta esta máquina ao escritório (pede o token da ponte)
+  logout                     esquece o login desta máquina
+  claude [args…]             roda o Claude Code espelhando o terminal no escritório
 `;
 
 export interface MainContext {
@@ -24,6 +27,8 @@ export interface MainContext {
 export async function main(ctx: MainContext): Promise<number> {
   const [command, ...rest] = ctx.argv;
   if (command === "claude") return runClaudeCommand(rest, ctx);
+  if (command === "login") return runLogin(rest, ctx);
+  if (command === "logout") return runLogout(ctx);
   if (command === undefined || command === "--help" || command === "-h") {
     ctx.io.stdout.write(USAGE);
     return 0;
