@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { createAccountServices, type AccountServices } from "./accounts/index.js";
+import { ADMIN_INVITE_TTL_MS } from "./accounts/invites.js";
 import { buildApp } from "./app.js";
 import type { ServerConfig } from "./config.js";
 import type { AppContext } from "./context.js";
@@ -9,6 +10,7 @@ import { openDb } from "./db.js";
 import { registerApi } from "./http/routes.js";
 import { Hub } from "./realtime/hub.js";
 import { registerSockets, type SocketOptions } from "./realtime/sockets.js";
+import { registerClient } from "./static.js";
 
 export interface CreateServerOptions {
   dbFile?: string;
@@ -43,6 +45,21 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   const app = buildApp(ctx);
   registerApi(app, { ctx, accounts, onTokenRevoked: (tokenId) => hub.closeBridgesForToken(tokenId) });
   registerSockets(app, { ctx, accounts, hub }, options.sockets);
+  registerClient(app, ctx);
   app.addHook("onClose", async () => db.close());
   return { app, ctx, accounts, hub };
+}
+
+/** Sobe o servidor; sem nenhuma conta, imprime um convite de admin (única vez em que um código vai para o log). */
+export async function startServer(config: ServerConfig, options: CreateServerOptions = {}): Promise<WorkforcesServer> {
+  const server = createServer(config, options);
+  await server.app.listen({ port: config.port, host: config.host });
+  const { log } = server.ctx;
+  log(`escritório no ar em ${config.publicUrl.origin} (escutando em ${config.host}:${config.port})`);
+  if (config.insecure) log("WF_INSECURE ligado: o tráfego pode não ter TLS");
+  if (server.accounts.users.count() === 0) {
+    const invite = server.accounts.invites.create({ createdBy: null, isAdmin: true, ttlMs: ADMIN_INVITE_TTL_MS });
+    log(`nenhuma conta ainda; convite de admin válido por 24 h: ${config.publicUrl.origin}/invite/${invite.code}`);
+  }
+  return server;
 }
