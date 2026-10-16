@@ -10,6 +10,7 @@ import {
 
 export const SLOW_VIEWER_BYTES = 1024 * 1024;
 export const AGENT_GRACE_MS = 30_000;
+export const STALE_CHECK_MS = 200;
 
 /** O lado da ponte visto pelo Hub. Só existe `viewers`: nada leva entrada ao PTY. */
 export interface BridgeLink {
@@ -47,6 +48,7 @@ interface AgentEntry {
   /** Só existe enquanto há visitantes; nunca vai para o disco. */
   screen: Screen | null;
   removal: ReturnType<typeof setTimeout> | null;
+  staleTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class Hub {
@@ -54,7 +56,10 @@ export class Hub {
   private readonly clients = new Set<ClientLink>();
   private readonly watching = new Map<ClientLink, string>();
 
-  constructor(private readonly graceMs: number = AGENT_GRACE_MS) {}
+  constructor(
+    private readonly graceMs: number = AGENT_GRACE_MS,
+    private readonly staleCheckMs: number = STALE_CHECK_MS,
+  ) {}
 
   registerAgent(owner: Owner, hello: AgentHello, link: BridgeLink): RegisterResult {
     const existing = this.agents.get(hello.agentId);
@@ -77,6 +82,7 @@ export class Hub {
       stale: new Set(),
       screen: null,
       removal: null,
+      staleTimer: null,
     };
     this.agents.set(hello.agentId, entry);
     this.broadcast({ type: "agentAdded", agent: entry.info });
@@ -123,6 +129,7 @@ export class Hub {
     entry.info = { ...entry.info, connected: false };
     this.broadcast({ type: "agentUpdated", agent: entry.info });
     entry.removal = setTimeout(() => this.removeAgent(agentId), this.graceMs);
+    entry.removal.unref();
   }
 
   addClient(link: ClientLink): AgentInfo[] {
@@ -138,8 +145,12 @@ export class Hub {
   /** Devolve false se o agente não existe. Repetir o watch reenvia a tela (ressincronização). */
   watch(link: ClientLink, agentId: string): boolean {
     const entry = this.agents.get(agentId);
-    if (!entry) return false;
+    if (!entry) {
+      this.unwatch(link);
+      return false;
+    }
     if (this.watching.get(link) === agentId) {
+      entry.stale.delete(link);
       if (entry.screen) link.send(this.keyFrame(entry));
       return true;
     }
@@ -159,13 +170,18 @@ export class Hub {
     if (!entry) return;
     entry.viewers.delete(link);
     entry.stale.delete(link);
+    if (entry.stale.size === 0) this.stopStaleTimer(entry);
     entry.link?.sendViewers(entry.viewers.size);
     if (entry.viewers.size === 0) entry.screen = null;
   }
 
   closeBridgesForToken(tokenId: number): void {
     for (const entry of this.agents.values()) {
-      if (entry.link?.tokenId === tokenId) entry.link.close(CLOSE_CODES.unauthorized, "token revogado");
+      const link = entry.link;
+      if (link?.tokenId === tokenId) {
+        link.close(CLOSE_CODES.unauthorized, "token revogado");
+        this.agentDisconnected(link, entry.info.id);
+      }
     }
   }
 
@@ -177,6 +193,7 @@ export class Hub {
   private removeAgent(agentId: string): void {
     const entry = this.agents.get(agentId);
     if (!entry || entry.link) return;
+    this.stopStaleTimer(entry);
     for (const viewer of entry.viewers) {
       this.watching.delete(viewer);
       viewer.send({ type: "watchEnded", agentId, reason: "agent-gone" });
@@ -194,9 +211,28 @@ export class Hub {
     }
     if (viewer.bufferedAmount() > SLOW_VIEWER_BYTES) {
       entry.stale.add(viewer);
+      if (!entry.staleTimer) {
+        entry.staleTimer = setInterval(() => this.recoverStale(entry), this.staleCheckMs);
+        entry.staleTimer.unref();
+      }
       return;
     }
     viewer.send(message);
+  }
+
+  /** Visitante lento recebe a tela inteira assim que a fila dele esvazia, mesmo com o agente parado. */
+  private recoverStale(entry: AgentEntry): void {
+    for (const viewer of entry.stale) {
+      if (!entry.screen || viewer.bufferedAmount() > SLOW_VIEWER_BYTES) continue;
+      entry.stale.delete(viewer);
+      viewer.send(this.keyFrame(entry));
+    }
+    if (entry.stale.size === 0) this.stopStaleTimer(entry);
+  }
+
+  private stopStaleTimer(entry: AgentEntry): void {
+    if (entry.staleTimer) clearInterval(entry.staleTimer);
+    entry.staleTimer = null;
   }
 
   private keyFrame(entry: AgentEntry): ServerToClient {

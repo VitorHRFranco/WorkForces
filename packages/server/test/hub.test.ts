@@ -163,8 +163,38 @@ describe("Hub", () => {
     const other = new FakeBridge(8);
     hub.registerAgent(ana, hello(), mine);
     hub.registerAgent(ana, { ...hello(), agentId: "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f" }, other);
+    const watcher = new FakeClient();
+    hub.addClient(watcher);
+    hub.watch(watcher, AGENT);
     hub.closeBridgesForToken(7);
     expect(mine.closed).toEqual([[4001, "token revogado"]]);
     expect(other.closed).toEqual([]);
+    expect(watcher.messages.at(-1)).toMatchObject({ type: "agentUpdated", agent: { connected: false } });
+  });
+
+  it("watch de agente que não existe cancela o anterior", () => {
+    const hub = new Hub();
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const client = new FakeClient();
+    hub.addClient(client);
+    hub.watch(client, AGENT);
+    expect(hub.watch(client, "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f")).toBe(false);
+    expect(bridge.viewers).toEqual([1, 0]);
+  });
+
+  it("visitante lento recebe a tela quando a fila esvazia, mesmo sem novos quadros", async () => {
+    const hub = new Hub(30_000, 20);
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const slow = new FakeClient();
+    hub.addClient(slow);
+    hub.watch(slow, AGENT);
+    hub.agentFrame(bridge, AGENT, frame(1, true, [[0, "a"], [1, ""]]));
+    slow.buffered = SLOW_VIEWER_BYTES + 1;
+    hub.agentFrame(bridge, AGENT, frame(2, false, [[0, "b"]]));
+    slow.buffered = 0;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(slow.frames().at(-1)).toMatchObject({ seq: 2, key: true, lines: [[0, "b"], [1, ""]] });
   });
 });
