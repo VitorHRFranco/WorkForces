@@ -11,6 +11,7 @@ import { registerMapRoutes } from "./http/map-routes.js";
 import { registerApi } from "./http/routes.js";
 import { loadMap, type LoadedMap } from "./map/load-map.js";
 import { Hub } from "./realtime/hub.js";
+import { World } from "./realtime/world.js";
 import { registerSockets, type SocketOptions } from "./realtime/sockets.js";
 import { registerClient } from "./static.js";
 
@@ -28,6 +29,7 @@ export interface WorkforcesServer {
   accounts: AccountServices;
   hub: Hub;
   office: LoadedMap;
+  world: World;
 }
 
 export function defaultLog(message: string): void {
@@ -45,14 +47,15 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   const db = openDb(dbFile);
   const ctx: AppContext = { config, now: options.now ?? Date.now, log: options.log ?? defaultLog };
   const accounts = createAccountServices(db, ctx.now);
+  const world = new World(office.map, accounts.desks.owners());
   const hub = new Hub(options.graceMs);
   const app = buildApp(ctx);
   registerApi(app, { ctx, accounts, onTokenRevoked: (tokenId) => hub.closeBridgesForToken(tokenId) });
-  registerSockets(app, { ctx, accounts, hub }, options.sockets);
+  registerSockets(app, { ctx, accounts, hub, world }, options.sockets);
   registerMapRoutes(app, office);
   registerClient(app, ctx);
   app.addHook("onClose", async () => db.close());
-  return { app, ctx, accounts, hub, office };
+  return { app, ctx, accounts, hub, office, world };
 }
 
 /** Sobe o servidor; sem nenhuma conta, imprime um convite de admin (única vez em que um código vai para o log). */

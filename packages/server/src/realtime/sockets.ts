@@ -16,11 +16,13 @@ import { SESSION_COOKIE, bearerToken, readCookie } from "../http/cookies.js";
 import { toMe } from "../http/routes.js";
 import type { BridgeLink, ClientLink, Hub } from "./hub.js";
 import { MessageRate } from "./rate.js";
+import type { Person, World } from "./world.js";
 
 export interface SocketDeps {
   ctx: AppContext;
   accounts: AccountServices;
   hub: Hub;
+  world: World;
 }
 
 export interface SocketOptions {
@@ -44,7 +46,7 @@ interface ClientConnection {
 }
 
 export function registerSockets(app: FastifyInstance, deps: SocketDeps, options: SocketOptions = {}): void {
-  const { ctx, accounts, hub } = deps;
+  const { ctx, accounts, hub, world } = deps;
   const origin = ctx.config.publicUrl.origin;
   const helloTimeoutMs = options.helloTimeoutMs ?? 10_000;
   const bridgeServer = new WebSocketServer({ noServer: true, maxPayload: BRIDGE_MAX_PAYLOAD });
@@ -63,6 +65,13 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       socket.destroy();
     }
   });
+
+  /** Garante a mesa da pessoa (primeiro acesso pelo navegador ou pela ponte) e avisa quem está online. */
+  function ensureDesk(person: Person): string | null {
+    const { deskId } = accounts.desks.ensure(person.id, world.map.desks.map((desk) => desk.id));
+    for (const desk of world.setDesk(person, deskId)) hub.broadcast({ type: "deskUpdated", desk });
+    return deskId;
+  }
 
   function onBridge(ws: WebSocket, request: IncomingMessage): void {
     ws.on("error", () => {});
@@ -95,6 +104,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         if (message.protocol !== PROTOCOL_VERSION) return ws.close(CLOSE_CODES.protocolMismatch, "versão do protocolo incompatível");
         // Token revogado entre o upgrade e o hello: o hub ainda não conhece esta ponte.
         if (!accounts.tokens.isValid(auth.tokenId)) return ws.close(CLOSE_CODES.unauthorized, "token revogado");
+        ensureDesk(auth.user);
         const result = hub.registerAgent({ id: auth.user.id, name: auth.user.name }, message, link);
         if (!result.ok) return ws.close(CLOSE_CODES.invalidMessage, "agentId em uso");
         agentId = message.agentId;
@@ -126,6 +136,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     clients.get(user.id)?.ws.close(CLOSE_CODES.replacedByNewTab, "aberto em outra aba");
     const connection: ClientConnection = { ws, sessionId };
     clients.set(user.id, connection);
+    const deskId = ensureDesk(user);
     const link: ClientLink = {
       userId: user.id,
       send: (message: ServerToClient) => {
@@ -133,7 +144,13 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       },
       bufferedAmount: () => ws.bufferedAmount,
     };
-    link.send({ type: "welcome", protocol: PROTOCOL_VERSION, me: toMe(user), agents: hub.addClient(link) });
+    link.send({
+      type: "welcome",
+      protocol: PROTOCOL_VERSION,
+      me: { ...toMe(user), deskId },
+      agents: hub.addClient(link),
+      desks: world.desks(),
+    });
     const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
 
     ws.on("message", (data, isBinary) => {

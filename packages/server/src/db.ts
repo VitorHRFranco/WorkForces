@@ -34,6 +34,9 @@ const MIGRATIONS: readonly string[] = [
      last_used_at integer,
      revoked_at integer
    );`,
+  // Plano 3: mesa de cada pessoa (id do objeto `desk` do mapa); uma pessoa por mesa.
+  `alter table users add column desk_id text;
+   create unique index users_desk_id on users(desk_id) where desk_id is not null;`,
 ];
 
 export function openDb(file: string): Db {

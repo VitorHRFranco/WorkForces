@@ -118,6 +118,32 @@ describe("conexão do navegador", () => {
     expect(await first.closed).toBe(4009);
     expect(second.ws.readyState).toBe(second.ws.OPEN);
   });
+  it("o navegador recebe a mesa dele e as mesas do escritório; mesa nova é avisada a todos", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const tab = clientSocket(server, ana.session);
+    const welcome = await tab.waitFor((m) => m.type === "welcome", "welcome");
+    expect(welcome.me).toMatchObject({ name: "ana", deskId: "mesa-1" });
+    expect((welcome.desks as Message[])[0]).toEqual({ id: "mesa-1", ownerId: ana.user.id, ownerName: "ana" });
+    expect((welcome.desks as Message[])).toHaveLength(8);
+    // A ponte de quem nunca abriu o escritório também recebe mesa (no hello).
+    const bia = await person(server, "bia");
+    const bridge = bridgeSocket(server, bia.token.token);
+    await bridge.opened();
+    bridge.send(hello(randomUUID()));
+    await tab.waitFor((m) => m.type === "deskUpdated" && (m.desk as Message).id === "mesa-2" && (m.desk as Message).ownerName === "bia", "mesa da bia");
+  });
+
+  it("sem mesa livre a pessoa entra sem mesa", async () => {
+    const server = await live();
+    for (let i = 1; i <= 8; i++) {
+      const user = await createUser(server.accounts, `pessoa${i}`);
+      server.accounts.desks.ensure(user.id, server.world.map.desks.map((desk) => desk.id));
+    }
+    const caio = await person(server, "caio");
+    const welcome = await clientSocket(server, caio.session).waitFor((m) => m.type === "welcome", "welcome");
+    expect(welcome.me).toMatchObject({ name: "caio", deskId: null });
+  });
 });
 
 describe("repasse de quadros", () => {

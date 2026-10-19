@@ -16,7 +16,11 @@ describe("ClientToServer", () => {
 describe("ServerToClient", () => {
   it("aceita as mensagens do escritório", () => {
     const me = { id: 1, name: "ana", isAdmin: true };
-    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me, agents: [agent] }).success).toBe(true);
+    const desk = { id: "mesa-1", ownerId: 1, ownerName: "ana" };
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: "mesa-1" }, agents: [agent], desks: [desk] }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: null }, agents: [], desks: [] }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-2", ownerId: null, ownerName: null } }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "Mesa 2", ownerId: null, ownerName: null } }).success).toBe(false);
     expect(ServerToClient.safeParse({ type: "agentAdded", agent }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "agentRemoved", agentId }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "agent-gone" }).success).toBe(true);

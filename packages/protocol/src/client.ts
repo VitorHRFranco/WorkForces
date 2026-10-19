@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AgentState } from "./bridge.js";
 import { LIMITS } from "./constants.js";
 import { frameBoundsError, frameShape } from "./frame.js";
+import { DESK_ID_PATTERN } from "./map.js";
 
 export const AgentInfo = z.object({
   id: z.uuid(),
@@ -16,13 +17,31 @@ export type AgentInfo = z.infer<typeof AgentInfo>;
 export const Me = z.object({ id: z.number().int().min(1), name: z.string(), isAdmin: z.boolean() });
 export type Me = z.infer<typeof Me>;
 
+/** Mesa do mapa e quem é o dono (null = livre). */
+export const DeskInfo = z.object({
+  id: z.string().regex(DESK_ID_PATTERN),
+  ownerId: z.number().int().min(1).nullable(),
+  ownerName: z.string().nullable(),
+});
+export type DeskInfo = z.infer<typeof DeskInfo>;
+
+/** Quem está conectado, com a mesa (null = sem mesa livre). */
+export const WelcomeMe = Me.extend({ deskId: z.string().regex(DESK_ID_PATTERN).nullable() });
+export type WelcomeMe = z.infer<typeof WelcomeMe>;
+
 /** Cliente → servidor. Não existe mensagem que leve entrada a um agente. */
 export const Watch = z.object({ type: z.literal("watch"), agentId: z.uuid() });
 export const Unwatch = z.object({ type: z.literal("unwatch") });
 export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch]);
 export type ClientToServer = z.infer<typeof ClientToServer>;
 
-export const Welcome = z.object({ type: z.literal("welcome"), protocol: z.number().int(), me: Me, agents: z.array(AgentInfo) });
+export const Welcome = z.object({
+  type: z.literal("welcome"),
+  protocol: z.number().int(),
+  me: WelcomeMe,
+  agents: z.array(AgentInfo),
+  desks: z.array(DeskInfo),
+});
 export const AgentAdded = z.object({ type: z.literal("agentAdded"), agent: AgentInfo });
 export const AgentUpdated = z.object({ type: z.literal("agentUpdated"), agent: AgentInfo });
 export const AgentRemoved = z.object({ type: z.literal("agentRemoved"), agentId: z.uuid() });
@@ -33,5 +52,7 @@ export const ClientFrame = z.object({ type: z.literal("frame"), agentId: z.uuid(
 export const WatchEnded = z.object({ type: z.literal("watchEnded"), agentId: z.uuid(), reason: z.enum(["agent-gone"]) });
 
 /** Servidor → cliente. */
-export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded]);
+export const DeskUpdated = z.object({ type: z.literal("deskUpdated"), desk: DeskInfo });
+
+export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated]);
 export type ServerToClient = z.infer<typeof ServerToClient>;

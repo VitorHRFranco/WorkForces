@@ -8,10 +8,13 @@ import type { ServerConfig } from "../../src/config.js";
 import type { AppContext } from "../../src/context.js";
 import { openDb } from "../../src/db.js";
 import { registerApi } from "../../src/http/routes.js";
+import { loadMap } from "../../src/map/load-map.js";
 
 export const ORIGIN = "http://localhost:4600";
 /** O mapa do repositório (assets/map/office.tmj). */
 export const REPO_MAP = fileURLToPath(new URL("../../../../assets/map/office.tmj", import.meta.url));
+/** O mapa do repositório já conferido (8 mesas, `mesa-1` a `mesa-8`). */
+export const officeMap = () => loadMap(REPO_MAP).map;
 export const JSON_HEADERS = { "content-type": "application/json", origin: ORIGIN };
 
 export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {

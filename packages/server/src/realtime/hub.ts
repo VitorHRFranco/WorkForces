@@ -260,7 +260,8 @@ export class Hub {
     };
   }
 
-  private broadcast(message: ServerToClient): void {
-    for (const client of this.clients) client.send(message);
+  /** Manda a todos os navegadores (menos `except`, se houver). */
+  broadcast(message: ServerToClient, except?: ClientLink): void {
+    for (const client of this.clients) if (client !== except) client.send(message);
   }
 }

@@ -72,7 +72,7 @@ export class UserStore {
   }
 
   disable(id: number): void {
-    this.db.prepare("update users set disabled_at = ? where id = ? and disabled_at is null").run(this.now(), id);
+    this.db.prepare("update users set disabled_at = ?, desk_id = null where id = ? and disabled_at is null").run(this.now(), id);
   }
 
   isActive(id: number): boolean {
