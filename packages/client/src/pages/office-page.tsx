@@ -6,9 +6,12 @@ import { MoveSender } from "../game/move-sender";
 import type { OfficeSceneDeps } from "../game/office-scene";
 import { useTyping } from "../game/typing";
 import { OfficeConnection } from "../office/connection";
+import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
 import { TokensModal } from "../office/tokens-modal";
+import { watchTarget } from "../office/watch-target";
+import type { TerminalHandle } from "../terminal/terminal-panel";
 import { navigate } from "../router";
 
 interface LoadedMap {
@@ -29,6 +32,12 @@ export function OfficePage() {
   const endedRef = useRef(false);
   const moves = useMemo(() => new MoveSender((move) => connection.current?.move(move.x, move.y, move.dir, move.moving), () => performance.now()), []);
   const typing = useTyping();
+  const [zone, setZone] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const terminal = useRef<TerminalHandle | null>(null);
+  const watchingRef = useRef<string | null>(null);
 
   useEffect(() => {
     setLoadFailed(false);
@@ -51,8 +60,21 @@ export function OfficePage() {
     const conn = new OfficeConnection({
       onMessage: (message) => {
         state.apply(message);
-        // Depois de reconectar, o servidor não sabe onde o avatar está.
-        if (message.type === "welcome") moves.resend();
+        if (message.type === "welcome") {
+          // Depois de reconectar, o servidor não sabe onde o avatar está: manda a posição antes de voltar a assistir.
+          moves.resend();
+          if (watchingRef.current) conn.watch(watchingRef.current);
+        } else if (message.type === "watchEnded" && message.agentId === watchingRef.current && message.reason === "left-zone") {
+          setBlocked(message.agentId);
+        } else if (
+          message.type === "frame" &&
+          message.agentId === watchingRef.current &&
+          terminal.current?.agentId === message.agentId &&
+          terminal.current.apply(message) === "gap"
+        ) {
+          // Só "gap" pede a tela de novo (o apply já espaça os pedidos).
+          conn.watch(message.agentId);
+        }
       },
       onStatus: (status) => {
         if (endedRef.current) return;
@@ -82,10 +104,33 @@ export function OfficePage() {
         tiledJson: office.json,
         tilesUrl: `/map/${office.map.tilesetImage}`,
         onMove: (move) => moves.update(move),
-        onZone: () => {},
+        onZone: setZone,
       },
     [office],
   );
+
+  // Ao trocar de mesa (ou sair de todas), recomeça: sem aba escolhida, sem recusa, painel não fechado.
+  useEffect(() => {
+    setSelected(null);
+    setBlocked(null);
+    setDismissed(null);
+  }, [zone]);
+
+  const deskAgents = zone !== null && zone !== dismissed && !endedRef.current ? state.agentsAtDesk(zone) : [];
+  const watched = watchTarget(deskAgents, selected);
+  const isBlocked = watched !== null && blocked === watched;
+
+  // O servidor só deixa de mandar quadros com `unwatch` (ou quando percebe que saímos da zona).
+  useEffect(() => {
+    const previous = watchingRef.current;
+    watchingRef.current = isBlocked ? null : watched;
+    if (previous !== null && watchingRef.current === null) connection.current?.unwatch();
+  }, [watched, isBlocked]);
+
+  const startWatching = (agentId: string) => {
+    moves.flush(); // a posição chega ao servidor antes do watch (regra de proximidade)
+    connection.current?.watch(agentId);
+  };
 
   const logout = async () => {
     try {
@@ -143,6 +188,22 @@ export function OfficePage() {
       )}
       <main class="stage">
         <GameView deps={sceneDeps} keyboardEnabled={!typing && modal === null && !endedRef.current} />
+        {deskAgents.length > 0 && (
+          <DeskPanel
+            ownerName={state.desks.get(zone!)?.ownerName ?? null}
+            agents={deskAgents}
+            watched={watched}
+            blocked={isBlocked}
+            handle={terminal}
+            onSelect={(agentId) => {
+              setSelected(agentId);
+              setBlocked(null);
+            }}
+            onReady={startWatching}
+            onRetry={() => setBlocked(null)}
+            onClose={() => setDismissed(zone)}
+          />
+        )}
       </main>
       {modal === "tokens" && <TokensModal onClose={() => setModal(null)} />}
       {modal === "invite" && <InviteModal onClose={() => setModal(null)} />}

@@ -24,13 +24,11 @@ export function TerminalPanel({
   agent,
   handle,
   onReady,
-  onClose,
 }: {
   agent: AgentInfo;
   handle: { current: TerminalHandle | null };
   /** Chamado quando o terminal já pode receber quadros: a página pede a tela inteira. */
   onReady: () => void;
-  onClose: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
 
@@ -41,16 +39,27 @@ export function TerminalPanel({
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.open(element);
+    let cols = 80;
+    const fit = () => {
+      term.options.fontSize = fontSizeFor(element.clientWidth, cols);
+    };
+    // A fonte acompanha a largura do painel, não só os quadros-chave.
+    const resize = new ResizeObserver(fit);
+    resize.observe(element);
     const state: FrameState = { lastSeq: null, lastResyncAt: Date.now() };
     handle.current = {
       agentId: agent.id,
       apply: (frame) => {
-        if (frame.key) term.options.fontSize = fontSizeFor(element.clientWidth, frame.cols);
+        if (frame.key && frame.cols !== cols) {
+          cols = frame.cols;
+          fit();
+        }
         return applyFrame(term, frame, state);
       },
     };
     onReady();
     return () => {
+      resize.disconnect();
       handle.current = null;
       term.dispose();
     };
@@ -62,10 +71,7 @@ export function TerminalPanel({
         <strong>{agent.label}</strong>
         <span>{agent.ownerName}</span>
         <span class="muted">{statusText(agent)}</span>
-        <span class="readonly">somente leitura</span>
-        <button type="button" onClick={onClose}>
-          Fechar
-        </button>
+        {agent.ownerAway && <span class="muted">dono fora</span>}
       </header>
       <div class="terminal-host" ref={container} />
     </section>

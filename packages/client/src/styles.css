@@ -121,7 +121,6 @@ code {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  grid-row: span 2;
 }
 
 .dot.working {
@@ -246,4 +245,57 @@ code {
 
 .game canvas {
   display: block;
+}
+
+.desk-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(760px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.desk-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.desk-panel > header button {
+  margin-left: auto;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 4px 10px;
+}
+
+.tab.active {
+  border-color: var(--accent);
+}
+
+.desk-panel-message {
+  padding: 24px;
+  color: var(--muted);
 }
