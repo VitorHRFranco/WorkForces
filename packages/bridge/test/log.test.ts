@@ -1,12 +1,24 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { fileLogger } from "../src/log.js";
+
+const dirs: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+};
+const cleanTempDirs = () => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+};
+
+afterEach(cleanTempDirs);
 
 describe("fileLogger", () => {
   it("acrescenta linhas com data em bridge.log, criando a pasta", () => {
-    const dir = join(mkdtempSync(join(tmpdir(), "wf-log-")), "sub");
+    const dir = join(tempDir("wf-log-"), "sub");
     const log = fileLogger(dir);
     log("primeira");
     log("segunda");

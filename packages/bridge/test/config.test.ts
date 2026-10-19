@@ -1,14 +1,26 @@
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Config, ConfigError, configDir, labelFor, loadConfig, saveConfig } from "../src/config.js";
+
+const dirs: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+};
+const cleanTempDirs = () => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+};
 
 let dir: string;
 const write = (content: string) => writeFileSync(join(dir, "config.json"), content);
 
+afterEach(cleanTempDirs);
+
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "wf-config-"));
+  dir = tempDir("wf-config-");
 });
 
 describe("loadConfig", () => {

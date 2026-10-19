@@ -1,11 +1,23 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "../src/server.js";
 import { testConfig } from "./helpers/setup.js";
+
+const dirs: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+};
+const cleanTempDirs = () => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+};
+
+afterEach(cleanTempDirs);
 
 function rawGet(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -21,7 +33,7 @@ function rawGet(port: number, path: string): Promise<{ status: number; body: str
 }
 
 function clientFixture() {
-  const root = mkdtempSync(join(tmpdir(), "wf-static-"));
+  const root = tempDir("wf-static-");
   writeFileSync(join(root, "segredo.txt"), "SEGREDO-FORA-DO-CLIENTE");
   const dir = join(root, "dist");
   mkdirSync(join(dir, "assets"), { recursive: true });

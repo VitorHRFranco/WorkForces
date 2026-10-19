@@ -1,12 +1,22 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { main } from "../src/main.js";
 import { stripAnsi } from "./helpers/ansi.js";
 import { waitUntil } from "./helpers/wait.js";
+
+const dirs: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+};
+const cleanTempDirs = () => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+};
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 
@@ -24,7 +34,9 @@ function bufferIO() {
   return { io: { stdin: new PassThrough(), stdout, stderr }, out: () => out, err: () => err };
 }
 
-const home = () => mkdtempSync(join(tmpdir(), "wf-main-"));
+const home = () => tempDir("wf-main-");
+
+afterEach(cleanTempDirs);
 const context = (argv: string[], env: NodeJS.ProcessEnv, io = bufferIO()) => ({
   ctx: { argv, env, cwd: process.cwd(), io: io.io, platform: process.platform },
   io,

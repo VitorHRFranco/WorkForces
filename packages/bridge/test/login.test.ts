@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -7,10 +7,21 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { main } from "../src/main.js";
 
+const dirs: string[] = [];
+const tempDir = (prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+};
+const cleanTempDirs = () => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+};
+
 const TOKEN = "wf_" + "t".repeat(43);
 const servers: Server[] = [];
 afterEach(() => {
   for (const server of servers.splice(0)) server.close();
+  cleanTempDirs();
 });
 
 async function whoamiServer(host = "127.0.0.1", mode: "ok" | "html" | "redirect" = "ok"): Promise<string> {
@@ -47,7 +58,7 @@ function run(argv: string[], home: string, input = "") {
   return done.then((code) => ({ code, out, err }));
 }
 
-const home = () => mkdtempSync(join(tmpdir(), "wf-login-"));
+const home = () => tempDir("wf-login-");
 const readConfig = (dir: string) => JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) as Record<string, unknown>;
 
 describe("workforces login", () => {
