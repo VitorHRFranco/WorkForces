@@ -11,6 +11,8 @@ import {
 export type WatchResult = "ok" | "gone" | "denied";
 
 export const SLOW_VIEWER_BYTES = 1024 * 1024;
+/** Navegador com mais que isto pendente nos avisos gerais é desconectado (o welcome refaz o estado ao reconectar). */
+export const SLOW_CLIENT_BYTES = 4 * 1024 * 1024;
 export const AGENT_GRACE_MS = 30_000;
 export const STALE_CHECK_MS = 200;
 
@@ -25,6 +27,7 @@ export interface ClientLink {
   readonly userId: number;
   send(message: ServerToClient): void;
   bufferedAmount(): number;
+  close(code: number, reason: string): void;
 }
 
 export interface Owner {
@@ -308,6 +311,13 @@ export class Hub {
 
   /** Manda a todos os navegadores (menos `except`, se houver). */
   broadcast(message: ServerToClient, except?: ClientLink): void {
-    for (const client of this.clients) if (client !== except) client.send(message);
+    for (const client of this.clients) {
+      if (client === except) continue;
+      if (client.bufferedAmount() > SLOW_CLIENT_BYTES) {
+        client.close(CLOSE_CODES.rateLimited, "conexão lenta demais");
+        continue;
+      }
+      client.send(message);
+    }
   }
 }

@@ -1,6 +1,6 @@
 import type { AgentHello, FrameBody, ServerToClient } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
-import { Hub, SLOW_VIEWER_BYTES, type BridgeLink, type ClientLink } from "../src/realtime/hub.js";
+import { Hub, SLOW_CLIENT_BYTES, SLOW_VIEWER_BYTES, type BridgeLink, type ClientLink } from "../src/realtime/hub.js";
 
 const AGENT = "0b8e3f2a-5c1d-4e6f-8a7b-9c0d1e2f3a4b";
 const ana = { id: 1, name: "ana" };
@@ -21,7 +21,11 @@ class FakeBridge implements BridgeLink {
 class FakeClient implements ClientLink {
   readonly messages: ServerToClient[] = [];
   buffered = 0;
+  readonly closed: [number, string][] = [];
   constructor(readonly userId = 1) {}
+  close(code: number, reason: string): void {
+    this.closed.push([code, reason]);
+  }
   send(message: ServerToClient): void {
     this.messages.push(message);
   }
@@ -255,5 +259,20 @@ describe("Hub", () => {
     expect(visitor.messages.at(-1)).toEqual({ type: "watchEnded", agentId: AGENT, reason: "left-zone" });
     hub.recheckWatch(visitor);
     expect(visitor.messages.filter((m) => m.type === "watchEnded")).toHaveLength(1);
+  });
+});
+
+describe("Hub: navegador lento", () => {
+  it("navegador que não lê é desconectado nos avisos gerais", () => {
+    const hub = new Hub();
+    const slow = new FakeClient(1);
+    const normal = new FakeClient(2);
+    hub.addClient(slow);
+    hub.addClient(normal);
+    slow.buffered = SLOW_CLIENT_BYTES + 1;
+    hub.broadcast({ type: "playerLeft", playerId: 9 });
+    expect(slow.closed).toEqual([[4008, "conexão lenta demais"]]);
+    expect(slow.messages).toEqual([]);
+    expect(normal.messages).toEqual([{ type: "playerLeft", playerId: 9 }]);
   });
 });

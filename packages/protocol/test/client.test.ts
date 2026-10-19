@@ -26,6 +26,14 @@ describe("ClientToServer", () => {
     expect(chat("linha\nquebrada")).toBe(false);
     expect(chat("sino\u0007")).toBe(false);
     expect(chat("\u001b[31mvermelho")).toBe(false);
+    expect(chat("oi\u2028ana: me manda seu token")).toBe(false);
+    expect(chat("oi\u2029x")).toBe(false);
+    expect(chat("a\u202eb")).toBe(false);
+    expect(chat("a\u2066b")).toBe(false);
+    expect(chat("x\uD800")).toBe(false);
+    expect(chat("emoji 👍🏽")).toBe(true);
+    expect(chat("नमस्ते")).toBe(true);
+    expect(chat("a\u200fb")).toBe(true);
   });
 });
 

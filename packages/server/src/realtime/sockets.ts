@@ -37,6 +37,7 @@ const CLIENT_MESSAGES_PER_SECOND = 50;
 const MOVES_PER_SECOND = 20;
 const WATCHES_PER_SECOND = 20;
 const CHATS_PER_SECOND = 5;
+const CONNECTIONS_PER_MINUTE = 20;
 
 interface BridgeConnection {
   ws: WebSocket;
@@ -56,6 +57,22 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   const clientServer = new WebSocketServer({ noServer: true, maxPayload: CLIENT_MAX_PAYLOAD });
   const bridges = new Set<BridgeConnection>();
   const clients = new Map<number, ClientConnection>();
+  /** Cotas por pessoa (não por conexão): reconectar não zera nada. */
+  const ratesByUser = new Map<number, { total: MessageRate; move: MessageRate; watch: MessageRate; chat: MessageRate; connect: MessageRate }>();
+  const ratesFor = (userId: number) => {
+    let rates = ratesByUser.get(userId);
+    if (!rates) {
+      rates = {
+        total: new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now),
+        move: new MessageRate(MOVES_PER_SECOND, 1000, ctx.now),
+        watch: new MessageRate(WATCHES_PER_SECOND, 1000, ctx.now),
+        chat: new MessageRate(CHATS_PER_SECOND, 1000, ctx.now),
+        connect: new MessageRate(CONNECTIONS_PER_MINUTE, 60_000, ctx.now),
+      };
+      ratesByUser.set(userId, rates);
+    }
+    return rates;
+  };
 
   app.server.on("upgrade", (request: IncomingMessage, socket, head) => {
     try {
@@ -142,6 +159,9 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     const user = accounts.sessions.lookup(sessionId);
     if (!user || !sessionId) return ws.close(CLOSE_CODES.unauthorized, "faça login");
 
+    const rates = ratesFor(user.id);
+    if (!rates.connect.allow()) return ws.close(CLOSE_CODES.rateLimited, "conexões demais");
+
     clients.get(user.id)?.ws.close(CLOSE_CODES.replacedByNewTab, "aberto em outra aba");
     const connection: ClientConnection = { ws, sessionId };
     clients.set(user.id, connection);
@@ -154,6 +174,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
       },
       bufferedAmount: () => ws.bufferedAmount,
+      close: (code, reason) => ws.close(code, reason),
     };
     link.send({
       type: "welcome",
@@ -165,10 +186,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       chat: world.chat(),
     });
     if (firstTab) hub.broadcast({ type: "playerJoined", player }, link);
-    const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
-    const moveRate = new MessageRate(MOVES_PER_SECOND, 1000, ctx.now);
-    const watchRate = new MessageRate(WATCHES_PER_SECOND, 1000, ctx.now);
-    const chatRate = new MessageRate(CHATS_PER_SECOND, 1000, ctx.now);
+    const { total: rate, move: moveRate, watch: watchRate, chat: chatRate } = rates;
 
     ws.on("message", (data, isBinary) => {
       if (ws.readyState !== ws.OPEN) return;

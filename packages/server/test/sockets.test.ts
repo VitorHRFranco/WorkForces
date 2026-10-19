@@ -425,3 +425,44 @@ describe("chat", () => {
     expect(await second.closed).toBe(4008);
   });
 });
+
+describe("chat: limites por pessoa e remetente", () => {
+  it("a cota de chat não zera ao reconectar", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const first = clientSocket(server, ana.session);
+    await first.waitFor((m) => m.type === "welcome", "welcome");
+    for (let i = 0; i < 4; i++) first.send({ type: "chat", text: `oi ${i}` });
+    const second = clientSocket(server, ana.session);
+    await second.waitFor((m) => m.type === "welcome", "welcome da segunda aba");
+    expect(await first.closed).toBe(4009);
+    second.send({ type: "chat", text: "mais um" });
+    second.send({ type: "chat", text: "e outro" });
+    expect(await second.closed).toBe(4008);
+  });
+
+  it("reconectar em laço fecha com 4008", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    let last = 0;
+    for (let i = 0; i < 21; i++) {
+      const tab = clientSocket(server, ana.session);
+      const outcome = await Promise.race([tab.waitFor((m) => m.type === "welcome", `welcome ${i}`).then(() => 0), tab.closed]);
+      last = outcome;
+    }
+    expect(last).toBe(4008);
+  });
+
+  it("o remetente vem da sessão, não da mensagem", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaTab = clientSocket(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
+    const biaTab = clientSocket(server, bia.session);
+    await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
+    biaTab.send({ type: "chat", text: "oi", fromId: ana.user.id, name: "ana" });
+    const received = await anaTab.waitFor((m) => m.type === "chat", "chat na ana");
+    expect(received).toMatchObject({ fromId: bia.user.id, name: "bia", text: "oi" });
+  });
+});
