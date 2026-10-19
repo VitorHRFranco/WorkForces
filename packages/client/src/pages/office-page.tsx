@@ -6,6 +6,7 @@ import { MoveSender } from "../game/move-sender";
 import type { OfficeSceneDeps } from "../game/office-scene";
 import { useTyping } from "../game/typing";
 import { OfficeConnection } from "../office/connection";
+import { ChatBox } from "../office/chat-box";
 import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
@@ -173,6 +174,7 @@ export function OfficePage() {
       <header class="topbar">
         <strong>WorkForces</strong>
         <span class="who">{me.name}</span>
+        <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>
         <span class="spacer" />
         <button type="button" onClick={() => setModal("tokens")}>
           Tokens da ponte
@@ -189,6 +191,11 @@ export function OfficePage() {
       {notice && (
         <p class="notice" role="status">
           {notice}
+        </p>
+      )}
+      {state.me.deskId === null && (
+        <p class="notice" role="status">
+          Não há mesa livre para você: peça a quem administra o escritório para ampliar o mapa. Seus agentes não aparecem no mapa.
         </p>
       )}
       <main class="stage">
@@ -209,6 +216,7 @@ export function OfficePage() {
             onClose={() => setDismissed(zone)}
           />
         )}
+        <ChatBox messages={state.chat} onSend={(text) => connection.current?.chat(text) ?? false} />
       </main>
       {modal === "tokens" && <TokensModal onClose={() => setModal(null)} />}
       {modal === "invite" && <InviteModal onClose={() => setModal(null)} />}
