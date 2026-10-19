@@ -29,7 +29,7 @@ Configuração por variáveis de ambiente:
 | Variável | Padrão | Uso |
 |---|---|---|
 | `WF_PORT` | `4600` | porta do servidor |
-| `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede) |
+| `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede; defina também `WF_PUBLIC_URL` com o endereço que as pessoas abrem) |
 | `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço que o navegador usa (links de convite e origem aceita) |
 | `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
 | `WF_CLIENT_DIR` | `packages/client/dist` | build do cliente web |
@@ -49,6 +49,20 @@ node packages/bridge/dist/cli.js login http://localhost:4600
 node packages/bridge/dist/cli.js claude
 ```
 
+O escritório mostra os comandos como `workforces …`; sem instalar a ponte, use `node packages/bridge/dist/cli.js` no lugar de `workforces`.
+
 ### Cliente web com recarga automática
 
 Rode o servidor com `WF_PUBLIC_URL=http://localhost:5173` e, em outro terminal, `pnpm --filter @workforces/client dev`; abra `http://localhost:5173`.
+
+Bash:
+
+```bash
+WF_PUBLIC_URL=http://localhost:5173 node packages/server/dist/cli.js start
+```
+
+PowerShell:
+
+```powershell
+$env:WF_PUBLIC_URL = "http://localhost:5173"; node packages/server/dist/cli.js start
+```
