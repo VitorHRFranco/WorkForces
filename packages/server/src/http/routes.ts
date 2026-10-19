@@ -119,6 +119,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   app.get("/api/bridge/whoami", async (request, reply) => {
     const auth = accounts.tokens.verify(bearerToken(request.headers.authorization));
     if (!auth) return reply.code(401).send({ error: "token inválido" });
+    accounts.tokens.touch(auth.tokenId);
     return { name: auth.user.name };
   });
 }

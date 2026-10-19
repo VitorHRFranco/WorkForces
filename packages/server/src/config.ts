@@ -19,8 +19,9 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const isOn = (value: string | undefined) => value === "1" || value === "true";
 
 export function loadServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
-  const port = Number(env.WF_PORT ?? 4600);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new ServerConfigError(`WF_PORT inválida: ${env.WF_PORT}`);
+  const rawPort = env.WF_PORT?.trim() || "4600";
+  const port = Number(rawPort);
+  if (!/^\d+$/.test(rawPort) || port < 1 || port > 65535) throw new ServerConfigError(`WF_PORT inválida: ${env.WF_PORT}`);
 
   let publicUrl: URL;
   try {

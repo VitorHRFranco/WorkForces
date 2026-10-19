@@ -143,6 +143,8 @@ describe("tokens da ponte", () => {
     expect(list.json()).toEqual([{ id, name: "notebook", createdAt: expect.any(Number), lastUsedAt: null }]);
     const who = await app.inject({ method: "GET", url: "/api/bridge/whoami", headers: { authorization: `Bearer ${token}` } });
     expect(who.json()).toEqual({ name: "ana" });
+    const used = await app.inject({ method: "GET", url: "/api/tokens", headers: { cookie } });
+    expect((used.json() as { lastUsedAt: number | null }[])[0]?.lastUsedAt).not.toBeNull();
     const del = await app.inject({ method: "DELETE", url: `/api/tokens/${id}`, headers: { ...JSON_HEADERS, cookie }, payload: {} });
     expect(del.statusCode).toBe(204);
     expect(revoked).toEqual([id]);

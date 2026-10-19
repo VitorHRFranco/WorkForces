@@ -37,6 +37,8 @@ describe("loadServerConfig", () => {
 
   it("recusa porta e URL inválidas", () => {
     expect(() => loadServerConfig({ WF_PORT: "abc" })).toThrow(ServerConfigError);
+    expect(() => loadServerConfig({ WF_PORT: "0" })).toThrow(ServerConfigError);
+    expect(loadServerConfig({ WF_PORT: "" }).port).toBe(4600);
     expect(() => loadServerConfig({ WF_PUBLIC_URL: "ftp://x" })).toThrow(ServerConfigError);
     expect(() => loadServerConfig({ WF_PUBLIC_URL: "não é url" })).toThrow(ServerConfigError);
   });
