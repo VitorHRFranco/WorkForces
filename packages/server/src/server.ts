@@ -7,7 +7,9 @@ import { buildApp } from "./app.js";
 import type { ServerConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDb } from "./db.js";
+import { registerMapRoutes } from "./http/map-routes.js";
 import { registerApi } from "./http/routes.js";
+import { loadMap, type LoadedMap } from "./map/load-map.js";
 import { Hub } from "./realtime/hub.js";
 import { registerSockets, type SocketOptions } from "./realtime/sockets.js";
 import { registerClient } from "./static.js";
@@ -25,6 +27,7 @@ export interface WorkforcesServer {
   ctx: AppContext;
   accounts: AccountServices;
   hub: Hub;
+  office: LoadedMap;
 }
 
 export function defaultLog(message: string): void {
@@ -33,6 +36,7 @@ export function defaultLog(message: string): void {
 
 /** Monta o servidor sem escutar a porta (os testes usam inject ou listen na porta 0). */
 export function createServer(config: ServerConfig, options: CreateServerOptions = {}): WorkforcesServer {
+  const office = loadMap(config.mapFile);
   let dbFile = options.dbFile;
   if (!dbFile) {
     mkdirSync(config.dataDir, { recursive: true });
@@ -45,9 +49,10 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   const app = buildApp(ctx);
   registerApi(app, { ctx, accounts, onTokenRevoked: (tokenId) => hub.closeBridgesForToken(tokenId) });
   registerSockets(app, { ctx, accounts, hub }, options.sockets);
+  registerMapRoutes(app, office);
   registerClient(app, ctx);
   app.addHook("onClose", async () => db.close());
-  return { app, ctx, accounts, hub };
+  return { app, ctx, accounts, hub, office };
 }
 
 /** Sobe o servidor; sem nenhuma conta, imprime um convite de admin (única vez em que um código vai para o log). */

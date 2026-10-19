@@ -45,6 +45,10 @@ export async function runServerCli(args: string[], env: NodeJS.ProcessEnv, out: 
     try {
       server = await startServer(config, { log: (message) => out.log(`[workforces] ${message}`) });
     } catch (error) {
+      if (error instanceof ServerConfigError) {
+        out.error(`workforces-server: ${error.message}`);
+        return 2;
+      }
       if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
       out.error(`workforces-server: a porta ${config.port} já está em uso (WF_PORT)`);
       return 1;

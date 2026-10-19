@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { LightMyRequestResponse } from "fastify";
 import { createAccountServices, type AccountServices } from "../../src/accounts/index.js";
 import { ADMIN_INVITE_TTL_MS, INVITE_TTL_MS } from "../../src/accounts/invites.js";
@@ -9,6 +10,8 @@ import { openDb } from "../../src/db.js";
 import { registerApi } from "../../src/http/routes.js";
 
 export const ORIGIN = "http://localhost:4600";
+/** O mapa do repositório (assets/map/office.tmj). */
+export const REPO_MAP = fileURLToPath(new URL("../../../../assets/map/office.tmj", import.meta.url));
 export const JSON_HEADERS = { "content-type": "application/json", origin: ORIGIN };
 
 export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
@@ -18,6 +21,7 @@ export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     publicUrl: new URL(ORIGIN),
     dataDir: "",
     clientDir: "",
+    mapFile: REPO_MAP,
     insecure: false,
     trustProxy: false,
     ...overrides,

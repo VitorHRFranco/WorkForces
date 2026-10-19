@@ -70,6 +70,13 @@ describe("workforces-server user disable", () => {
     }
   });
 
+  it("mapa ilegível na subida sai com 2 e diz o motivo", async () => {
+    const dir = tempDir("wf-data-");
+    const { lines, out } = output();
+    expect(await runServerCli(["start"], { WF_DATA_DIR: dir, WF_MAP: join(dir, "nao-existe.tmj") }, out)).toBe(2);
+    expect(lines.join("\n")).toContain("não consegui ler o mapa");
+  });
+
   it("banco ausente, uso errado e configuração insegura", async () => {
     const empty = tempDir("wf-data-");
     const a = output();

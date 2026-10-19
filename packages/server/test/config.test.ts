@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ServerConfigError, loadServerConfig } from "../src/config.js";
@@ -12,6 +13,8 @@ describe("loadServerConfig", () => {
     expect(config.trustProxy).toBe(false);
     expect(config.dataDir).toMatch(/\.workforces-server$/);
     expect(config.clientDir.replace(/\\/g, "/")).toMatch(/packages\/client\/dist$/);
+    expect(config.mapFile.replace(/\\/g, "/")).toMatch(/assets\/map\/office\.tmj$/);
+    expect(existsSync(config.mapFile)).toBe(true);
   });
 
   it("lê as variáveis WF_*", () => {
@@ -28,6 +31,7 @@ describe("loadServerConfig", () => {
     expect(relative).toBe(resolve("cliente/dist"));
     expect(isAbsolute(relative)).toBe(true);
     expect(config.publicUrl.origin).toBe("https://workforces.exemplo");
+    expect(loadServerConfig({ WF_MAP: "mapas/outro.tmj" }).mapFile).toBe(resolve("mapas/outro.tmj"));
   });
 
   it("recusa HTTP fora de localhost sem WF_INSECURE", () => {
