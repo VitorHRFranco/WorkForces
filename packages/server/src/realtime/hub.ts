@@ -132,6 +132,17 @@ export class Hub {
     entry.removal.unref();
   }
 
+  /** A ponte encerrou de propósito (o `claude` terminou): o agente some na hora, sem prazo de reconexão. */
+  agentEnded(link: BridgeLink, agentId: string): void {
+    const entry = this.current(link, agentId);
+    if (!entry) return;
+    entry.link = null;
+    entry.screen = null;
+    if (entry.removal) clearTimeout(entry.removal);
+    entry.removal = null;
+    this.removeAgent(agentId);
+  }
+
   addClient(link: ClientLink): AgentInfo[] {
     this.clients.add(link);
     return [...this.agents.values()].map((entry) => entry.info);

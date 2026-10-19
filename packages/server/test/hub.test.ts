@@ -142,6 +142,25 @@ describe("Hub", () => {
     expect(hub.addClient(new FakeClient(2))).toEqual([]);
   });
 
+  it("agentEnded remove o agente na hora, mas só para a ponte atual", () => {
+    const hub = new Hub(60_000);
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const client = new FakeClient();
+    hub.addClient(client);
+    hub.watch(client, AGENT);
+    hub.agentEnded(bridge, AGENT);
+    expect(client.types().slice(-2)).toEqual(["watchEnded", "agentRemoved"]);
+    expect(hub.addClient(new FakeClient(2))).toEqual([]);
+
+    const old = new FakeBridge();
+    hub.registerAgent(ana, hello(), old);
+    const fresh = new FakeBridge();
+    hub.registerAgent(ana, hello(), fresh);
+    hub.agentEnded(old, AGENT);
+    expect(hub.addClient(new FakeClient(3))).toHaveLength(1);
+  });
+
   it("reconectar dentro do prazo mantém o agente e pede quadros de novo", async () => {
     const hub = new Hub(30);
     const bridge = new FakeBridge();

@@ -209,4 +209,20 @@ describe("repasse de quadros", () => {
     await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "agent-gone", "watchEnded");
     await viewer.waitFor((m) => m.type === "agentRemoved" && m.agentId === agentId, "agentRemoved");
   });
+
+  it("quando o claude termina (fechamento 1000), o agente some na hora", async () => {
+    const server = await live({ graceMs: 60_000 });
+    const ana = await person(server, "ana");
+    const agentId = randomUUID();
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    const viewer = clientSocket(server, ana.session);
+    await viewer.waitFor(knowsAgent(agentId), "agente na lista");
+    viewer.send({ type: "watch", agentId });
+    await bridge.waitFor((m) => m.type === "viewers", "viewers");
+    bridge.ws.close(1000);
+    await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "agent-gone", "watchEnded");
+    await viewer.waitFor((m) => m.type === "agentRemoved" && m.agentId === agentId, "agentRemoved");
+  });
 });

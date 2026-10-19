@@ -106,10 +106,13 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       else ws.close(CLOSE_CODES.invalidMessage, "hello repetido");
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code) => {
       clearTimeout(helloTimer);
       bridges.delete(connection);
-      if (agentId !== null) hub.agentDisconnected(link, agentId);
+      if (agentId === null) return;
+      // 1000: a ponte fechou de propósito (o claude terminou); queda de rede chega como 1006.
+      if (code === 1000) hub.agentEnded(link, agentId);
+      else hub.agentDisconnected(link, agentId);
     });
   }
 
