@@ -1,7 +1,8 @@
 import { deskAt, type Direction, type OfficeMap } from "@workforces/protocol";
 import Phaser from "phaser";
 import type { OfficeState } from "../office/office-state";
-import { avatarFor } from "./avatar";
+import { ROBOT_FRAME, avatarFor } from "./avatar";
+import { layoutDesks, robotLook } from "./desk-layout";
 import type { MoveState } from "./move-sender";
 import { Track } from "./track";
 
@@ -13,6 +14,7 @@ const ZOOM = 3;
 /** Sprites ficam acima das camadas do mapa e se sobrepõem pela altura (y). */
 const SPRITE_DEPTH = 100;
 const LABEL_DEPTH = 10_000;
+const SMALL_TEXT_DEPTH = 9_000;
 
 export interface OfficeSceneDeps {
   state: OfficeState;
@@ -42,6 +44,9 @@ export class OfficeScene extends Phaser.Scene {
   private dir: Direction = "down";
   private zone: string | null = null;
   private keyboardWanted = true;
+  /** Tudo o que foi desenhado para mesas e robôs; refeito quando agentes ou mesas mudam. */
+  private deskObjects: Phaser.GameObjects.GameObject[] = [];
+  private deskSignature = "";
 
   constructor(private readonly deps: OfficeSceneDeps) {
     super("office");
@@ -141,9 +146,43 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Acompanha o estado: outros jogadores (a Task 9 acrescenta mesas e robôs aqui). */
+  /** Acompanha o estado: outros jogadores, mesas e robôs. */
   private sync(): void {
     this.syncRemotes();
+    this.syncDesks();
+  }
+
+  private syncDesks(): void {
+    const { state, map } = this.deps;
+    // Só redesenha quando agentes ou mesas mudam (o estado também muda a cada passo dos outros jogadores).
+    const signature = JSON.stringify([[...state.desks.values()], [...state.agents.values()]]);
+    if (signature === this.deskSignature) return;
+    this.deskSignature = signature;
+    for (const object of this.deskObjects) object.destroy();
+    this.deskObjects = [];
+
+    for (const view of layoutDesks(map, state.desks, state.agents.values())) {
+      this.deskObjects.push(this.smallText(view.plate.x, view.plate.y, view.ownerName ?? "livre", view.ownerName ? "#cfc6b8" : "#7a444a"));
+      for (const { agent, at } of view.robots) {
+        const look = robotLook(agent);
+        const robot = this.add
+          .sprite(at.x, at.y, TILES_KEY, ROBOT_FRAME)
+          .setTint(avatarFor(agent.ownerId).tint)
+          .setAlpha(look.alpha)
+          .setDepth(SPRITE_DEPTH + at.y);
+        const dot = this.add.graphics().fillStyle(look.dot, 1).fillCircle(at.x + 6, at.y - 6, 2).setDepth(SPRITE_DEPTH + at.y + 1);
+        this.deskObjects.push(robot, dot, this.smallText(at.x, at.y - 8, agent.label.slice(0, 14), "#e6e8ec"));
+        if (look.note) this.deskObjects.push(this.smallText(at.x, at.y + 14, look.note, "#f4b41b"));
+      }
+      if (view.extra > 0) this.deskObjects.push(this.smallText(view.extraAt.x, view.extraAt.y, `+${view.extra}`, "#f4b41b"));
+    }
+  }
+
+  private smallText(x: number, y: number, text: string, color: string): Phaser.GameObjects.Text {
+    return this.add
+      .text(x, y, text, { fontFamily: "monospace", fontSize: "6px", color, resolution: 4 })
+      .setOrigin(0.5, 1)
+      .setDepth(SMALL_TEXT_DEPTH);
   }
 
   private syncRemotes(): void {
