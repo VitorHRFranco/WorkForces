@@ -38,4 +38,6 @@ export const api = {
   listTokens: () => request<TokenInfo[]>("GET", "/api/tokens"),
   createToken: (name: string) => request<TokenCreated>("POST", "/api/tokens", { name }),
   revokeToken: (id: number) => request<void>("DELETE", `/api/tokens/${id}`),
+  /** O .tmj do escritório (o mesmo que o servidor usa para as mesas). */
+  map: () => request<unknown>("GET", "/map/map.tmj"),
 };

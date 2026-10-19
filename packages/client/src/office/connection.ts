@@ -1,4 +1,5 @@
-import { CLOSE_CODES, PROTOCOL_VERSION, ServerToClient, parseJson, type ClientToServer } from "@workforces/protocol";
+import { CLOSE_CODES, PROTOCOL_VERSION, ServerToClient, parseJson, type ClientToServer, type Direction } from "@workforces/protocol";
+import { SendBudget, type SendKind } from "./send-budget";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting";
 
@@ -14,7 +15,7 @@ export class OfficeConnection {
   private timer: number | undefined;
   private stableTimer: number | undefined;
   private stopped = false;
-  private sent: number[] = [];
+  private readonly budget = new SendBudget();
 
   constructor(private readonly handlers: OfficeConnectionHandlers) {}
 
@@ -37,15 +38,22 @@ export class OfficeConnection {
     this.send({ type: "unwatch" });
   }
 
-  private send(message: ClientToServer): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
-    // Teto de 10 mensagens por segundo (o servidor corta em 20/s com 4008). Um watch descartado é refeito
-    // pelo caminho de "gap" depois de 3 s ou pelo welcome.
-    const now = Date.now();
-    this.sent = this.sent.filter((time) => now - time < 1_000);
-    if (this.sent.length >= 10) return;
-    this.sent.push(now);
+  move(x: number, y: number, dir: Direction, moving: boolean): void {
+    this.send({ type: "move", x, y, dir, moving });
+  }
+
+  /** false = não mandou (limite de mensagens por segundo); a caixa de chat avisa. */
+  chat(text: string): boolean {
+    return this.send({ type: "chat", text });
+  }
+
+  private send(message: ClientToServer): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    // Um watch descartado é refeito pelo caminho de "gap" depois de 3 s ou pelo welcome.
+    const kind: SendKind = message.type === "move" ? "move" : message.type === "chat" ? "chat" : "watch";
+    if (!this.budget.allow(kind, Date.now())) return false;
     this.socket.send(JSON.stringify(message));
+    return true;
   }
 
   private connect(): void {
