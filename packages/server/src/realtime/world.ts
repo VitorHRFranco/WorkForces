@@ -34,6 +34,8 @@ export class World {
       changed.push(this.deskInfo(previous));
     }
     if (deskId !== null) {
+      const former = this.ownerByDesk.get(deskId);
+      if (former && former.id !== person.id) this.deskByOwner.delete(former.id);
       this.ownerByDesk.set(deskId, person);
       this.deskByOwner.set(person.id, deskId);
       changed.push(this.deskInfo(deskId));

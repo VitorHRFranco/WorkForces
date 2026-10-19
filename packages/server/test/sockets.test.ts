@@ -144,6 +144,21 @@ describe("conexão do navegador", () => {
     const welcome = await clientSocket(server, caio.session).waitFor((m) => m.type === "welcome", "welcome");
     expect(welcome.me).toMatchObject({ name: "caio", deskId: null });
   });
+  it("falha ao gravar a mesa não derruba a ponte nem o navegador", async () => {
+    const server = await live();
+    server.accounts.desks.ensure = () => {
+      throw new Error("database is locked");
+    };
+    const ana = await person(server, "ana");
+    const agentId = randomUUID();
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    const tab = clientSocket(server, ana.session);
+    const welcome = await tab.waitFor(knowsAgent(agentId), "agente registrado");
+    expect(welcome.type === "welcome" ? welcome.me : null).toMatchObject({ name: "ana", deskId: null });
+    expect(server.logs.some((line) => line.includes("não consegui gravar a mesa"))).toBe(true);
+  });
 });
 
 describe("repasse de quadros", () => {

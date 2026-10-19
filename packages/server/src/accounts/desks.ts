@@ -10,15 +10,18 @@ export class DeskStore {
    */
   ensure(userId: number, deskIds: readonly string[]): { deskId: string | null; changed: boolean } {
     return this.db.transaction(() => {
-      const row = this.db.prepare("select desk_id from users where id = ?").get(userId) as { desk_id: string | null } | undefined;
-      const current = row?.desk_id ?? null;
+      const row = this.db.prepare("select desk_id, disabled_at from users where id = ?").get(userId) as
+        | { desk_id: string | null; disabled_at: number | null }
+        | undefined;
+      if (!row || row.disabled_at !== null) return { deskId: null, changed: false };
+      const current = row.desk_id;
       if (current !== null && deskIds.includes(current)) return { deskId: current, changed: false };
       const taken = new Set((this.db.prepare("select desk_id from users where desk_id is not null").all() as { desk_id: string }[]).map((r) => r.desk_id));
       const free = deskIds.find((id) => !taken.has(id)) ?? null;
       if (free === current) return { deskId: current, changed: false };
       this.db.prepare("update users set desk_id = ? where id = ?").run(free, userId);
       return { deskId: free, changed: true };
-    })();
+    }).immediate();
   }
 
   /** Dono de cada mesa, entre as contas ativas. */

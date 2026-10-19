@@ -43,6 +43,17 @@ describe("DeskStore", () => {
     accounts.desks.ensure(ana.id, IDS);
     expect(() => db.prepare("update users set desk_id = 'mesa-1' where id = ?").run(bia.id)).toThrow(/UNIQUE/);
   });
+  it("conta desativada não ganha mesa e o disable repetido libera a mesa gravada", async () => {
+    const db = openDb(":memory:");
+    const accounts = createAccountServices(db, Date.now);
+    const ana = await createUser(accounts, "ana");
+    const bia = await createUser(accounts, "bia");
+    disableUser(accounts, ana.id);
+    expect(accounts.desks.ensure(ana.id, IDS)).toEqual({ deskId: null, changed: false });
+    db.prepare("update users set desk_id = 'mesa-2' where id = ?").run(ana.id);
+    accounts.users.disable(ana.id);
+    expect(accounts.desks.ensure(bia.id, ["mesa-2"])).toEqual({ deskId: "mesa-2", changed: true });
+  });
 });
 
 describe("World: mesas", () => {
@@ -58,5 +69,12 @@ describe("World: mesas", () => {
       { id: "mesa-3", ownerId: 8, ownerName: "caio" },
     ]);
     expect(world.deskIdOf(8)).toBe("mesa-3");
+  });
+
+  it("a mesa reatribuída não fica apontada para o dono antigo", () => {
+    const world = new World(officeMap(), new Map([["mesa-1", { id: 7, name: "bia" }]]));
+    world.setDesk({ id: 8, name: "caio" }, "mesa-1");
+    expect(world.deskIdOf(7)).toBeNull();
+    expect(world.deskIdOf(8)).toBe("mesa-1");
   });
 });

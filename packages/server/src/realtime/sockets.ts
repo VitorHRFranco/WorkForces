@@ -68,9 +68,15 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
 
   /** Garante a mesa da pessoa (primeiro acesso pelo navegador ou pela ponte) e avisa quem está online. */
   function ensureDesk(person: Person): string | null {
-    const { deskId } = accounts.desks.ensure(person.id, world.map.desks.map((desk) => desk.id));
-    for (const desk of world.setDesk(person, deskId)) hub.broadcast({ type: "deskUpdated", desk });
-    return deskId;
+    try {
+      const { deskId } = accounts.desks.ensure(person.id, world.map.desks.map((desk) => desk.id));
+      for (const desk of world.setDesk(person, deskId)) hub.broadcast({ type: "deskUpdated", desk });
+      return deskId;
+    } catch (error) {
+      // Nunca derruba a conexão: a pessoa segue com a mesa que o servidor já conhecia (ou sem mesa).
+      ctx.log(`não consegui gravar a mesa: ${(error as Error).message}`);
+      return world.deskIdOf(person.id);
+    }
   }
 
   function onBridge(ws: WebSocket, request: IncomingMessage): void {
