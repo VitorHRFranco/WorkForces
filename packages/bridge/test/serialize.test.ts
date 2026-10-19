@@ -1,4 +1,5 @@
 import type { IBufferCell } from "@xterm/headless";
+import { isSafeLine } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
 import { createHeadless } from "../src/screen/headless.js";
 import { serializeRow } from "../src/screen/serialize.js";
@@ -37,6 +38,17 @@ describe("serializeRow", () => {
       expect(describeCell(b), `coluna ${x}`).toEqual(describeCell(a));
     }
     expect(line.endsWith("\x1b[0m")).toBe(true);
+  });
+
+  it("só emite texto e SGR que o protocolo aceita, mesmo com entrada hostil", async () => {
+    const source = await screen(
+      40,
+      "\x1b[1;31mcor\x1b[0m \x1b]8;;https://x\x07link\x1b]8;;\x07 \x1b[?7h\x9b2J\x1b[2b a\rb\x7f\x00\x1b(0q\x1b[38;2;1;2;3;48;5;200mZ\x1b[4:3mw",
+    );
+    for (let y = 0; y < 2; y++) {
+      const line = serializeRow(source.term.buffer.active.getLine(y), 40);
+      expect(isSafeLine(line), JSON.stringify(line)).toBe(true);
+    }
   });
 
   it("troca células mascaradas por • mantendo a largura", async () => {

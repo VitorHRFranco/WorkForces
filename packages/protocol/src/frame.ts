@@ -8,7 +8,11 @@ export const Cursor = z.object({
 });
 export type Cursor = z.infer<typeof Cursor>;
 
-/** Campos de um quadro, reaproveitados por FrameBody e pela mensagem `frame` da ponte. */
+/** Linha de quadro só tem texto e SGR (ESC [ … m); qualquer outro controle é recusado. */
+const UNSAFE_IN_LINE = /\x1b(?!\[[0-9;:]*m)|[\x00-\x1a\x1c-\x1f\x7f-\x9f]/;
+export const isSafeLine = (text: string): boolean => !UNSAFE_IN_LINE.test(text);
+
+/** Campos de um quadro,reaproveitados por FrameBody e pela mensagem `frame` da ponte. */
 export const frameShape = {
   seq: z.number().int().min(1),
   /** true = o destino limpa a tela antes de aplicar as linhas. */
@@ -16,7 +20,7 @@ export const frameShape = {
   cols: z.number().int().min(1).max(LIMITS.maxCols),
   rows: z.number().int().min(1).max(LIMITS.maxRows),
   cursor: Cursor,
-  lines: z.array(z.tuple([z.number().int().min(0), z.string()])).max(LIMITS.maxRows),
+  lines: z.array(z.tuple([z.number().int().min(0), z.string().refine(isSafeLine, "linha com controle fora de SGR")])).max(LIMITS.maxRows),
 };
 
 interface FrameGeometry {

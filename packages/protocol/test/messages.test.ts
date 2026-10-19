@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentToServer, FrameBody, PROTOCOL_VERSION, ServerToAgent, parseJson } from "../src/index.js";
+import { AgentToServer, FrameBody, isSafeLine, PROTOCOL_VERSION, ServerToAgent, parseJson } from "../src/index.js";
 
 const agentId = "0b8e3f2a-5c1d-4e6f-8a7b-9c0d1e2f3a4b";
 const hello = { type: "hello", protocol: PROTOCOL_VERSION, kind: "agent", agentId, label: "loja", cols: 120, rows: 40 };
@@ -41,6 +41,25 @@ describe("FrameBody", () => {
     const { type: _type, ...body } = frame;
     expect(FrameBody.safeParse(body).success).toBe(true);
     expect(FrameBody.safeParse({ ...body, seq: 0 }).success).toBe(false);
+  });
+});
+
+describe("linhas de quadro", () => {
+  const body = (text: string) => ({ seq: 1, key: true, cols: 10, rows: 2, cursor: { x: 0, y: 0, visible: true }, lines: [[0, text]] });
+
+  it("aceita texto e SGR", () => {
+    expect(FrameBody.safeParse(body("\x1b[0;1;31mok\x1b[0m")).success).toBe(true);
+  });
+
+  it.each([
+    ["\x1b[2b"],
+    ["\x1b]8;;https://x\x07a"],
+    ["a\rb"],
+    ["\x9b2J"],
+    ["\x1b[?7h"],
+  ])("recusa controle fora de SGR: %j", (text) => {
+    expect(isSafeLine(text)).toBe(false);
+    expect(FrameBody.safeParse(body(text)).success).toBe(false);
   });
 });
 
