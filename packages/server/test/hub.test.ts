@@ -98,7 +98,7 @@ describe("Hub", () => {
     hub.agentFrame(bridge, AGENT, frame(1, true, [[0, "ignorado"], [1, ""]]));
     const first = new FakeClient();
     hub.addClient(first);
-    expect(hub.watch(first, AGENT)).toBe(true);
+    expect(hub.watch(first, AGENT)).toBe("ok");
     expect(bridge.viewers).toEqual([1]);
     expect(first.frames()).toEqual([]);
     hub.agentFrame(bridge, AGENT, frame(5, false, [[0, "diff antes do chave"]]));
@@ -218,7 +218,7 @@ describe("Hub", () => {
     const client = new FakeClient();
     hub.addClient(client);
     hub.watch(client, AGENT);
-    expect(hub.watch(client, "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f")).toBe(false);
+    expect(hub.watch(client, "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f")).toBe("gone");
     expect(bridge.viewers).toEqual([1, 0]);
   });
 
@@ -235,5 +235,25 @@ describe("Hub", () => {
     slow.buffered = 0;
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(slow.frames().at(-1)).toMatchObject({ seq: 2, key: true, lines: [[0, "b"], [1, ""]] });
+  });
+  it("só assiste quem pode, e quem sai da zona deixa de assistir", () => {
+    let allowed = false;
+    const hub = new Hub(30_000, 200, () => allowed);
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const visitor = new FakeClient(bia.id);
+    hub.addClient(visitor);
+    expect(hub.watch(visitor, AGENT)).toBe("denied");
+    expect(bridge.viewers).toEqual([]);
+    allowed = true;
+    expect(hub.watch(visitor, AGENT)).toBe("ok");
+    hub.recheckWatch(visitor);
+    expect(bridge.viewers).toEqual([1]);
+    allowed = false;
+    hub.recheckWatch(visitor);
+    expect(bridge.viewers).toEqual([1, 0]);
+    expect(visitor.messages.at(-1)).toEqual({ type: "watchEnded", agentId: AGENT, reason: "left-zone" });
+    hub.recheckWatch(visitor);
+    expect(visitor.messages.filter((m) => m.type === "watchEnded")).toHaveLength(1);
   });
 });

@@ -28,6 +28,8 @@ describe("ServerToClient", () => {
     expect(ServerToClient.safeParse({ type: "agentAdded", agent }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "agentRemoved", agentId }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "agent-gone" }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "left-zone" }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "longe" }).success).toBe(false);
     expect(ServerToClient.safeParse({ type: "playerJoined", player }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "playerLeft", playerId: 1 }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "playerMoved", playerId: 1, x: 1, y: 2, dir: "up", moving: true }).success).toBe(true);

@@ -8,6 +8,8 @@ import {
   type ServerToClient,
 } from "@workforces/protocol";
 
+export type WatchResult = "ok" | "gone" | "denied";
+
 export const SLOW_VIEWER_BYTES = 1024 * 1024;
 export const AGENT_GRACE_MS = 30_000;
 export const STALE_CHECK_MS = 200;
@@ -61,6 +63,8 @@ export class Hub {
   constructor(
     private readonly graceMs: number = AGENT_GRACE_MS,
     private readonly staleCheckMs: number = STALE_CHECK_MS,
+    /** Regra de proximidade (spec 9): quem pode assistir os agentes de quem. */
+    private readonly canWatch: (viewerId: number, ownerId: number) => boolean = () => true,
   ) {}
 
   registerAgent(owner: Owner, hello: AgentHello, link: BridgeLink): RegisterResult {
@@ -154,10 +158,10 @@ export class Hub {
   }
 
   addClient(link: ClientLink): AgentInfo[] {
-    this.clients.add(link);
     const count = (this.online.get(link.userId) ?? 0) + 1;
     this.online.set(link.userId, count);
     if (count === 1) this.setOwnerAway(link.userId, false);
+    this.clients.add(link);
     return [...this.agents.values()].map((entry) => entry.info);
   }
 
@@ -173,24 +177,38 @@ export class Hub {
     this.setOwnerAway(link.userId, true);
   }
 
-  /** Devolve false se o agente não existe. Repetir o watch reenvia a tela (ressincronização). */
-  watch(link: ClientLink, agentId: string): boolean {
+  /** Repetir o watch reenvia a tela (ressincronização). */
+  watch(link: ClientLink, agentId: string): WatchResult {
     const entry = this.agents.get(agentId);
     if (!entry) {
       this.unwatch(link);
-      return false;
+      return "gone";
+    }
+    if (!this.canWatch(link.userId, entry.info.ownerId)) {
+      this.unwatch(link);
+      return "denied";
     }
     if (this.watching.get(link) === agentId) {
       entry.stale.delete(link);
       if (entry.screen) link.send(this.keyFrame(entry));
-      return true;
+      return "ok";
     }
     this.unwatch(link);
     entry.viewers.add(link);
     this.watching.set(link, agentId);
     if (entry.screen) link.send(this.keyFrame(entry));
     entry.link?.sendViewers(entry.viewers.size);
-    return true;
+    return "ok";
+  }
+
+  /** Depois de um `move`: quem saiu da zona da mesa deixa de assistir. */
+  recheckWatch(link: ClientLink): void {
+    const agentId = this.watching.get(link);
+    if (agentId === undefined) return;
+    const entry = this.agents.get(agentId);
+    if (entry && this.canWatch(link.userId, entry.info.ownerId)) return;
+    this.unwatch(link);
+    link.send({ type: "watchEnded", agentId, reason: "left-zone" });
   }
 
   unwatch(link: ClientLink): void {

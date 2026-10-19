@@ -48,7 +48,7 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   const ctx: AppContext = { config, now: options.now ?? Date.now, log: options.log ?? defaultLog };
   const accounts = createAccountServices(db, ctx.now);
   const world = new World(office.map, accounts.desks.owners());
-  const hub = new Hub(options.graceMs);
+  const hub = new Hub(options.graceMs, undefined, (viewerId, ownerId) => world.canWatch(viewerId, ownerId));
   const app = buildApp(ctx);
   registerApi(app, { ctx, accounts, onTokenRevoked: (tokenId) => hub.closeBridgesForToken(tokenId) });
   registerSockets(app, { ctx, accounts, hub, world }, options.sockets);

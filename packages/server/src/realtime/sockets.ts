@@ -176,11 +176,13 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         if (!moveRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "movimento demais");
         const moved = world.move(user.id, message.x, message.y, message.dir, message.moving);
         if (moved) hub.broadcast({ type: "playerMoved", playerId: moved.id, x: moved.x, y: moved.y, dir: moved.dir, moving: moved.moving }, link);
+        hub.recheckWatch(link);
         return;
       }
       if (!watchRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       if (message.type === "unwatch") return hub.unwatch(link);
-      if (!hub.watch(link, message.agentId)) link.send({ type: "watchEnded", agentId: message.agentId, reason: "agent-gone" });
+      const result = hub.watch(link, message.agentId);
+      if (result !== "ok") link.send({ type: "watchEnded", agentId: message.agentId, reason: result === "gone" ? "agent-gone" : "left-zone" });
     });
 
     ws.on("close", () => {

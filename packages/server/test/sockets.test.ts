@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { disableUser } from "../src/accounts/index.js";
-import { bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message } from "./helpers/live.js";
+import { bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message, type TestSocket } from "./helpers/live.js";
 import { JSON_HEADERS, createUser } from "./helpers/setup.js";
 import { sleep } from "./helpers/wait.js";
 
@@ -35,6 +35,15 @@ const keyFrame = (seq: number, text: string) => ({
 const knowsAgent = (agentId: string) => (m: Message) =>
   (m.type === "welcome" && (m.agents as Message[]).some((a) => a.id === agentId)) ||
   (m.type === "agentAdded" && (m.agent as Message).id === agentId);
+
+/** Leva quem assiste para o meio da mesa do dono e pede para assistir (o `move` chega antes do `watch`). */
+function watchFromDesk(server: LiveServer, viewer: TestSocket, ownerId: number, agentId: string): void {
+  const deskId = server.world.deskIdOf(ownerId);
+  const desk = server.world.map.desks.find((candidate) => candidate.id === deskId);
+  if (!desk) throw new Error("o dono não tem mesa");
+  viewer.send({ type: "move", x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y + desk.zone.height / 2, dir: "up", moving: false });
+  viewer.send({ type: "watch", agentId });
+}
 
 describe("conexão da ponte", () => {
   it("token inválido fecha com 4001 depois do upgrade", async () => {
@@ -87,8 +96,7 @@ describe("conexão da ponte", () => {
     await thief.opened();
     thief.send(hello(agentId, "roubado"));
     expect(await thief.closed).toBe(4000);
-    // O agentUpdated de "dono fora" (ana abriu o escritório depois da ponte) é legítimo; o que não pode haver é o rótulo do ladrão.
-    expect(viewer.messages.some((m) => m.type === "agentUpdated" && (m.agent as Message).label === "roubado")).toBe(false);
+    expect(viewer.messages.some((m) => m.type === "agentUpdated")).toBe(false);
   });
 
   it("mensagens demais fecham com 4008", async () => {
@@ -175,7 +183,7 @@ describe("repasse de quadros", () => {
 
     const viewer = clientSocket(server, bia.session);
     await viewer.waitFor(knowsAgent(agentId), "agente na lista");
-    viewer.send({ type: "watch", agentId });
+    watchFromDesk(server, viewer, ana.user.id, agentId);
     await bridge.waitFor((m) => m.type === "viewers" && m.n === 1, "viewers 1");
     bridge.send(keyFrame(1, "OLÁ"));
     const received = await viewer.waitFor((m) => m.type === "frame" && m.seq === 1, "quadro 1");
@@ -183,7 +191,7 @@ describe("repasse de quadros", () => {
 
     const late = clientSocket(server, ana.session);
     await late.waitFor((m) => m.type === "welcome", "welcome");
-    late.send({ type: "watch", agentId });
+    watchFromDesk(server, late, ana.user.id, agentId);
     await late.waitFor((m) => m.type === "frame" && m.key === true && m.seq === 1, "tela guardada");
     await bridge.waitFor((m) => m.type === "viewers" && m.n === 2, "viewers 2");
 
@@ -245,7 +253,7 @@ describe("repasse de quadros", () => {
     bridge.send(hello(agentId));
     const viewer = clientSocket(server, ana.session);
     await viewer.waitFor(knowsAgent(agentId), "agente na lista");
-    viewer.send({ type: "watch", agentId });
+    watchFromDesk(server, viewer, ana.user.id, agentId);
     await bridge.waitFor((m) => m.type === "viewers", "viewers");
     bridge.ws.close();
     await viewer.waitFor((m) => m.type === "agentUpdated" && (m.agent as Message).connected === false, "reconectando");
@@ -262,11 +270,54 @@ describe("repasse de quadros", () => {
     bridge.send(hello(agentId));
     const viewer = clientSocket(server, ana.session);
     await viewer.waitFor(knowsAgent(agentId), "agente na lista");
-    viewer.send({ type: "watch", agentId });
+    watchFromDesk(server, viewer, ana.user.id, agentId);
     await bridge.waitFor((m) => m.type === "viewers", "viewers");
     bridge.ws.close(1000);
     await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "agent-gone", "watchEnded");
     await viewer.waitFor((m) => m.type === "agentRemoved" && m.agentId === agentId, "agentRemoved");
+  });
+
+  it("assistir exige estar perto da mesa do dono; sair de perto encerra a visita", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const agentId = randomUUID();
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    const viewer = clientSocket(server, bia.session);
+    await viewer.waitFor(knowsAgent(agentId), "agente na lista");
+
+    viewer.send({ type: "watch", agentId }); // bia ainda está na entrada, longe da mesa
+    await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "left-zone", "recusado de longe");
+    expect(bridge.messages.some((m) => m.type === "viewers")).toBe(false);
+
+    watchFromDesk(server, viewer, ana.user.id, agentId);
+    await bridge.waitFor((m) => m.type === "viewers" && m.n === 1, "viewers 1");
+    viewer.send({ type: "move", x: server.world.map.spawn.x, y: server.world.map.spawn.y, dir: "down", moving: true });
+    await bridge.waitFor((m) => m.type === "viewers" && m.n === 0, "viewers 0");
+    await viewer.waitFor(() => viewer.messages.filter((m) => m.type === "watchEnded" && m.reason === "left-zone").length === 2, "saiu de perto");
+  });
+
+  it("agente de quem não tem mesa não pode ser assistido", async () => {
+    const server = await live();
+    const ids = server.world.map.desks.map((desk) => desk.id);
+    const bia = await person(server, "bia");
+    server.accounts.desks.ensure(bia.user.id, ids);
+    for (let i = 1; i <= 7; i++) server.accounts.desks.ensure((await createUser(server.accounts, `pessoa${i}`)).id, ids);
+    const caio = await person(server, "caio");
+    const agentId = randomUUID();
+    const bridge = bridgeSocket(server, caio.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    const viewer = clientSocket(server, bia.session);
+    await viewer.waitFor(knowsAgent(agentId), "agente do caio");
+    expect(server.world.deskIdOf(caio.user.id)).toBeNull();
+    const desk = server.world.map.desks[0]!;
+    viewer.send({ type: "move", x: desk.zone.x + 8, y: desk.zone.y + 8, dir: "up", moving: false });
+    viewer.send({ type: "watch", agentId });
+    await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "left-zone", "recusado");
+    expect(bridge.messages.some((m) => m.type === "viewers")).toBe(false);
   });
 });
 

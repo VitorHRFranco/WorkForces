@@ -63,7 +63,7 @@ export const ClientFrame = z.object({ type: z.literal("frame"), agentId: z.uuid(
   const error = frameBoundsError(frame);
   if (error) ctx.addIssue({ code: "custom", message: error });
 });
-export const WatchEnded = z.object({ type: z.literal("watchEnded"), agentId: z.uuid(), reason: z.enum(["agent-gone"]) });
+export const WatchEnded = z.object({ type: z.literal("watchEnded"), agentId: z.uuid(), reason: z.enum(["left-zone", "agent-gone"]) });
 
 /** Servidor → cliente. */
 export const DeskUpdated = z.object({ type: z.literal("deskUpdated"), desk: DeskInfo });

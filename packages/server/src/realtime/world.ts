@@ -1,4 +1,4 @@
-import type { DeskInfo, Direction, OfficeMap, PlayerInfo, Point } from "@workforces/protocol";
+import { inZone, type DeskInfo, type Direction, type OfficeMap, type PlayerInfo, type Point } from "@workforces/protocol";
 
 export interface Person {
   readonly id: number;
@@ -95,6 +95,14 @@ export class World {
   private deskInfo(deskId: string): DeskInfo {
     const owner = this.ownerByDesk.get(deskId);
     return { id: deskId, ownerId: owner?.id ?? null, ownerName: owner?.name ?? null };
+  }
+
+  /** Quem assiste precisa estar na zona da mesa do dono, com folga de 1 tile; dono sem mesa no mapa não pode ser assistido. */
+  canWatch(viewerId: number, ownerId: number): boolean {
+    const deskId = this.deskIdOf(ownerId);
+    const desk = deskId === null ? undefined : this.map.desks.find((candidate) => candidate.id === deskId);
+    const viewer = this.position(viewerId);
+    return desk !== undefined && viewer !== null && inZone(desk.zone, viewer, this.map.tileSize);
   }
 }
 
