@@ -117,55 +117,6 @@ code {
   color: var(--warn);
 }
 
-.content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.sidebar {
-  width: 300px;
-  border-right: 1px solid var(--line);
-  padding: 12px;
-  overflow: auto;
-}
-
-.sidebar h2 {
-  font-size: 14px;
-  color: var(--muted);
-  margin: 4px 0 12px;
-}
-
-.agents {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.agent {
-  width: 100%;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 2px 8px;
-  align-items: center;
-  text-align: left;
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--line);
-}
-
-.agent.active {
-  border-color: var(--accent);
-}
-
-.agent .owner,
-.agent .status {
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .dot {
   width: 9px;
   height: 9px;
@@ -183,10 +134,6 @@ code {
 
 .dot.offline {
   background: var(--warn);
-}
-
-.empty {
-  color: var(--muted);
 }
 
 .panel {
@@ -211,12 +158,6 @@ code {
 .panel .readonly {
   color: var(--muted);
   font-size: 13px;
-}
-
-.panel.placeholder {
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
 }
 
 .terminal-host {
@@ -289,4 +230,20 @@ code {
 
 .tokens li button {
   grid-row: span 2;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.game {
+  position: absolute;
+  inset: 0;
+}
+
+.game canvas {
+  display: block;
 }

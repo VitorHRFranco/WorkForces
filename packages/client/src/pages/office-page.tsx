@@ -1,32 +1,45 @@
-import type { AgentInfo, Me } from "@workforces/protocol";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { parseOfficeMap, type Me, type OfficeMap } from "@workforces/protocol";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ApiError, api, errorText } from "../api";
-import { AgentList } from "../office/agent-list";
+import { GameView } from "../game/game-view";
+import { MoveSender } from "../game/move-sender";
+import type { OfficeSceneDeps } from "../game/office-scene";
+import { useTyping } from "../game/typing";
 import { OfficeConnection } from "../office/connection";
 import { InviteModal } from "../office/invite-modal";
+import { OfficeState, useOfficeVersion } from "../office/office-state";
 import { TokensModal } from "../office/tokens-modal";
 import { navigate } from "../router";
-import { TerminalPanel, type TerminalHandle } from "../terminal/terminal-panel";
+
+interface LoadedMap {
+  map: OfficeMap;
+  json: unknown;
+}
 
 export function OfficePage() {
   const [me, setMe] = useState<Me | null>(null);
-  const [meFailed, setMeFailed] = useState(false);
+  const [office, setOffice] = useState<LoadedMap | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [watching, setWatching] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [modal, setModal] = useState<"tokens" | "invite" | null>(null);
+  const state = useMemo(() => new OfficeState(), []);
+  useOfficeVersion(state);
   const connection = useRef<OfficeConnection | null>(null);
-  const terminal = useRef<TerminalHandle | null>(null);
-  const watchingRef = useRef<string | null>(null);
   const endedRef = useRef(false);
+  const moves = useMemo(() => new MoveSender((move) => connection.current?.move(move.x, move.y, move.dir, move.moving), () => performance.now()), []);
+  const typing = useTyping();
 
   useEffect(() => {
-    setMeFailed(false);
+    setLoadFailed(false);
     api.me().then(setMe, (failure: unknown) => {
       if (failure instanceof ApiError && failure.status === 401) navigate("/login", { replace: true });
-      else setMeFailed(true);
+      else setLoadFailed(true);
     });
+    api.map().then(
+      (json) => setOffice({ map: parseOfficeMap(json), json }),
+      () => setLoadFailed(true),
+    );
   }, [attempt]);
 
   useEffect(() => {
@@ -37,35 +50,9 @@ export function OfficePage() {
     };
     const conn = new OfficeConnection({
       onMessage: (message) => {
-        switch (message.type) {
-          case "welcome":
-            setAgents(message.agents);
-            if (watchingRef.current) conn.watch(watchingRef.current);
-            break;
-          case "agentAdded":
-            setAgents((list) => [...list.filter((agent) => agent.id !== message.agent.id), message.agent]);
-            break;
-          case "agentUpdated":
-            setAgents((list) => list.map((agent) => (agent.id === message.agent.id ? message.agent : agent)));
-            break;
-          case "agentRemoved":
-            setAgents((list) => list.filter((agent) => agent.id !== message.agentId));
-            break;
-          case "watchEnded":
-            if (watchingRef.current === message.agentId) {
-              watchingRef.current = null;
-              setWatching(null);
-              setNotice("O agente saiu do escritório.");
-            }
-            break;
-          case "frame":
-            // Só "gap" pede a tela de novo (o apply já espaça os pedidos). Antes de o painel montar, os
-            // quadros são descartados; o painel pede a tela ao montar (onReady).
-            if (message.agentId === watchingRef.current && terminal.current?.agentId === message.agentId && terminal.current.apply(message) === "gap") {
-              conn.watch(message.agentId);
-            }
-            break;
-        }
+        state.apply(message);
+        // Depois de reconectar, o servidor não sabe onde o avatar está.
+        if (message.type === "welcome") moves.resend();
       },
       onStatus: (status) => {
         if (endedRef.current) return;
@@ -86,19 +73,19 @@ export function OfficePage() {
     };
   }, [me]);
 
-  // Só guarda o agente escolhido: quem pede a tela é o onReady do painel, que monta de novo a cada agente.
-  const watch = (agentId: string) => {
-    if (endedRef.current) return;
-    watchingRef.current = agentId;
-    setWatching(agentId);
-    setNotice(null);
-  };
-
-  const stopWatching = () => {
-    watchingRef.current = null;
-    setWatching(null);
-    connection.current?.unwatch();
-  };
+  // Estável durante a vida da página: a cena lê o estado direto do OfficeState.
+  const sceneDeps = useMemo<OfficeSceneDeps | null>(
+    () =>
+      office && {
+        state,
+        map: office.map,
+        tiledJson: office.json,
+        tilesUrl: `/map/${office.map.tilesetImage}`,
+        onMove: (move) => moves.update(move),
+        onZone: () => {},
+      },
+    [office],
+  );
 
   const logout = async () => {
     try {
@@ -111,7 +98,7 @@ export function OfficePage() {
     navigate("/login", { replace: true });
   };
 
-  if (meFailed) {
+  if (loadFailed) {
     return (
       <div class="card">
         <p class="error" role="alert">
@@ -123,14 +110,13 @@ export function OfficePage() {
       </div>
     );
   }
-  if (!me) {
+  if (!me || !sceneDeps || !state.me) {
     return (
       <p class="loading" role="status">
         Carregando…
       </p>
     );
   }
-  const watched = agents.find((agent) => agent.id === watching) ?? null;
 
   return (
     <div class="office">
@@ -155,18 +141,8 @@ export function OfficePage() {
           {notice}
         </p>
       )}
-      <main class="content">
-        <aside class="sidebar">
-          <h2>Agentes</h2>
-          <AgentList agents={agents} me={me} watching={watching} onWatch={watch} />
-        </aside>
-        {watched ? (
-          <TerminalPanel agent={watched} handle={terminal} onReady={() => connection.current?.watch(watched.id)} onClose={stopWatching} />
-        ) : (
-          <section class="panel placeholder">
-            <p>Escolha um agente para ver o terminal dele ao vivo.</p>
-          </section>
-        )}
+      <main class="stage">
+        <GameView deps={sceneDeps} keyboardEnabled={!typing && modal === null && !endedRef.current} />
       </main>
       {modal === "tokens" && <TokensModal onClose={() => setModal(null)} />}
       {modal === "invite" && <InviteModal onClose={() => setModal(null)} />}
