@@ -33,6 +33,9 @@ describe("Credentials e CreateTokenRequest", () => {
   it("aplica as regras de nome e senha", () => {
     expect(Credentials.safeParse({ name: "ana.souza", password: "senha-forte-1" }).success).toBe(true);
     expect(Credentials.safeParse({ name: "João_2", password: "senha-forte-1" }).success).toBe(true);
+    // NFD (acento como marca combinante) vira NFC antes do padrão.
+    expect(Credentials.parse({ name: "Jose\u0301", password: "senha-muito-boa" }).name).toBe("Jos\u00e9");
+    expect(Credentials.parse({ name: "Jos\u00e9", password: "senha-muito-boa" }).name).toBe("Jos\u00e9");
     expect(Credentials.safeParse({ name: "a", password: "senha-forte-1" }).success).toBe(false);
     expect(Credentials.safeParse({ name: "ana souza", password: "senha-forte-1" }).success).toBe(false);
     expect(Credentials.safeParse({ name: "ana", password: "curta" }).success).toBe(false);

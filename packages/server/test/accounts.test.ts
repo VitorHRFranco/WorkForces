@@ -27,6 +27,18 @@ describe("senhas", () => {
   });
 });
 
+describe("nomes", () => {
+  it.each([
+    ["Stra\u00dfe", "STRASSE"],
+    ["\u039f\u0394\u039f\u03a3", "\u03bf\u03b4\u03bf\u03c3"],
+    ["L\u0131via", "Livia"],
+    ["\uff21\uff4e\uff41", "Ana"],
+  ])("compara nomes com NFKC e dobra de caixa: %s = %s", async (first, second) => {
+    users.insert(first, await hashPassword("senha-forte-123"), false);
+    expect(users.nameTaken(second)).toBe(true);
+  });
+});
+
 describe("convites", () => {
   it("convite de admin cria conta de admin e só vale uma vez", async () => {
     const { code } = invites.create({ createdBy: null, isAdmin: true, ttlMs: ADMIN_INVITE_TTL_MS });

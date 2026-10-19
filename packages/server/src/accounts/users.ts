@@ -16,8 +16,9 @@ interface UserRow {
   disabled_at: number | null;
 }
 
+/** Chave única do nome: NFKC + dobra de caixa (Straße = STRASSE, Ａｎａ = ana, ΟΔΟΣ = οδοσ, Lıvia = Livia). */
 export function nameKeyOf(name: string): string {
-  return name.normalize("NFC").toLowerCase();
+  return name.normalize("NFKC").toLowerCase().toUpperCase().toLowerCase().normalize("NFKC");
 }
 
 const toUser = (row: UserRow): User => ({ id: row.id, name: row.name, isAdmin: row.is_admin === 1 });

@@ -6,7 +6,8 @@ export const MIN_PASSWORD_LENGTH = 10;
 
 /** Cadastro (aceitar convite). */
 export const Credentials = z.object({
-  name: z.string().regex(USER_NAME_PATTERN),
+  // NFC antes do padrão: nome colado em NFD (acento como marca combinante) não é recusado.
+  name: z.string().normalize("NFC").regex(USER_NAME_PATTERN),
   password: z.string().min(MIN_PASSWORD_LENGTH).max(200),
 });
 export type Credentials = z.infer<typeof Credentials>;
