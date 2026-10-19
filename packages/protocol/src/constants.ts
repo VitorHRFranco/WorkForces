@@ -5,6 +5,9 @@ export const LIMITS = {
   maxRows: 200,
   maxFrameBytes: 256 * 1024,
   maxLabelLength: 64,
+  maxChatLength: 1000,
+  /** Mensagens de chat guardadas (só em memória). */
+  chatHistory: 200,
 } as const;
 
 /** Códigos de fechamento de WebSocket usados pelo servidor (spec, seção 7). */

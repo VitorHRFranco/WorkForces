@@ -36,6 +36,7 @@ const BRIDGE_MESSAGES_PER_SECOND = 100;
 const CLIENT_MESSAGES_PER_SECOND = 50;
 const MOVES_PER_SECOND = 20;
 const WATCHES_PER_SECOND = 20;
+const CHATS_PER_SECOND = 5;
 
 interface BridgeConnection {
   ws: WebSocket;
@@ -161,11 +162,13 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       players: world.online(),
       agents: hub.addClient(link),
       desks: world.desks(),
+      chat: world.chat(),
     });
     if (firstTab) hub.broadcast({ type: "playerJoined", player }, link);
     const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
     const moveRate = new MessageRate(MOVES_PER_SECOND, 1000, ctx.now);
     const watchRate = new MessageRate(WATCHES_PER_SECOND, 1000, ctx.now);
+    const chatRate = new MessageRate(CHATS_PER_SECOND, 1000, ctx.now);
 
     ws.on("message", (data, isBinary) => {
       if (ws.readyState !== ws.OPEN) return;
@@ -177,6 +180,11 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         const moved = world.move(user.id, message.x, message.y, message.dir, message.moving);
         if (moved) hub.broadcast({ type: "playerMoved", playerId: moved.id, x: moved.x, y: moved.y, dir: moved.dir, moving: moved.moving }, link);
         hub.recheckWatch(link);
+        return;
+      }
+      if (message.type === "chat") {
+        if (!chatRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens de chat demais");
+        hub.broadcast({ type: "chat", ...world.addChat(user, message.text, ctx.now()) });
         return;
       }
       if (!watchRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");

@@ -391,3 +391,37 @@ describe("presença e movimento", () => {
     expect(await tab.closed).toBe(4008);
   });
 });
+
+describe("chat", () => {
+  it("a mensagem vai para todos, com o nome de quem mandou, e quem chega depois recebe o histórico", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaTab = clientSocket(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
+    const biaTab = clientSocket(server, bia.session);
+    await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
+    biaTab.send({ type: "chat", text: "bom dia!" });
+    const received = await anaTab.waitFor((m) => m.type === "chat", "chat na ana");
+    expect(received).toMatchObject({ type: "chat", id: 1, fromId: bia.user.id, name: "bia", text: "bom dia!" });
+    await biaTab.waitFor((m) => m.type === "chat", "chat de volta na bia");
+    expect(server.logs.join("\n")).not.toContain("bom dia");
+    anaTab.ws.close();
+    const later = clientSocket(server, ana.session);
+    const welcome = await later.waitFor((m) => m.type === "welcome", "welcome de novo");
+    expect(welcome.chat).toEqual([expect.objectContaining({ id: 1, name: "bia", text: "bom dia!" })]);
+  });
+
+  it("chat inválido fecha com 4000 e chat demais com 4008", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const first = clientSocket(server, ana.session);
+    await first.waitFor((m) => m.type === "welcome", "welcome");
+    first.send({ type: "chat", text: " oi" });
+    expect(await first.closed).toBe(4000);
+    const second = clientSocket(server, ana.session);
+    await second.waitFor((m) => m.type === "welcome", "welcome");
+    for (let i = 0; i < 6; i++) second.send({ type: "chat", text: `oi ${i}` });
+    expect(await second.closed).toBe(4008);
+  });
+});

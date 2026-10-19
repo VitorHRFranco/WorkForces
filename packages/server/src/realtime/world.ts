@@ -1,17 +1,19 @@
-import { inZone, type DeskInfo, type Direction, type OfficeMap, type PlayerInfo, type Point } from "@workforces/protocol";
+import { LIMITS, inZone, type ChatEntry, type DeskInfo, type Direction, type OfficeMap, type PlayerInfo, type Point } from "@workforces/protocol";
 
 export interface Person {
   readonly id: number;
   readonly name: string;
 }
 
-/** O escritório em memória: dono de cada mesa (espelho do banco) e quem está online, com a posição. */
+/** O escritório em memória: dono de cada mesa (espelho do banco) e quem está online (com a posição) e as últimas mensagens do chat. */
 export class World {
   private readonly ownerByDesk = new Map<string, Person>();
   private readonly deskByOwner = new Map<number, string>();
   private readonly players = new Map<number, PlayerInfo>();
   /** Onde cada um estava ao sair (só enquanto o servidor estiver no ar). */
   private readonly lastSeen = new Map<number, PlayerInfo>();
+  private readonly chatLog: ChatEntry[] = [];
+  private nextChatId = 1;
 
   constructor(
     readonly map: OfficeMap,
@@ -20,6 +22,18 @@ export class World {
     for (const [deskId, owner] of owners) {
       if (map.desks.some((desk) => desk.id === deskId)) this.setDesk(owner, deskId);
     }
+  }
+
+  /** Guarda a mensagem (nunca vai para o disco nem para o log). */
+  addChat(from: Person, text: string, at: number): ChatEntry {
+    const entry: ChatEntry = { id: this.nextChatId++, fromId: from.id, name: from.name, text, at };
+    this.chatLog.push(entry);
+    if (this.chatLog.length > LIMITS.chatHistory) this.chatLog.shift();
+    return entry;
+  }
+
+  chat(): ChatEntry[] {
+    return [...this.chatLog];
   }
 
   deskIdOf(userId: number): string | null {

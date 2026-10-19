@@ -35,3 +35,16 @@ describe("World: proximidade", () => {
     expect(world.canWatch(4, 2)).toBe(false); // quem assiste não está online
   });
 });
+
+describe("World: chat", () => {
+  it("guarda só as últimas 200 mensagens, com id crescente", () => {
+    const world = new World(officeMap(), new Map());
+    for (let i = 1; i <= 205; i++) world.addChat(ana, `mensagem ${i}`, i);
+    const chat = world.chat();
+    expect(chat).toHaveLength(200);
+    expect(chat[0]).toEqual({ id: 6, fromId: 1, name: "ana", text: "mensagem 6", at: 6 });
+    expect(chat.at(-1)?.id).toBe(205);
+    chat.pop();
+    expect(world.chat()).toHaveLength(200);
+  });
+});

@@ -42,10 +42,33 @@ export type PlayerInfo = z.infer<typeof PlayerInfo>;
 export const Move = z.object({ type: z.literal("move"), ...position });
 export type Move = z.infer<typeof Move>;
 
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/;
+
+/** Texto do chat: 1 a 1000 caracteres, sem espaços nas pontas nem caracteres de controle (é mostrado como texto puro). */
+export const ChatText = z
+  .string()
+  .min(1)
+  .max(LIMITS.maxChatLength)
+  .refine((text) => text === text.trim(), "sem espaços nas pontas")
+  .refine((text) => !CONTROL_CHARS.test(text), "sem caracteres de controle");
+
+export const ChatSend = z.object({ type: z.literal("chat"), text: ChatText });
+
+export const ChatEntry = z.object({
+  id: z.number().int().min(1),
+  fromId: z.number().int().min(1),
+  name: z.string(),
+  text: z.string(),
+  at: z.number(),
+});
+export type ChatEntry = z.infer<typeof ChatEntry>;
+
+export const ChatPosted = ChatEntry.extend({ type: z.literal("chat") });
+
 /** Cliente → servidor. Não existe mensagem que leve entrada a um agente. */
 export const Watch = z.object({ type: z.literal("watch"), agentId: z.uuid() });
 export const Unwatch = z.object({ type: z.literal("unwatch") });
-export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move]);
+export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend]);
 export type ClientToServer = z.infer<typeof ClientToServer>;
 
 export const Welcome = z.object({
@@ -55,6 +78,7 @@ export const Welcome = z.object({
   players: z.array(PlayerInfo),
   agents: z.array(AgentInfo),
   desks: z.array(DeskInfo),
+  chat: z.array(ChatEntry),
 });
 export const AgentAdded = z.object({ type: z.literal("agentAdded"), agent: AgentInfo });
 export const AgentUpdated = z.object({ type: z.literal("agentUpdated"), agent: AgentInfo });
@@ -71,5 +95,5 @@ export const PlayerJoined = z.object({ type: z.literal("playerJoined"), player: 
 export const PlayerLeft = z.object({ type: z.literal("playerLeft"), playerId: z.number().int().min(1) });
 export const PlayerMoved = z.object({ type: z.literal("playerMoved"), playerId: z.number().int().min(1), ...position });
 
-export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved]);
+export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved, ChatPosted]);
 export type ServerToClient = z.infer<typeof ServerToClient>;
