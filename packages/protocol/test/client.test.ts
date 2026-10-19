@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import { ClientToServer, CreateTokenRequest, Credentials, ServerToClient } from "../src/index.js";
 
 const agentId = "0b8e3f2a-5c1d-4e6f-8a7b-9c0d1e2f3a4b";
-const agent = { id: agentId, ownerId: 1, ownerName: "ana", label: "loja", status: "idle", connected: true };
+const agent = { id: agentId, ownerId: 1, ownerName: "ana", label: "loja", status: "idle", connected: true, ownerAway: false };
 
 describe("ClientToServer", () => {
-  it("só conhece watch e unwatch", () => {
+  it("conhece watch, unwatch e move", () => {
     expect(ClientToServer.safeParse({ type: "watch", agentId }).success).toBe(true);
     expect(ClientToServer.safeParse({ type: "unwatch" }).success).toBe(true);
     expect(ClientToServer.safeParse({ type: "input", agentId, data: "sair\r" }).success).toBe(false);
     expect(ClientToServer.safeParse({ type: "watch", agentId: "x" }).success).toBe(false);
+    expect(ClientToServer.safeParse({ type: "move", x: 10.5, y: 20, dir: "left", moving: true }).success).toBe(true);
+    expect(ClientToServer.safeParse({ type: "move", x: 10, y: 20, dir: "norte", moving: true }).success).toBe(false);
+    expect(ClientToServer.safeParse({ type: "move", x: "10", y: 20, dir: "up", moving: false }).success).toBe(false);
   });
 });
 
@@ -17,13 +20,17 @@ describe("ServerToClient", () => {
   it("aceita as mensagens do escritório", () => {
     const me = { id: 1, name: "ana", isAdmin: true };
     const desk = { id: "mesa-1", ownerId: 1, ownerName: "ana" };
-    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: "mesa-1" }, agents: [agent], desks: [desk] }).success).toBe(true);
-    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: null }, agents: [], desks: [] }).success).toBe(true);
+    const player = { id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false };
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: "mesa-1" }, agents: [agent], players: [player], desks: [desk] }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: null }, agents: [], players: [], desks: [] }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-2", ownerId: null, ownerName: null } }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "Mesa 2", ownerId: null, ownerName: null } }).success).toBe(false);
     expect(ServerToClient.safeParse({ type: "agentAdded", agent }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "agentRemoved", agentId }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "agent-gone" }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "playerJoined", player }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "playerLeft", playerId: 1 }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "playerMoved", playerId: 1, x: 1, y: 2, dir: "up", moving: true }).success).toBe(true);
   });
 
   it("valida os limites do quadro", () => {

@@ -55,6 +55,8 @@ export class Hub {
   private readonly agents = new Map<string, AgentEntry>();
   private readonly clients = new Set<ClientLink>();
   private readonly watching = new Map<ClientLink, string>();
+  /** Quantos navegadores cada pessoa tem abertos (a troca de aba passa por 2 antes de voltar a 1). */
+  private readonly online = new Map<number, number>();
 
   constructor(
     private readonly graceMs: number = AGENT_GRACE_MS,
@@ -76,7 +78,15 @@ export class Hub {
       return { ok: true };
     }
     const entry: AgentEntry = {
-      info: { id: hello.agentId, ownerId: owner.id, ownerName: owner.name, label: hello.label, status: "idle", connected: true },
+      info: {
+        id: hello.agentId,
+        ownerId: owner.id,
+        ownerName: owner.name,
+        label: hello.label,
+        status: "idle",
+        connected: true,
+        ownerAway: !this.online.has(owner.id),
+      },
       link,
       viewers: new Set(),
       stale: new Set(),
@@ -145,12 +155,22 @@ export class Hub {
 
   addClient(link: ClientLink): AgentInfo[] {
     this.clients.add(link);
+    const count = (this.online.get(link.userId) ?? 0) + 1;
+    this.online.set(link.userId, count);
+    if (count === 1) this.setOwnerAway(link.userId, false);
     return [...this.agents.values()].map((entry) => entry.info);
   }
 
   removeClient(link: ClientLink): void {
     this.unwatch(link);
-    this.clients.delete(link);
+    if (!this.clients.delete(link)) return;
+    const count = (this.online.get(link.userId) ?? 1) - 1;
+    if (count > 0) {
+      this.online.set(link.userId, count);
+      return;
+    }
+    this.online.delete(link.userId);
+    this.setOwnerAway(link.userId, true);
   }
 
   /** Devolve false se o agente não existe. Repetir o watch reenvia a tela (ressincronização). */
@@ -199,6 +219,14 @@ export class Hub {
   private current(link: BridgeLink, agentId: string): AgentEntry | null {
     const entry = this.agents.get(agentId);
     return entry && entry.link === link ? entry : null;
+  }
+
+  private setOwnerAway(ownerId: number, away: boolean): void {
+    for (const entry of this.agents.values()) {
+      if (entry.info.ownerId !== ownerId || entry.info.ownerAway === away) continue;
+      entry.info = { ...entry.info, ownerAway: away };
+      this.broadcast({ type: "agentUpdated", agent: entry.info });
+    }
   }
 
   private removeAgent(agentId: string): void {

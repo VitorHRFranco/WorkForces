@@ -53,10 +53,30 @@ describe("Hub", () => {
     hub.addClient(client);
     expect(hub.registerAgent(ana, hello(), new FakeBridge())).toEqual({ ok: true });
     expect(client.messages).toEqual([
-      { type: "agentAdded", agent: { id: AGENT, ownerId: 1, ownerName: "ana", label: "loja", status: "idle", connected: true } },
+      { type: "agentAdded", agent: { id: AGENT, ownerId: 1, ownerName: "ana", label: "loja", status: "idle", connected: true, ownerAway: false } },
     ]);
     expect(hub.registerAgent(bia, hello(), new FakeBridge(2))).toEqual({ ok: false, reason: "agent-id-taken" });
     expect(hub.addClient(new FakeClient(3))).toHaveLength(1);
+  });
+
+  it("agente de quem não está com o escritório aberto aparece como dono fora", () => {
+    const hub = new Hub();
+    const watcher = new FakeClient(bia.id);
+    hub.addClient(watcher);
+    hub.registerAgent(ana, hello(), new FakeBridge());
+    expect(watcher.messages.at(-1)).toMatchObject({ type: "agentAdded", agent: { ownerAway: true } });
+    const firstTab = new FakeClient(ana.id);
+    hub.addClient(firstTab);
+    expect(watcher.messages.at(-1)).toMatchObject({ type: "agentUpdated", agent: { ownerAway: false } });
+    // Segunda aba entra antes de a primeira sair: não pisca "dono fora".
+    const secondTab = new FakeClient(ana.id);
+    hub.addClient(secondTab);
+    hub.removeClient(firstTab);
+    expect(watcher.messages.filter((m) => m.type === "agentUpdated")).toHaveLength(1);
+    hub.removeClient(secondTab);
+    expect(watcher.messages.at(-1)).toMatchObject({ type: "agentUpdated", agent: { ownerAway: true } });
+    hub.removeClient(secondTab);
+    expect(watcher.messages.filter((m) => m.type === "agentUpdated")).toHaveLength(2);
   });
 
   it("nova conexão do mesmo dono substitui a antiga", () => {

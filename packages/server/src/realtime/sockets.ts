@@ -33,7 +33,9 @@ export interface SocketOptions {
 const BRIDGE_MAX_PAYLOAD = LIMITS.maxFrameBytes + 16 * 1024;
 const CLIENT_MAX_PAYLOAD = 16 * 1024;
 const BRIDGE_MESSAGES_PER_SECOND = 100;
-const CLIENT_MESSAGES_PER_SECOND = 20;
+const CLIENT_MESSAGES_PER_SECOND = 50;
+const MOVES_PER_SECOND = 20;
+const WATCHES_PER_SECOND = 20;
 
 interface BridgeConnection {
   ws: WebSocket;
@@ -143,6 +145,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     const connection: ClientConnection = { ws, sessionId };
     clients.set(user.id, connection);
     const deskId = ensureDesk(user);
+    const firstTab = !world.isOnline(user.id);
+    const player = world.join(user);
     const link: ClientLink = {
       userId: user.id,
       send: (message: ServerToClient) => {
@@ -154,23 +158,37 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       type: "welcome",
       protocol: PROTOCOL_VERSION,
       me: { ...toMe(user), deskId },
+      players: world.online(),
       agents: hub.addClient(link),
       desks: world.desks(),
     });
+    if (firstTab) hub.broadcast({ type: "playerJoined", player }, link);
     const rate = new MessageRate(CLIENT_MESSAGES_PER_SECOND, 1000, ctx.now);
+    const moveRate = new MessageRate(MOVES_PER_SECOND, 1000, ctx.now);
+    const watchRate = new MessageRate(WATCHES_PER_SECOND, 1000, ctx.now);
 
     ws.on("message", (data, isBinary) => {
       if (ws.readyState !== ws.OPEN) return;
       if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       const message = isBinary ? null : parseJson(ClientToServer, data.toString());
       if (!message) return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
+      if (message.type === "move") {
+        if (!moveRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "movimento demais");
+        const moved = world.move(user.id, message.x, message.y, message.dir, message.moving);
+        if (moved) hub.broadcast({ type: "playerMoved", playerId: moved.id, x: moved.x, y: moved.y, dir: moved.dir, moving: moved.moving }, link);
+        return;
+      }
+      if (!watchRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       if (message.type === "unwatch") return hub.unwatch(link);
       if (!hub.watch(link, message.agentId)) link.send({ type: "watchEnded", agentId: message.agentId, reason: "agent-gone" });
     });
 
     ws.on("close", () => {
       hub.removeClient(link);
-      if (clients.get(user.id) === connection) clients.delete(user.id);
+      if (clients.get(user.id) !== connection) return; // trocado por outra aba: a pessoa continua no mapa
+      clients.delete(user.id);
+      world.leave(user.id);
+      hub.broadcast({ type: "playerLeft", playerId: user.id });
     });
   }
 

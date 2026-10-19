@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { disableUser } from "../src/accounts/index.js";
 import { bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message } from "./helpers/live.js";
 import { JSON_HEADERS, createUser } from "./helpers/setup.js";
+import { sleep } from "./helpers/wait.js";
 
 const servers: LiveServer[] = [];
 afterEach(async () => {
@@ -86,7 +87,8 @@ describe("conexão da ponte", () => {
     await thief.opened();
     thief.send(hello(agentId, "roubado"));
     expect(await thief.closed).toBe(4000);
-    expect(viewer.messages.some((m) => m.type === "agentUpdated")).toBe(false);
+    // O agentUpdated de "dono fora" (ana abriu o escritório depois da ponte) é legítimo; o que não pode haver é o rótulo do ladrão.
+    expect(viewer.messages.some((m) => m.type === "agentUpdated" && (m.agent as Message).label === "roubado")).toBe(false);
   });
 
   it("mensagens demais fecham com 4008", async () => {
@@ -265,5 +267,76 @@ describe("repasse de quadros", () => {
     bridge.ws.close(1000);
     await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "agent-gone", "watchEnded");
     await viewer.waitFor((m) => m.type === "agentRemoved" && m.agentId === agentId, "agentRemoved");
+  });
+});
+
+describe("presença e movimento", () => {
+  it("quem entra e quem anda aparece para os outros, dentro dos limites do mapa", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaTab = clientSocket(server, ana.session);
+    const anaWelcome = await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
+    expect(anaWelcome.players).toEqual([{ id: ana.user.id, name: "ana", x: 232, y: 184, dir: "down", moving: false }]);
+    const biaTab = clientSocket(server, bia.session);
+    const biaWelcome = await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
+    expect((biaWelcome.players as Message[]).map((p) => p.name).sort()).toEqual(["ana", "bia"]);
+    await anaTab.waitFor((m) => m.type === "playerJoined" && (m.player as Message).name === "bia", "bia entrou");
+
+    biaTab.send({ type: "move", x: 99_999, y: -5, dir: "right", moving: true });
+    const moved = await anaTab.waitFor((m) => m.type === "playerMoved", "bia andou");
+    expect(moved).toEqual({ type: "playerMoved", playerId: bia.user.id, x: 704, y: 0, dir: "right", moving: true });
+    expect(biaTab.messages.some((m) => m.type === "playerMoved")).toBe(false);
+
+    biaTab.ws.close();
+    await anaTab.waitFor((m) => m.type === "playerLeft" && m.playerId === bia.user.id, "bia saiu");
+    const again = clientSocket(server, bia.session);
+    const back = await again.waitFor((m) => m.type === "welcome", "bia voltou");
+    expect((back.players as Message[]).find((p) => p.id === bia.user.id)).toMatchObject({ x: 704, y: 0, moving: false });
+  });
+
+  it("segunda aba não faz a pessoa sair nem entrar de novo", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const watcher = clientSocket(server, bia.session);
+    await watcher.waitFor((m) => m.type === "welcome", "welcome");
+    const first = clientSocket(server, ana.session);
+    await watcher.waitFor((m) => m.type === "playerJoined", "ana entrou");
+    const second = clientSocket(server, ana.session);
+    expect(await first.closed).toBe(4009);
+    await second.waitFor((m) => m.type === "welcome", "segunda aba");
+    await sleep(100);
+    expect(watcher.messages.filter((m) => m.type === "playerJoined")).toHaveLength(1);
+    expect(watcher.messages.some((m) => m.type === "playerLeft")).toBe(false);
+  });
+
+  it("agente aparece como dono fora até o dono abrir o escritório", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const agentId = randomUUID();
+    const watcher = clientSocket(server, bia.session);
+    await watcher.waitFor((m) => m.type === "welcome", "welcome");
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    await watcher.waitFor((m) => m.type === "agentAdded" && (m.agent as Message).ownerAway === true, "dono fora");
+    const anaTab = clientSocket(server, ana.session);
+    await watcher.waitFor((m) => m.type === "agentUpdated" && (m.agent as Message).ownerAway === false, "dono chegou");
+    anaTab.ws.close();
+    await watcher.waitFor(
+      () => watcher.messages.filter((m) => m.type === "agentUpdated" && (m.agent as Message).ownerAway === true).length === 1,
+      "dono saiu",
+    );
+  });
+
+  it("movimento demais fecha com 4008", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const tab = clientSocket(server, ana.session);
+    await tab.waitFor((m) => m.type === "welcome", "welcome");
+    for (let i = 0; i < 25; i++) tab.send({ type: "move", x: i, y: 10, dir: "right", moving: true });
+    expect(await tab.closed).toBe(4008);
   });
 });
