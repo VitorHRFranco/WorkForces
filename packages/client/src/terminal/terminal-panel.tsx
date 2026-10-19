@@ -11,8 +11,10 @@ export interface TerminalHandle {
 
 const CHAR_WIDTH_RATIO = 0.6;
 
-function fontSizeFor(width: number, cols: number): number {
-  return Math.max(8, Math.min(16, Math.floor(width / (cols * CHAR_WIDTH_RATIO))));
+const LINE_HEIGHT_RATIO = 1.2;
+
+function fontSizeFor(width: number, height: number, cols: number, rows: number): number {
+  return Math.max(8, Math.min(16, Math.floor(width / (cols * CHAR_WIDTH_RATIO)), Math.floor(height / (rows * LINE_HEIGHT_RATIO))));
 }
 
 export function statusText(agent: AgentInfo): string {
@@ -39,9 +41,16 @@ export function TerminalPanel({
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.open(element);
+    // Só leitura de verdade: o terminal nunca fica com o foco (senão as teclas deixam de ir para o jogo).
+    const textarea = term.textarea;
+    if (textarea) {
+      textarea.tabIndex = -1;
+      textarea.addEventListener("focus", () => textarea.blur());
+    }
     let cols = 80;
+    let rows = 24;
     const fit = () => {
-      term.options.fontSize = fontSizeFor(element.clientWidth, cols);
+      term.options.fontSize = fontSizeFor(element.clientWidth, element.clientHeight, cols, rows);
     };
     // A fonte acompanha a largura do painel, não só os quadros-chave.
     const resize = new ResizeObserver(fit);
@@ -50,8 +59,9 @@ export function TerminalPanel({
     handle.current = {
       agentId: agent.id,
       apply: (frame) => {
-        if (frame.key && frame.cols !== cols) {
+        if (frame.key && (frame.cols !== cols || frame.rows !== rows)) {
           cols = frame.cols;
+          rows = frame.rows;
           fit();
         }
         return applyFrame(term, frame, state);
@@ -60,7 +70,7 @@ export function TerminalPanel({
     onReady();
     return () => {
       resize.disconnect();
-      handle.current = null;
+      if (handle.current?.agentId === agent.id) handle.current = null;
       term.dispose();
     };
   }, [agent.id]);

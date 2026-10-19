@@ -154,7 +154,8 @@ code {
   margin-left: auto;
 }
 
-.panel .readonly {
+.panel .readonly,
+.desk-panel .readonly {
   color: var(--muted);
   font-size: 13px;
 }

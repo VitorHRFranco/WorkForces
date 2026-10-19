@@ -30,7 +30,7 @@ export function OfficePage() {
   useOfficeVersion(state);
   const connection = useRef<OfficeConnection | null>(null);
   const endedRef = useRef(false);
-  const moves = useMemo(() => new MoveSender((move) => connection.current?.move(move.x, move.y, move.dir, move.moving), () => performance.now()), []);
+  const moves = useMemo(() => new MoveSender((move) => connection.current?.move(move.x, move.y, move.dir, move.moving) ?? false, () => performance.now()), []);
   const typing = useTyping();
   const [zone, setZone] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -119,6 +119,11 @@ export function OfficePage() {
   const deskAgents = zone !== null && zone !== dismissed && !endedRef.current ? state.agentsAtDesk(zone) : [];
   const watched = watchTarget(deskAgents, selected);
   const isBlocked = watched !== null && blocked === watched;
+
+  // Fixa a aba quando o painel abre: um agente novo na mesa não troca o terminal no meio da visita.
+  useEffect(() => {
+    if (selected === null && watched !== null) setSelected(watched);
+  }, [selected, watched]);
 
   // O servidor só deixa de mandar quadros com `unwatch` (ou quando percebe que saímos da zona).
   useEffect(() => {

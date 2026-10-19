@@ -18,7 +18,7 @@ export class MoveSender {
   private sentAt = Number.NEGATIVE_INFINITY;
 
   constructor(
-    private readonly send: (state: MoveState) => void,
+    private readonly send: (state: MoveState) => boolean | void,
     private readonly now: () => number,
   ) {}
 
@@ -41,7 +41,8 @@ export class MoveSender {
   }
 
   private push(state: MoveState): void {
-    this.send(state);
+    // false = a conexão descartou (limite por segundo): continua pendente.
+    if (this.send(state) === false) return;
     this.sent = state;
     this.sentAt = this.now();
   }

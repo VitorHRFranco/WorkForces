@@ -38,8 +38,8 @@ export class OfficeConnection {
     this.send({ type: "unwatch" });
   }
 
-  move(x: number, y: number, dir: Direction, moving: boolean): void {
-    this.send({ type: "move", x, y, dir, moving });
+  move(x: number, y: number, dir: Direction, moving: boolean): boolean {
+    return this.send({ type: "move", x, y, dir, moving });
   }
 
   /** false = não mandou (limite de mensagens por segundo); a caixa de chat avisa. */

@@ -4,7 +4,9 @@ import { MoveSender, type MoveState } from "../src/game/move-sender";
 function setup() {
   const clock = { now: 0 };
   const sent: MoveState[] = [];
-  const sender = new MoveSender((state) => sent.push(state), () => clock.now);
+  const sender = new MoveSender((state) => {
+    sent.push(state);
+  }, () => clock.now);
   return { clock, sent, sender };
 }
 const at = (x: number, moving = true): MoveState => ({ x, y: 10, dir: "right", moving });
@@ -38,5 +40,18 @@ describe("MoveSender", () => {
     sender.resend();
     expect(sent).toHaveLength(3);
     expect(sent.at(-1)).toEqual(at(5));
+  });
+
+  it("envio descartado pela conexão não conta como enviado", () => {
+    const calls: MoveState[] = [];
+    const sender = new MoveSender((state) => {
+      calls.push(state);
+      return calls.length > 1;
+    }, () => 0);
+    sender.update(at(0));
+    sender.flush();
+    expect(calls).toHaveLength(2);
+    sender.flush();
+    expect(calls).toHaveLength(2);
   });
 });

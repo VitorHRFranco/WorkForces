@@ -20,7 +20,14 @@ export function GameView({ deps, keyboardEnabled }: { deps: OfficeSceneDeps; key
       scene: [officeScene],
     });
     scene.current = officeScene;
+    // Clicar no mapa devolve o teclado ao jogo (o Phaser faz preventDefault no mousedown do canvas).
+    const releaseFocus = () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== document.body) active.blur();
+    };
+    element.addEventListener("pointerdown", releaseFocus);
     return () => {
+      element.removeEventListener("pointerdown", releaseFocus);
       scene.current = null;
       game.destroy(true);
     };
