@@ -12,7 +12,7 @@ export type Cursor = z.infer<typeof Cursor>;
 const UNSAFE_IN_LINE = /\x1b(?!\[[0-9;:]*m)|[\x00-\x1a\x1c-\x1f\x7f-\x9f]/;
 export const isSafeLine = (text: string): boolean => !UNSAFE_IN_LINE.test(text);
 
-/** Campos de um quadro,reaproveitados por FrameBody e pela mensagem `frame` da ponte. */
+/** Campos de um quadro, reaproveitados por FrameBody e pela mensagem `frame` da ponte. */
 export const frameShape = {
   seq: z.number().int().min(1),
   /** true = o destino limpa a tela antes de aplicar as linhas. */
