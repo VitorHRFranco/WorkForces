@@ -32,7 +32,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   // Contra requisição forjada: origem exata e JSON (text/plain passa sem pré-checagem do navegador).
   app.addHook("onRequest", async (request, reply) => {
     if (!STATE_CHANGING.has(request.method)) return;
-    if (request.headers.origin !== origin) return reply.code(403).send({ error: "origem não permitida" });
+    if (request.headers.origin !== origin) return reply.code(403).send({ error: `origem não permitida; abra o escritório em ${origin}` });
     if (!String(request.headers["content-type"] ?? "").startsWith("application/json")) {
       return reply.code(415).send({ error: "use application/json" });
     }

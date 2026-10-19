@@ -74,6 +74,7 @@ export function OfficePage() {
       onEnd: (reason) => {
         if (reason === "unauthorized") navigate("/login", { replace: true });
         else if (reason === "outdated") end("O escritório foi atualizado. Recarregue a página.");
+        else if (reason === "origin") end("Este endereço não é o do escritório. Abra-o pelo endereço configurado em WF_PUBLIC_URL.");
         else end("O escritório foi aberto em outra aba. Recarregue esta página para usá-lo aqui.");
       },
     });

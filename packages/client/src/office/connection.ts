@@ -5,7 +5,7 @@ export type ConnectionStatus = "connecting" | "connected" | "reconnecting";
 export interface OfficeConnectionHandlers {
   onMessage(message: ServerToClient): void;
   onStatus(status: ConnectionStatus): void;
-  onEnd(reason: "unauthorized" | "replaced" | "outdated"): void;
+  onEnd(reason: "unauthorized" | "replaced" | "outdated" | "origin"): void;
 }
 
 export class OfficeConnection {
@@ -79,6 +79,7 @@ export class OfficeConnection {
       if (this.stopped) return;
       if (event.code === CLOSE_CODES.unauthorized) return this.handlers.onEnd("unauthorized");
       if (event.code === CLOSE_CODES.replacedByNewTab) return this.handlers.onEnd("replaced");
+      if (event.code === CLOSE_CODES.originNotAllowed) return this.handlers.onEnd("origin");
       this.handlers.onStatus("reconnecting");
       const base = Math.min(30_000, 1_000 * 2 ** this.attempt++);
       const delay = base / 2 + Math.random() * (base / 2);
