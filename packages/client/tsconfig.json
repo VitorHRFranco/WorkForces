@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "customConditions": ["source"],
     "types": ["vite/client"]
   },

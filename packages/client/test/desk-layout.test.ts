@@ -47,7 +47,8 @@ describe("layoutDesks", () => {
     ]);
     expect(one!.extra).toBe(2);
     expect(one!.ownerName).toBe("ana");
-    expect(one!.plate).toEqual({ x: 48, y: 6 });
+    expect(one!.plate).toEqual({ x: 48, y: -2 });
+    expect(one!.extraAt).toEqual({ x: 76, y: 20 });
     expect(two!.robots.map((robot) => robot.agent.label)).toEqual(["site"]);
     expect(two!.extra).toBe(0);
     expect(three).toMatchObject({ deskId: "mesa-3", ownerName: null, robots: [], extra: 0 });

@@ -9,7 +9,7 @@ export interface RobotSpot {
 export interface DeskView {
   deskId: string;
   ownerName: string | null;
-  /** Onde fica a plaquinha com o nome do dono (em cima da zona). */
+  /** Onde fica a plaquinha com o nome do dono (logo acima da zona). */
   plate: Point;
   robots: RobotSpot[];
   /** Agentes que não couberam nas posições da mesa. */
@@ -35,10 +35,11 @@ export function layoutDesks(map: OfficeMap, desks: ReadonlyMap<string, DeskInfo>
     return {
       deskId: desk.id,
       ownerName: info?.ownerName ?? null,
-      plate: { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y + 6 },
+      plate: { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y - 2 },
       robots: shown.map((agent, i) => ({ agent, at: desk.slots[i]! })),
       extra: mine.length - shown.length,
-      extraAt: lastSlot ? { x: lastSlot.x + 10, y: lastSlot.y - 6 } : { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y + desk.zone.height / 2 },
+      // Ao lado do último robô (24 × 28, com os pés no slot).
+      extraAt: lastSlot ? { x: lastSlot.x + 20, y: lastSlot.y - 4 } : { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y + desk.zone.height / 2 },
     };
   });
 }
