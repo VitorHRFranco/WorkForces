@@ -33,12 +33,13 @@ interface Remote {
   track: Track;
 }
 
+type ArrowKeys = Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key>;
 type WasdKeys = Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
 
 export class OfficeScene extends Phaser.Scene {
   private player!: Phaser.Types.Physics.Arcade.SpriteWithDynamicBody;
   private nameTag!: Phaser.GameObjects.Text;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private cursors!: ArrowKeys;
   private wasd!: WasdKeys;
   private readonly remotes = new Map<number, Remote>();
   private dir: Direction = "down";
@@ -89,7 +90,9 @@ export class OfficeScene extends Phaser.Scene {
       .startFollow(this.player, true);
 
     const keyboard = this.input.keyboard!;
-    this.cursors = keyboard.createCursorKeys();
+    // Só as setas são capturadas: Espaço e Shift continuam livres para os botões da página.
+    const { UP, DOWN, LEFT, RIGHT } = Phaser.Input.Keyboard.KeyCodes;
+    this.cursors = keyboard.addKeys({ up: UP, down: DOWN, left: LEFT, right: RIGHT }) as ArrowKeys;
     // false: as letras não são capturadas pelo jogo e continuam chegando aos campos de texto.
     this.wasd = keyboard.addKeys("W,A,S,D", false) as WasdKeys;
     this.setKeyboardEnabled(this.keyboardWanted);

@@ -46,10 +46,10 @@ export function OfficePage() {
       if (failure instanceof ApiError && failure.status === 401) navigate("/login", { replace: true });
       else setLoadFailed(true);
     });
-    api.map().then(
-      (json) => setOffice({ map: parseOfficeMap(json), json }),
-      () => setLoadFailed(true),
-    );
+    api
+      .map()
+      .then((json) => setOffice({ map: parseOfficeMap(json), json }))
+      .catch(() => setLoadFailed(true));
   }, [attempt]);
 
   useEffect(() => {
@@ -138,6 +138,11 @@ export function OfficePage() {
     connection.current?.watch(agentId);
   };
 
+  const closeModal = () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setModal(null);
+  };
+
   const logout = async () => {
     try {
       await api.logout();
@@ -163,8 +168,8 @@ export function OfficePage() {
   }
   if (!me || !sceneDeps || !state.me) {
     return (
-      <p class="loading" role="status">
-        Carregando…
+      <p class={notice ? "notice" : "loading"} role="status">
+        {notice ?? "Carregando…"}
       </p>
     );
   }
@@ -218,8 +223,8 @@ export function OfficePage() {
         )}
         <ChatBox messages={state.chat} onSend={(text) => connection.current?.chat(text) ?? false} />
       </main>
-      {modal === "tokens" && <TokensModal onClose={() => setModal(null)} />}
-      {modal === "invite" && <InviteModal onClose={() => setModal(null)} />}
+      {modal === "tokens" && <TokensModal onClose={closeModal} />}
+      {modal === "invite" && <InviteModal onClose={closeModal} />}
     </div>
   );
 }

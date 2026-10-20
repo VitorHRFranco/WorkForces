@@ -13,6 +13,7 @@ export function ChatBox({ messages, onSend }: { messages: ChatEntry[]; onSend: (
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || isTypingTarget(document.activeElement as HTMLElement | null)) return;
+      if (document.activeElement instanceof HTMLButtonElement) return; // Enter num botão focado aciona o botão
       if (document.querySelector(".modal")) return;
       event.preventDefault();
       input.current?.focus();
@@ -21,10 +22,11 @@ export function ChatBox({ messages, onSend }: { messages: ChatEntry[]; onSend: (
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // O OfficeState troca o array a cada mensagem; o tamanho para em 200.
   useEffect(() => {
     const element = log.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [messages.length]);
+  }, [messages]);
 
   const submit = (event: Event) => {
     event.preventDefault();
