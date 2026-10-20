@@ -204,7 +204,7 @@ export function OfficePage() {
         </p>
       )}
       <main class="stage">
-        <GameView deps={sceneDeps} keyboardEnabled={!typing && modal === null && !endedRef.current} />
+        <GameView deps={sceneDeps} keyboardEnabled={!typing && modal === null && !endedRef.current} panelOpen={deskAgents.length > 0} />
         {deskAgents.length > 0 && (
           <DeskPanel
             ownerName={state.desks.get(zone!)?.ownerName ?? null}

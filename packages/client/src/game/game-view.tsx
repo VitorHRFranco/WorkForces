@@ -3,7 +3,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { OfficeScene, type OfficeSceneDeps } from "./office-scene";
 
 /** Monta o jogo uma vez (as dependências são estáveis durante a vida da página). */
-export function GameView({ deps, keyboardEnabled }: { deps: OfficeSceneDeps; keyboardEnabled: boolean }) {
+export function GameView({ deps, keyboardEnabled, panelOpen }: { deps: OfficeSceneDeps; keyboardEnabled: boolean; panelOpen: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<OfficeScene | null>(null);
 
@@ -34,6 +34,7 @@ export function GameView({ deps, keyboardEnabled }: { deps: OfficeSceneDeps; key
   }, []);
 
   useEffect(() => scene.current?.setKeyboardEnabled(keyboardEnabled), [keyboardEnabled]);
+  useEffect(() => scene.current?.setPanelOpen(panelOpen), [panelOpen]);
 
   return <div class="game" ref={host} />;
 }
