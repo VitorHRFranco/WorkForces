@@ -192,14 +192,13 @@ export class Hub {
       return "denied";
     }
     if (this.watching.get(link) === agentId) {
-      entry.stale.delete(link);
-      if (entry.screen) link.send(this.keyFrame(entry));
+      this.sendScreen(entry, link);
       return "ok";
     }
     this.unwatch(link);
     entry.viewers.add(link);
     this.watching.set(link, agentId);
-    if (entry.screen) link.send(this.keyFrame(entry));
+    this.sendScreen(entry, link);
     entry.link?.sendViewers(entry.viewers.size);
     return "ok";
   }
@@ -269,15 +268,24 @@ export class Hub {
       viewer.send(this.keyFrame(entry));
       return;
     }
-    if (viewer.bufferedAmount() > SLOW_VIEWER_BYTES) {
-      entry.stale.add(viewer);
-      if (!entry.staleTimer) {
-        entry.staleTimer = setInterval(() => this.recoverStale(entry), this.staleCheckMs);
-        entry.staleTimer.unref();
-      }
-      return;
-    }
+    if (viewer.bufferedAmount() > SLOW_VIEWER_BYTES) return this.markStale(entry, viewer);
     viewer.send(message);
+  }
+
+  /** Tela guardada como quadro-chave; com a fila cheia, espera esvaziar (spec 10, visitante lento). */
+  private sendScreen(entry: AgentEntry, link: ClientLink): void {
+    if (!entry.screen) return;
+    if (link.bufferedAmount() > SLOW_VIEWER_BYTES) return this.markStale(entry, link);
+    entry.stale.delete(link);
+    link.send(this.keyFrame(entry));
+  }
+
+  private markStale(entry: AgentEntry, viewer: ClientLink): void {
+    entry.stale.add(viewer);
+    if (!entry.staleTimer) {
+      entry.staleTimer = setInterval(() => this.recoverStale(entry), this.staleCheckMs);
+      entry.staleTimer.unref();
+    }
   }
 
   /** Visitante lento recebe a tela inteira assim que a fila dele esvazia, mesmo com o agente parado. */

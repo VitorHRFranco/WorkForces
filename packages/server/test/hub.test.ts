@@ -240,6 +240,24 @@ describe("Hub", () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(slow.frames().at(-1)).toMatchObject({ seq: 2, key: true, lines: [[0, "b"], [1, ""]] });
   });
+
+  it("watch repetido não empilha a tela para quem não está lendo", async () => {
+    const hub = new Hub(30_000, 20);
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const slow = new FakeClient();
+    hub.addClient(slow);
+    hub.watch(slow, AGENT);
+    hub.agentFrame(bridge, AGENT, frame(1, true, [[0, "a"], [1, ""]]));
+    slow.buffered = SLOW_VIEWER_BYTES + 1;
+    for (let i = 0; i < 20; i++) hub.watch(slow, AGENT);
+    expect(slow.frames()).toHaveLength(1);
+    slow.buffered = 0;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(slow.frames()).toHaveLength(2);
+    expect(slow.frames().at(-1)).toMatchObject({ seq: 1, key: true });
+  });
+
   it("só assiste quem pode, e quem sai da zona deixa de assistir", () => {
     let allowed = false;
     const hub = new Hub(30_000, 200, () => allowed);
