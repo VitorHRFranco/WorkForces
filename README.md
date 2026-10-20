@@ -26,24 +26,32 @@ O escritório abre em `http://localhost:4600`. Na primeira execução, o console
 
 ### No escritório
 
-- Ande com as setas ou WASD. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo navegador ou pela ponte): a primeira livre, na ordem do mapa.
+- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer seta levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo navegador ou pela ponte): a primeira livre, na ordem do mapa.
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
-- Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Ao se afastar, o painel fecha.
+- Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha.
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
 
 ### Editar o mapa
 
-O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.tmj`). Para o escritório entender o mapa:
+O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.tmj`), com tiles de 32 px. Para o escritório entender o mapa:
 
 - um único tileset, **embutido** no mapa, com a imagem na mesma pasta do `.tmj`;
-- camadas de tiles com a propriedade booleana `collides` = `true` bloqueiam a passagem (paredes, móveis);
+- camadas de tiles com a propriedade booleana `collides` = `true` bloqueiam a passagem (paredes);
+- as posições são as dos pés: o ponto no meio da base de quem (ou do que) está ali;
 - um objeto do tipo `spawn` (ponto) marca a entrada;
 - cada mesa é um retângulo do tipo `desk` (a zona onde quem chega vê o terminal), com um nome único em minúsculas (`mesa-1`, `mesa-2`…); a ordem das mesas no mapa é a ordem em que elas são distribuídas;
-- até 3 pontos do tipo `robot` por mesa, com a propriedade `desk` = nome da mesa, marcam onde aparecem os robôs.
+- até 3 pontos do tipo `robot` por mesa, com a propriedade `desk` = nome da mesa, marcam onde aparecem os robôs;
+- pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta;
+- pontos do tipo `prop`, com a propriedade `sprite`, desenham um móvel ou uma decoração com a base nesse ponto. Os nomes disponíveis estão em `packages/client/src/game/props.json`; os móveis bloqueiam a passagem pela base.
 
-Se algo não bater, o servidor não sobe e diz o motivo. Para usar outro mapa, aponte `WF_MAP` para ele.
+Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console do navegador. Para usar outro mapa, aponte `WF_MAP` para ele.
 
-A arte é o [1-Bit Pack](https://kenney.nl/assets/1-bit-pack), do Kenney, em domínio público (CC0); veja `assets/CREDITS.md`.
+**Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. As imagens são geradas por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), que baixa as peças do LPC Revised de um commit fixado:
+
+```bash
+python tools/art/build_art.py          # refaz as imagens e o props.json
+python tools/art/build_art.py --map    # também refaz o mapa (descarta edições feitas no Tiled)
+```
 
 Configuração por variáveis de ambiente:
 
@@ -54,7 +62,7 @@ Configuração por variáveis de ambiente:
 | `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço que o navegador usa (links de convite e origem aceita) |
 | `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
 | `WF_CLIENT_DIR` | `packages/client/dist` | build do cliente web |
-| `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled); a imagem do tileset fica na mesma pasta |
+| `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled, tiles de 32 px); a imagem do tileset fica na mesma pasta |
 | `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost |
 | `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
 
