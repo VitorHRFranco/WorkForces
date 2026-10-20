@@ -4,9 +4,18 @@ import { z } from "zod";
 export const MAX_ROBOT_SLOTS = 3;
 /** Id de mesa: é o nome do objeto `desk` no Tiled e vai para o banco (`users.desk_id`). */
 export const DESK_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** Nome de um móvel no atlas do cliente (`packages/client/src/game/props.json`). */
+export const PROP_SPRITE_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 /** A imagem do tileset fica na mesma pasta do .tmj: só o nome do arquivo, sem caminho. */
 const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 const COLOR_PATTERN = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+
+const SEAT_DIRECTIONS = ["up", "down", "left", "right"] as const;
+
+/** Para onde olha quem senta (as mesmas direções do `Direction` das mensagens). */
+export type SeatDirection = (typeof SEAT_DIRECTIONS)[number];
+
+const isSeatDirection = (value: unknown): value is SeatDirection => typeof value === "string" && (SEAT_DIRECTIONS as readonly string[]).includes(value);
 
 export interface Point {
   x: number;
@@ -24,8 +33,18 @@ export interface DeskSpot {
   id: string;
   /** Zona de proximidade, em pixels do mapa. */
   zone: Rect;
-  /** Onde os robôs dos agentes aparecem (centro de cada um). */
+  /** Onde os robôs dos agentes aparecem (os pés de cada um). */
   slots: Point[];
+}
+
+/** Assento: quem para perto dele senta aqui, olhando para `dir`. */
+export interface Seat extends Point {
+  dir: SeatDirection;
+}
+
+/** Móvel ou decoração: a imagem `sprite` do atlas do cliente, com a base em (x, y). */
+export interface MapProp extends Point {
+  sprite: string;
 }
 
 export interface OfficeMap {
@@ -35,9 +54,13 @@ export interface OfficeMap {
   widthPx: number;
   heightPx: number;
   backgroundColor: string | null;
+  /** Todas as posições do mapa são as dos pés (o meio da base do sprite). */
   spawn: Point;
   /** Na ordem do mapa: é a ordem em que as mesas são atribuídas. */
   desks: DeskSpot[];
+  seats: Seat[];
+  /** Na ordem do mapa. */
+  props: MapProp[];
   /** Nome do arquivo da imagem do tileset, ao lado do .tmj. */
   tilesetImage: string;
 }
@@ -106,6 +129,7 @@ export function parseOfficeMap(raw: unknown): OfficeMap {
   const objects = tiled.layers.flatMap((layer) => (layer.type === "objectgroup" ? layer.objects : []));
   const insidePoint = (point: Point) => point.x >= 0 && point.y >= 0 && point.x <= widthPx && point.y <= heightPx;
   const insideRect = (rect: Rect) => rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= widthPx && rect.y + rect.height <= heightPx;
+  const propertyOf = (object: MapObject, name: string): unknown => object.properties?.find((property) => property.name === name)?.value;
 
   const spawnObject = objects.find((object) => kindOf(object) === "spawn");
   if (!spawnObject) throw new MapError("o mapa precisa de um objeto de entrada (tipo spawn)");
@@ -124,7 +148,7 @@ export function parseOfficeMap(raw: unknown): OfficeMap {
   }
 
   for (const object of objects.filter((candidate) => kindOf(candidate) === "robot")) {
-    const deskId = object.properties?.find((property) => property.name === "desk")?.value;
+    const deskId = propertyOf(object, "desk");
     const desk = desks.find((candidate) => candidate.id === deskId);
     if (!desk) throw new MapError(`robô aponta para uma mesa que não existe: ${String(deskId)}`);
     if (desk.slots.length >= MAX_ROBOT_SLOTS) throw new MapError(`mesa ${desk.id} tem mais de ${MAX_ROBOT_SLOTS} posições de robô`);
@@ -133,8 +157,26 @@ export function parseOfficeMap(raw: unknown): OfficeMap {
     desk.slots.push(slot);
   }
 
+  const seats: Seat[] = [];
+  for (const object of objects.filter((candidate) => kindOf(candidate) === "seat")) {
+    const dir = propertyOf(object, "dir");
+    if (!isSeatDirection(dir)) throw new MapError(`assento com direção inválida: ${String(dir)} (use up, down, left ou right)`);
+    const seat = { x: object.x, y: object.y, dir };
+    if (!insidePoint(seat)) throw new MapError("assento fora do mapa");
+    seats.push(seat);
+  }
+
+  const props: MapProp[] = [];
+  for (const object of objects.filter((candidate) => kindOf(candidate) === "prop")) {
+    const sprite = propertyOf(object, "sprite");
+    if (typeof sprite !== "string" || !PROP_SPRITE_PATTERN.test(sprite)) throw new MapError(`prop com sprite inválido: ${String(sprite)}`);
+    const prop = { x: object.x, y: object.y, sprite };
+    if (!insidePoint(prop)) throw new MapError(`prop ${sprite} fora do mapa`);
+    props.push(prop);
+  }
+
   const backgroundColor = tiled.backgroundcolor && COLOR_PATTERN.test(tiled.backgroundcolor) ? tiled.backgroundcolor : null;
-  return { tileSize, cols: tiled.width, rows: tiled.height, widthPx, heightPx, backgroundColor, spawn, desks, tilesetImage };
+  return { tileSize, cols: tiled.width, rows: tiled.height, widthPx, heightPx, backgroundColor, spawn, desks, seats, props, tilesetImage };
 }
 
 function readTileset(value: unknown, tileSize: number): string {

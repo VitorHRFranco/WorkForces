@@ -19,6 +19,9 @@ const expectMapError = (raw: unknown, message: RegExp) => {
   expect(() => parseOfficeMap(raw)).toThrow(message);
 };
 
+const seatObject = (dir: unknown, x = 72) => ({ id: 900, name: "", type: "seat", point: true, x, y: 100, width: 0, height: 0, properties: [{ name: "dir", type: "string", value: dir }] });
+const propObject = (sprite: unknown, x = 80) => ({ id: 901, name: "", type: "prop", point: true, x, y: 90, width: 0, height: 0, properties: [{ name: "sprite", type: "string", value: sprite }] });
+
 describe("parseOfficeMap", () => {
   it("lê o mapa do repositório: 8 mesas com 3 posições de robô, entrada e um tileset embutido", () => {
     const map = parseOfficeMap(officeJson());
@@ -48,6 +51,12 @@ describe("parseOfficeMap", () => {
     expect(inZone(zone, { x: 49, y: 10 }, 16)).toBe(false);
   });
 
+  it("lê assentos e móveis, na ordem do mapa", () => {
+    const map = parseOfficeMap(broken((tiled) => objectsOf(tiled).push(seatObject("up"), propObject("desk-wood"))));
+    expect(map.seats.at(-1)).toEqual({ x: 72, y: 100, dir: "up" });
+    expect(map.props.at(-1)).toEqual({ x: 80, y: 90, sprite: "desk-wood" });
+  });
+
   it("recusa o que o escritório não sabe usar, dizendo o motivo", () => {
     expectMapError("x", /formato/);
     expectMapError("{", /formato/);
@@ -62,5 +71,9 @@ describe("parseOfficeMap", () => {
     expectMapError(broken((map) => objectsOf(map).push({ ...objectsOf(map)[9], id: 999 })), /mais de 3/);
     expectMapError(broken((map) => objectsOf(map).splice(0, 1)), /entrada/);
     expectMapError(broken((map) => (map.infinite = true)), /infinito/);
+    expectMapError(broken((map) => objectsOf(map).push(seatObject("sideways"))), /assento com direção inválida: sideways/);
+    expectMapError(broken((map) => objectsOf(map).push(seatObject("up", -1))), /assento fora do mapa/);
+    expectMapError(broken((map) => objectsOf(map).push(propObject("../segredo"))), /prop com sprite inválido: \.\.\/segredo/);
+    expectMapError(broken((map) => objectsOf(map).push(propObject("desk-wood", 99_999))), /prop desk-wood fora do mapa/);
   });
 });

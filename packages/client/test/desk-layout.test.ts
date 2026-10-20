@@ -11,6 +11,8 @@ const map: OfficeMap = {
   backgroundColor: null,
   spawn: { x: 8, y: 8 },
   tilesetImage: "tiles.png",
+  seats: [],
+  props: [],
   desks: [
     { id: "mesa-1", zone: { x: 0, y: 0, width: 96, height: 64 }, slots: [{ x: 40, y: 8 }, { x: 56, y: 8 }, { x: 56, y: 24 }] },
     { id: "mesa-2", zone: { x: 112, y: 0, width: 96, height: 64 }, slots: [{ x: 150, y: 8 }] },
