@@ -28,8 +28,10 @@ export interface SocketDeps {
 export interface SocketOptions {
   sweepMs?: number;
   helloTimeoutMs?: number;
+  heartbeatMs?: number;
 }
 
+const HEARTBEAT_MS = 30_000;
 const BRIDGE_MAX_PAYLOAD = LIMITS.maxFrameBytes + 16 * 1024;
 const CLIENT_MAX_PAYLOAD = 16 * 1024;
 const BRIDGE_MESSAGES_PER_SECOND = 100;
@@ -56,6 +58,12 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   const bridgeServer = new WebSocketServer({ noServer: true, maxPayload: BRIDGE_MAX_PAYLOAD });
   const clientServer = new WebSocketServer({ noServer: true, maxPayload: CLIENT_MAX_PAYLOAD });
   const bridges = new Set<BridgeConnection>();
+  /** Conexão que não responde ao ping (notebook dormindo, rede trocada) cai: sem isso, avatar fantasma e "dono fora" errado. */
+  const alive = new WeakMap<WebSocket, boolean>();
+  const trackAlive = (ws: WebSocket) => {
+    alive.set(ws, true);
+    ws.on("pong", () => alive.set(ws, true));
+  };
   const clients = new Map<number, ClientConnection>();
   /** Cotas por pessoa (não por conexão): reconectar não zera nada. */
   const ratesByUser = new Map<number, { total: MessageRate; move: MessageRate; watch: MessageRate; chat: MessageRate; connect: MessageRate }>();
@@ -101,6 +109,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
 
   function onBridge(ws: WebSocket, request: IncomingMessage): void {
     ws.on("error", () => {});
+    trackAlive(ws);
     const auth = accounts.tokens.verify(bearerToken(request.headers.authorization));
     // Fecha depois do upgrade: a ponte entende 4001 como fatal e para de tentar.
     if (!auth) return ws.close(CLOSE_CODES.unauthorized, "token inválido");
@@ -154,6 +163,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
 
   function onClient(ws: WebSocket, request: IncomingMessage): void {
     ws.on("error", () => {});
+    trackAlive(ws);
     if (request.headers.origin !== origin) return ws.close(CLOSE_CODES.originNotAllowed, "origem não permitida");
     const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
     const user = accounts.sessions.lookup(sessionId);
@@ -233,8 +243,22 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   }, options.sweepMs ?? 30_000);
   sweep.unref();
 
+  const heartbeat = setInterval(() => {
+    for (const ws of [...bridgeServer.clients, ...clientServer.clients]) {
+      if (ws.readyState !== ws.OPEN) continue;
+      if (alive.get(ws) === false) {
+        ws.terminate(); // 1006: o navegador sai do mapa; a ponte fica "reconectando" e some depois do prazo
+        continue;
+      }
+      alive.set(ws, false);
+      ws.ping();
+    }
+  }, options.heartbeatMs ?? HEARTBEAT_MS);
+  heartbeat.unref();
+
   app.addHook("preClose", async () => {
     clearInterval(sweep);
+    clearInterval(heartbeat);
     for (const ws of [...bridgeServer.clients, ...clientServer.clients]) ws.terminate();
     bridgeServer.close();
     clientServer.close();

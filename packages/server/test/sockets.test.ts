@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { disableUser } from "../src/accounts/index.js";
-import { bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message, type TestSocket } from "./helpers/live.js";
-import { JSON_HEADERS, createUser } from "./helpers/setup.js";
+import { TestSocket, bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message } from "./helpers/live.js";
+import { JSON_HEADERS, ORIGIN, createUser } from "./helpers/setup.js";
 import { sleep } from "./helpers/wait.js";
 
 const servers: LiveServer[] = [];
@@ -229,6 +229,18 @@ describe("repasse de quadros", () => {
     server.accounts.tokens.revoke(ana.user.id, ana.token.id);
     bridge.send(hello(randomUUID()));
     expect(await bridge.closed).toBe(4001);
+  });
+
+  it("conexão que não responde ao ping sai do mapa", async () => {
+    const server = await live({ heartbeatMs: 100 });
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const watcher = clientSocket(server, bia.session);
+    await watcher.waitFor((m) => m.type === "welcome", "welcome");
+    const ghost = new TestSocket(`${server.wsBase}/ws/client`, { headers: { cookie: `wf_session=${ana.session}` }, origin: ORIGIN, autoPong: false });
+    await watcher.waitFor((m) => m.type === "playerJoined", "ana entrou");
+    await watcher.waitFor((m) => m.type === "playerLeft" && m.playerId === ana.user.id, "ana saiu");
+    expect(await ghost.closed).toBe(1006);
   });
 
   it("desativar a conta derruba ponte e navegador na varredura", async () => {

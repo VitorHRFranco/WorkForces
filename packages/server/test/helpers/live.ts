@@ -4,13 +4,13 @@ import { createServer } from "../../src/server.js";
 import { ORIGIN, testConfig } from "./setup.js";
 import { waitUntil } from "./wait.js";
 
-export async function startLiveServer(options: { sweepMs?: number; helloTimeoutMs?: number; graceMs?: number } = {}) {
+export async function startLiveServer(options: { sweepMs?: number; helloTimeoutMs?: number; graceMs?: number; heartbeatMs?: number } = {}) {
   const logs: string[] = [];
   const server = createServer(testConfig(), {
     dbFile: ":memory:",
     log: (message) => logs.push(message),
     graceMs: options.graceMs ?? 50,
-    sockets: { sweepMs: options.sweepMs ?? 60_000, helloTimeoutMs: options.helloTimeoutMs ?? 5_000 },
+    sockets: { sweepMs: options.sweepMs ?? 60_000, helloTimeoutMs: options.helloTimeoutMs ?? 5_000, heartbeatMs: options.heartbeatMs },
   });
   await server.app.listen({ port: 0, host: "127.0.0.1" });
   const port = (server.app.server.address() as AddressInfo).port;
