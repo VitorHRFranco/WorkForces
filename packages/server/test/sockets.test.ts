@@ -251,7 +251,11 @@ describe("repasse de quadros", () => {
     bridge.send(hello(randomUUID()));
     const viewer = clientSocket(server, ana.session);
     await viewer.waitFor((m) => m.type === "welcome", "welcome");
+    const bia = await person(server, "bia");
+    const other = clientSocket(server, bia.session);
+    await other.waitFor((m) => m.type === "welcome", "welcome da bia");
     disableUser(server.accounts, ana.user.id);
+    await other.waitFor((m) => m.type === "deskUpdated" && (m.desk as Message).id === "mesa-1" && (m.desk as Message).ownerId === null, "mesa-1 livre");
     expect(await bridge.closed).toBe(4001);
     expect(await viewer.closed).toBe(4001);
   });

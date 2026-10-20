@@ -240,6 +240,11 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     for (const client of clients.values()) {
       if (!accounts.sessions.lookup(client.sessionId)) client.ws.close(CLOSE_CODES.unauthorized, "sessão encerrada");
     }
+    // Conta desativada por outro processo (CLI): a mesa fica livre na tela também (spec 6.5).
+    for (const desk of world.desks()) {
+      if (desk.ownerId === null || accounts.users.isActive(desk.ownerId)) continue;
+      for (const changed of world.setDesk({ id: desk.ownerId, name: desk.ownerName ?? "" }, null)) hub.broadcast({ type: "deskUpdated", desk: changed });
+    }
   }, options.sweepMs ?? 30_000);
   sweep.unref();
 
