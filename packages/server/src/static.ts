@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppContext } from "./context.js";
 
 const BROWSER_METHODS = new Set(["GET", "HEAD"]);
-const isServerPath = (path: string) => ["/api", "/ws"].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+const isServerPath = (path: string) => ["/api", "/ws", "/map"].some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 
 /** Serve o build do cliente; rotas do navegador (ex.: /login, /invite/…) recebem index.html. */
 export function registerClient(app: FastifyInstance, ctx: AppContext): void {

@@ -41,13 +41,24 @@ describe("mapa do escritório", () => {
     writeFileSync(join(dir, "externo.tmj"), JSON.stringify({ ...office, tilesets: [{ firstgid: 1, source: "kenney.tsx" }] }));
     writeFileSync(join(dir, "quebrado.tmj"), "{");
     writeFileSync(join(dir, "sem-imagem.tmj"), JSON.stringify(office));
+    writeFileSync(join(dir, "bmp.tmj"), JSON.stringify({ ...office, tilesets: [{ ...office.tilesets[0], image: "tiles.bmp" }] }));
     const start = (file: string) => () => createServer(testConfig({ mapFile: join(dir, file) }), quiet);
     expect(start("externo.tmj")).toThrow(/mapa inválido.*tileset externo/);
     expect(start("quebrado.tmj")).toThrow(/não é um JSON válido/);
     expect(start("nao-existe.tmj")).toThrow(/não consegui ler o mapa/);
     expect(start("sem-imagem.tmj")).toThrow(/imagem do tileset não encontrada: tiles.png/);
+    expect(start("bmp.tmj")).toThrow(/png, webp, gif ou jpg/);
     copyFileSync(join(REPO_MAP, "..", "tiles.png"), join(dir, "tiles.png"));
     const { app } = start("sem-imagem.tmj")();
+    await app.close();
+  });
+
+  it("aceita .tmj com BOM no início", async () => {
+    const dir = tempDir("wf-map-bom-");
+    const office = JSON.parse(readFileSync(REPO_MAP, "utf8"));
+    writeFileSync(join(dir, "bom.tmj"), "\uFEFF" + JSON.stringify(office));
+    copyFileSync(join(REPO_MAP, "..", "tiles.png"), join(dir, "tiles.png"));
+    const { app } = createServer(testConfig({ mapFile: join(dir, "bom.tmj") }), quiet);
     await app.close();
   });
 });

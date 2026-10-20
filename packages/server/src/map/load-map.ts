@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { MapError, parseOfficeMap, type OfficeMap } from "@workforces/protocol";
 import { ServerConfigError } from "../config.js";
 
@@ -11,6 +11,14 @@ export interface LoadedMap {
   image: Buffer;
 }
 
+export const IMAGE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+};
+
 /** Lê e confere o mapa na subida: um mapa que o escritório não sabe usar impede o servidor de subir. */
 export function loadMap(file: string): LoadedMap {
   let raw: Buffer;
@@ -21,11 +29,14 @@ export function loadMap(file: string): LoadedMap {
   }
   let map: OfficeMap;
   try {
-    map = parseOfficeMap(JSON.parse(raw.toString("utf8").replace(/^﻿/, "")));
+    map = parseOfficeMap(JSON.parse(raw.toString("utf8").replace(/^\uFEFF/, "")));
   } catch (error) {
     if (error instanceof SyntaxError) throw new ServerConfigError(`mapa inválido (${file}): não é um JSON válido`);
     if (error instanceof MapError) throw new ServerConfigError(`mapa inválido (${file}): ${error.message}`);
     throw error;
+  }
+  if (!(extname(map.tilesetImage).toLowerCase() in IMAGE_TYPES)) {
+    throw new ServerConfigError(`mapa inválido (${file}): a imagem do tileset precisa ser png, webp, gif ou jpg: ${map.tilesetImage}`);
   }
   let image: Buffer;
   try {

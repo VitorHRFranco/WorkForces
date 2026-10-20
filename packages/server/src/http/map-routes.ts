@@ -1,14 +1,6 @@
 import { extname } from "node:path";
 import type { FastifyInstance } from "fastify";
-import type { LoadedMap } from "../map/load-map.js";
-
-const IMAGE_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-};
+import { IMAGE_TYPES, type LoadedMap } from "../map/load-map.js";
 
 /** O mapa e a imagem do tileset; nenhum outro arquivo da pasta do mapa é servido. */
 export function registerMapRoutes(app: FastifyInstance, office: LoadedMap): void {
