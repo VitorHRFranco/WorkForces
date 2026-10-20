@@ -133,6 +133,18 @@ export function OfficePage() {
     if (previous !== null && watchingRef.current === null) connection.current?.unwatch();
   }, [watched, isBlocked]);
 
+  // Botão clicado com o mouse não fica com o foco: o Enter seguinte abre o chat em vez de repetir o clique, e o Espaço não aperta
+  // o botão de novo. Clique vindo do teclado (detail 0) mantém o foco; os modais cuidam do próprio foco.
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.detail === 0) return;
+      const button = event.target instanceof Element ? event.target.closest("button") : null;
+      if (button && !button.closest(".modal") && document.activeElement === button) button.blur();
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
   const startWatching = (agentId: string) => {
     moves.flush(); // a posição chega ao servidor antes do watch (regra de proximidade)
     connection.current?.watch(agentId);

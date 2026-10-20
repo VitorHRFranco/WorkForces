@@ -63,6 +63,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   const trackAlive = (ws: WebSocket) => {
     alive.set(ws, true);
     ws.on("pong", () => alive.set(ws, true));
+    // Mensagem também prova que a conexão vive: com o envio congestionado (ponte com upload fraco), o pong chega depois dos quadros.
+    ws.on("message", () => alive.set(ws, true));
   };
   const clients = new Map<number, ClientConnection>();
   /** Cotas por pessoa (não por conexão): reconectar não zera nada. */

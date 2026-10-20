@@ -232,7 +232,7 @@ describe("repasse de quadros", () => {
   });
 
   it("conexão que não responde ao ping sai do mapa", async () => {
-    const server = await live({ heartbeatMs: 100 });
+    const server = await live({ heartbeatMs: 300 });
     const ana = await person(server, "ana");
     const bia = await person(server, "bia");
     const watcher = clientSocket(server, bia.session);
@@ -241,6 +241,20 @@ describe("repasse de quadros", () => {
     await watcher.waitFor((m) => m.type === "playerJoined", "ana entrou");
     await watcher.waitFor((m) => m.type === "playerLeft" && m.playerId === ana.user.id, "ana saiu");
     expect(await ghost.closed).toBe(1006);
+  });
+
+  it("conexão que manda mensagens continua viva mesmo sem responder ao ping, e cai quando para", async () => {
+    const server = await live({ heartbeatMs: 300 });
+    const ana = await person(server, "ana");
+    const busy = new TestSocket(`${server.wsBase}/ws/client`, { headers: { cookie: `wf_session=${ana.session}` }, origin: ORIGIN, autoPong: false });
+    await busy.waitFor((m) => m.type === "welcome", "welcome");
+    const { spawn } = server.world.map;
+    for (let i = 0; i < 15; i++) {
+      busy.send({ type: "move", x: spawn.x + (i % 2), y: spawn.y, dir: "right", moving: true });
+      await sleep(100);
+    }
+    expect(busy.ws.readyState).toBe(busy.ws.OPEN); // 1,5 s = 5 rodadas de ping sem pong
+    expect(await busy.closed).toBe(1006);
   });
 
   it("desativar a conta derruba ponte e navegador na varredura", async () => {
