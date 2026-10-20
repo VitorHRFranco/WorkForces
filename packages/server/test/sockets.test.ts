@@ -340,11 +340,12 @@ describe("repasse de quadros", () => {
 describe("presença e movimento", () => {
   it("quem entra e quem anda aparece para os outros, dentro dos limites do mapa", async () => {
     const server = await live();
+    const { spawn, widthPx } = server.world.map;
     const ana = await person(server, "ana");
     const bia = await person(server, "bia");
     const anaTab = clientSocket(server, ana.session);
     const anaWelcome = await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
-    expect(anaWelcome.players).toEqual([{ id: ana.user.id, name: "ana", x: 232, y: 184, dir: "down", moving: false }]);
+    expect(anaWelcome.players).toEqual([{ id: ana.user.id, name: "ana", x: spawn.x, y: spawn.y, dir: "down", moving: false }]);
     const biaTab = clientSocket(server, bia.session);
     const biaWelcome = await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
     expect((biaWelcome.players as Message[]).map((p) => p.name).sort()).toEqual(["ana", "bia"]);
@@ -352,14 +353,14 @@ describe("presença e movimento", () => {
 
     biaTab.send({ type: "move", x: 99_999, y: -5, dir: "right", moving: true });
     const moved = await anaTab.waitFor((m) => m.type === "playerMoved", "bia andou");
-    expect(moved).toEqual({ type: "playerMoved", playerId: bia.user.id, x: 704, y: 0, dir: "right", moving: true });
+    expect(moved).toEqual({ type: "playerMoved", playerId: bia.user.id, x: widthPx, y: 0, dir: "right", moving: true });
     expect(biaTab.messages.some((m) => m.type === "playerMoved")).toBe(false);
 
     biaTab.ws.close();
     await anaTab.waitFor((m) => m.type === "playerLeft" && m.playerId === bia.user.id, "bia saiu");
     const again = clientSocket(server, bia.session);
     const back = await again.waitFor((m) => m.type === "welcome", "bia voltou");
-    expect((back.players as Message[]).find((p) => p.id === bia.user.id)).toMatchObject({ x: 704, y: 0, moving: false });
+    expect((back.players as Message[]).find((p) => p.id === bia.user.id)).toMatchObject({ x: widthPx, y: 0, moving: false });
   });
 
   it("segunda aba não faz a pessoa sair nem entrar de novo", async () => {

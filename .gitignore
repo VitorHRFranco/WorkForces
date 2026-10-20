@@ -6,3 +6,6 @@ coverage/
 
 # Specs e planos do processo de construção ficam só locais
 docs/superpowers/
+
+# Peças do LPC Revised baixadas pelo gerador de arte (tools/art/build_art.py)
+tools/art/.cache/

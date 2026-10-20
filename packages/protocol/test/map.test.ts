@@ -23,27 +23,31 @@ const seatObject = (dir: unknown, x = 72) => ({ id: 900, name: "", type: "seat",
 const propObject = (sprite: unknown, x = 80) => ({ id: 901, name: "", type: "prop", point: true, x, y: 90, width: 0, height: 0, properties: [{ name: "sprite", type: "string", value: sprite }] });
 
 describe("parseOfficeMap", () => {
-  it("lê o mapa do repositório: 8 mesas com 3 posições de robô, entrada e um tileset embutido", () => {
+  it("lê o mapa do repositório: 8 mesas com 3 posições de robô, entrada, assentos, móveis e um tileset embutido", () => {
     const map = parseOfficeMap(officeJson());
-    expect(map).toMatchObject({ tileSize: 16, cols: 44, rows: 26, widthPx: 704, heightPx: 416, backgroundColor: "#472d3c", tilesetImage: "tiles.png" });
-    expect(map.spawn).toEqual({ x: 232, y: 184 });
+    expect(map).toMatchObject({ tileSize: 32, cols: 26, rows: 19, widthPx: 832, heightPx: 608, backgroundColor: "#2e2a3a", tilesetImage: "office.png" });
+    expect(map.spawn).toEqual({ x: 288, y: 304 });
     expect(map.desks.map((desk) => desk.id)).toEqual(["mesa-1", "mesa-2", "mesa-3", "mesa-4", "mesa-5", "mesa-6", "mesa-7", "mesa-8"]);
     expect(map.desks[0]).toEqual({
       id: "mesa-1",
-      zone: { x: 32, y: 48, width: 96, height: 64 },
+      zone: { x: 36, y: 144, width: 120, height: 88 },
       slots: [
-        { x: 88, y: 72 },
-        { x: 104, y: 72 },
-        { x: 104, y: 88 },
+        { x: 118, y: 186 },
+        { x: 142, y: 200 },
+        { x: 118, y: 216 },
       ],
     });
     expect(map.desks.every((desk) => desk.slots.length === 3)).toBe(true);
+    expect(map.seats).toHaveLength(20);
+    expect(map.seats[0]).toEqual({ x: 72, y: 198, dir: "up" });
+    expect(map.props).toHaveLength(45);
+    expect(map.props[0]).toEqual({ x: 72, y: 179, sprite: "desk-wood" });
   });
 
   it("acha a mesa pela posição e aceita folga nas bordas", () => {
     const map = parseOfficeMap(officeJson());
-    expect(deskAt(map, { x: 80, y: 80 })?.id).toBe("mesa-1");
-    expect(deskAt(map, { x: 176, y: 80 })?.id).toBe("mesa-2");
+    expect(deskAt(map, { x: 100, y: 200 })?.id).toBe("mesa-1");
+    expect(deskAt(map, { x: 200, y: 200 })?.id).toBe("mesa-2");
     expect(deskAt(map, map.spawn)).toBeNull();
     const zone = { x: 0, y: 0, width: 32, height: 32 };
     expect(inZone(zone, { x: 40, y: 10 })).toBe(false);
