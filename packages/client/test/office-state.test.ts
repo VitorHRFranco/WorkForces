@@ -86,3 +86,17 @@ describe("OfficeState", () => {
     expect(state.agentsAtDesk("mesa-9")).toEqual([]);
   });
 });
+
+describe("OfficeState: Chamar agente", () => {
+  it("guarda as pastas e se a ponte está ligada, a cada aviso do servidor", () => {
+    const state = new OfficeState();
+    state.apply(welcome());
+    expect(state.aliases).toEqual([]);
+    expect(state.listenerOnline).toBe(false);
+    state.apply({ type: "aliases", aliases: ["api", "loja"], listenerOnline: true });
+    expect(state.aliases).toEqual(["api", "loja"]);
+    expect(state.listenerOnline).toBe(true);
+    state.apply({ type: "aliases", aliases: [], listenerOnline: false });
+    expect(state.listenerOnline).toBe(false);
+  });
+});

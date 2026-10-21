@@ -106,6 +106,46 @@ code {
   flex: 1;
 }
 
+.agent-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-menu-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.agent-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 180px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.agent-menu-list button {
+  width: 100%;
+  text-align: left;
+}
+
+.spawn-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.spawn-status.error {
+  color: #f4b41b;
+}
+
 .who {
   color: var(--muted);
 }

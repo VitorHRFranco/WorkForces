@@ -5,10 +5,12 @@ import { GameView } from "../game/game-view";
 import { MoveSender } from "../game/move-sender";
 import type { OfficeSceneDeps } from "../game/office-scene";
 import { useTyping } from "../game/typing";
-import { OfficeConnection } from "../office/connection";
+import { AgentMenu, type SpawnStatus } from "../office/agent-menu";
+import { OfficeConnection, SPAWN_COOLDOWN_MS } from "../office/connection";
 import { ChatBox } from "../office/chat-box";
 import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
+import { spawnErrorText } from "../office/spawn-text";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
 import { TokensModal } from "../office/tokens-modal";
 import { watchTarget } from "../office/watch-target";
@@ -39,6 +41,10 @@ export function OfficePage() {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const terminal = useRef<TerminalHandle | null>(null);
   const watchingRef = useRef<string | null>(null);
+  const [spawnStatus, setSpawnStatus] = useState<SpawnStatus | null>(null);
+  const [spawnBusy, setSpawnBusy] = useState(false);
+  /** O pedido de agente que espera resposta (a resposta traz o mesmo reqId). */
+  const pendingSpawn = useRef<{ reqId: string; alias: string } | null>(null);
 
   useEffect(() => {
     setLoadFailed(false);
@@ -61,7 +67,23 @@ export function OfficePage() {
     const conn = new OfficeConnection({
       onMessage: (message) => {
         state.apply(message);
+        if (message.type === "spawnResult") {
+          const pending = pendingSpawn.current;
+          if (pending?.reqId !== message.reqId) return;
+          pendingSpawn.current = null;
+          setSpawnStatus(
+            message.ok
+              ? { state: "ok", text: `abrindo ${pending.alias}: a janela aparece no seu computador` }
+              : { state: "error", text: spawnErrorText(message.error ?? "spawn-failed") },
+          );
+          return;
+        }
         if (message.type === "welcome") {
+          // Pedido feito antes de a conexão cair: a resposta não vem mais.
+          if (pendingSpawn.current) {
+            pendingSpawn.current = null;
+            setSpawnStatus({ state: "error", text: "a conexão caiu antes da resposta; confira se a janela abriu" });
+          }
           // Depois de reconectar, o servidor não sabe onde o avatar está: manda a posição antes de voltar a assistir.
           moves.resend();
           if (watchingRef.current) conn.watch(watchingRef.current);
@@ -145,6 +167,25 @@ export function OfficePage() {
     return () => document.removeEventListener("click", onClick);
   }, []);
 
+  // O aviso some sozinho depois de um tempo (menos enquanto espera a resposta).
+  useEffect(() => {
+    if (!spawnStatus || spawnStatus.state === "pending") return;
+    const timer = window.setTimeout(() => setSpawnStatus(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [spawnStatus]);
+
+  const spawnAgent = (alias: string) => {
+    const request = connection.current?.spawnAgent(alias) ?? ({ ok: false, reason: "offline" } as const);
+    if (!request.ok) {
+      setSpawnStatus({ state: "error", text: request.reason === "cooldown" ? spawnErrorText("rate-limited") : "sem conexão com o escritório" });
+      return;
+    }
+    pendingSpawn.current = { reqId: request.reqId, alias };
+    setSpawnStatus({ state: "pending", text: `pedindo ${alias} à sua ponte…` });
+    setSpawnBusy(true);
+    window.setTimeout(() => setSpawnBusy(false), SPAWN_COOLDOWN_MS);
+  };
+
   const startWatching = (agentId: string) => {
     moves.flush(); // a posição chega ao servidor antes do watch (regra de proximidade)
     connection.current?.watch(agentId);
@@ -192,6 +233,7 @@ export function OfficePage() {
         <strong>WorkForces</strong>
         <span class="who">{me.name}</span>
         <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>
+        <AgentMenu aliases={state.aliases} listenerOnline={state.listenerOnline} busy={spawnBusy} status={spawnStatus} onSpawn={spawnAgent} />
         <span class="spacer" />
         <button type="button" onClick={() => setModal("tokens")}>
           Tokens da ponte
