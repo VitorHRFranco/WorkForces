@@ -1,7 +1,7 @@
 import type { SpawnError } from "@workforces/protocol";
 
 const TEXT: Record<SpawnError, string> = {
-  "no-listener": "a ponte não está ligada: rode `workforces ponte` no seu computador",
+  "no-listener": "a ponte não está ligada: rode workforces ponte no seu computador",
   "unknown-alias": "essa pasta não está mais liberada na sua ponte",
   "folder-missing": "a pasta não existe mais no seu computador",
   "rate-limited": "espere alguns segundos entre um pedido e outro",
