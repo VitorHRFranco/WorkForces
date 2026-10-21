@@ -6,6 +6,7 @@ import { TestSocket, bridgeSocket, clientSocket, hello, startLiveServer, type Li
 import { JSON_HEADERS, ORIGIN, createUser } from "./helpers/setup.js";
 import { sleep } from "./helpers/wait.js";
 
+const DAY = 24 * 60 * 60 * 1000;
 const servers: LiveServer[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.app.close();
@@ -179,6 +180,17 @@ describe("conexão do navegador", () => {
     const tab = clientSocket(server, ana.session);
     expect(await tab.closed).toBe(1006);
     expect(server.logs).toContain("erro ao abrir a conexão /ws/client: banco fora do ar");
+  });
+
+  it("reconectar não renova a sessão: a aba vai para o login 14 dias depois da última vez que a página foi aberta", async () => {
+    const clock = { now: Date.now() };
+    const server = await live({ sweepMs: 50, now: () => clock.now });
+    const ana = await person(server, "ana");
+    clock.now += 8 * DAY;
+    const tab = clientSocket(server, ana.session);
+    await tab.waitFor((m) => m.type === "welcome", "welcome");
+    clock.now += 6 * DAY + 1_000;
+    expect(await tab.closed).toBe(4001);
   });
 });
 

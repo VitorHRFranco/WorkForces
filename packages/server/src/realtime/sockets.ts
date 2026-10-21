@@ -175,7 +175,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     trackAlive(ws);
     if (request.headers.origin !== origin) return ws.close(CLOSE_CODES.originNotAllowed, "origem não permitida");
     const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
-    const user = accounts.sessions.lookup(sessionId);
+    // Abrir a página já renova a sessão via /api/me, que também reenvia o cookie; renovar aqui só faria o banco durar mais que o cookie.
+    const user = accounts.sessions.lookup(sessionId, { renew: false });
     if (!user || !sessionId) return ws.close(CLOSE_CODES.unauthorized, "faça login");
 
     const rates = ratesFor(user.id);
