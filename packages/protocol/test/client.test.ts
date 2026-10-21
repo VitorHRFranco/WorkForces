@@ -34,6 +34,11 @@ describe("ClientToServer", () => {
     expect(chat("emoji 👍🏽")).toBe(true);
     expect(chat("नमस्ते")).toBe(true);
     expect(chat("a\u200fb")).toBe(true);
+    expect(chat("\u200b")).toBe(false);
+    expect(chat("\u3164\u3164")).toBe(false);
+    expect(chat("\u2800")).toBe(false);
+    expect(chat("\u00ad")).toBe(false);
+    expect(chat("oi\u200b")).toBe(true);
   });
 });
 

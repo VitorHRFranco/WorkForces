@@ -1,10 +1,10 @@
-import { CHAT_FORBIDDEN, LIMITS } from "@workforces/protocol";
+import { CHAT_FORBIDDEN, CHAT_VISIBLE, LIMITS } from "@workforces/protocol";
 
 // O que o servidor recusa (controle, separadores de linha, controles bidi) e surrogates soltos viram espaço.
 const FORBIDDEN = new RegExp(CHAT_FORBIDDEN.source, "g");
 const LONE_SURROGATE = /\p{Cs}/gu;
 
-/** O texto que vai para o servidor: o que ele recusa vira espaço, sem espaços nas pontas, até 1000 caracteres. null = nada a mandar. */
+/** O texto que vai para o servidor: o que ele recusa vira espaço, sem espaços nas pontas, até 1000 caracteres. null = nada a mandar. Só invisíveis também é nada. */
 export function chatDraft(text: string): string | null {
   const clean = text
     .replace(FORBIDDEN, " ")
@@ -13,7 +13,7 @@ export function chatDraft(text: string): string | null {
     .slice(0, LIMITS.maxChatLength)
     .replace(LONE_SURROGATE, " ") // o corte pode partir um par de surrogates ao meio
     .trim();
-  return clean === "" ? null : clean;
+  return clean === "" || !CHAT_VISIBLE.test(clean) ? null : clean;
 }
 
 export function formatChatTime(at: number): string {

@@ -45,6 +45,8 @@ export type Move = z.infer<typeof Move>;
 /** Caracteres que o chat recusa: controle (C0, DEL, C1), quebra de linha Unicode e controles bidi. */
 export const CHAT_FORBIDDEN = /[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
 const LONE_SURROGATE = /\p{Cs}/u;
+/** Algum caractere que aparece na tela: mensagem só de espaços ou de invisíveis (U+200B, U+3164, U+2800…) não vale. */
+export const CHAT_VISIBLE = /[^\p{White_Space}\p{Default_Ignorable_Code_Point}\u2800]/u;
 
 /** Texto do chat: 1 a 1000 caracteres, sem espaços nas pontas nem caracteres de controle (é mostrado como texto puro). */
 export const ChatText = z
@@ -52,7 +54,8 @@ export const ChatText = z
   .min(1)
   .max(LIMITS.maxChatLength)
   .refine((text) => text === text.trim(), "sem espaços nas pontas")
-  .refine((text) => !CHAT_FORBIDDEN.test(text) && !LONE_SURROGATE.test(text), "sem caracteres de controle");
+  .refine((text) => !CHAT_FORBIDDEN.test(text) && !LONE_SURROGATE.test(text), "sem caracteres de controle")
+  .refine((text) => CHAT_VISIBLE.test(text), "precisa de algum caractere visível");
 
 export const ChatSend = z.object({ type: z.literal("chat"), text: ChatText });
 

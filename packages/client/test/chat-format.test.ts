@@ -6,6 +6,8 @@ describe("chatDraft", () => {
     expect(chatDraft("  bom dia  ")).toBe("bom dia");
     expect(chatDraft("")).toBeNull();
     expect(chatDraft("   ")).toBeNull();
+    expect(chatDraft("\u200b \u2800")).toBeNull();
+    expect(chatDraft("oi\u200b")).toBe("oi\u200b");
     expect(chatDraft("a\nb\tc")).toBe("a b c");
     expect(chatDraft("\u001b[31mvermelho")).toBe("[31mvermelho");
     expect(chatDraft("x".repeat(1200))).toHaveLength(1000);
