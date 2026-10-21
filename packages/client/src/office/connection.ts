@@ -15,6 +15,8 @@ export class OfficeConnection {
   private timer: number | undefined;
   private stableTimer: number | undefined;
   private stopped = false;
+  /** Tentativa marcada de refazer um watch que o limite por segundo descartou. */
+  private pendingWatch: number | undefined;
   private readonly budget = new SendBudget();
 
   constructor(private readonly handlers: OfficeConnectionHandlers) {}
@@ -27,14 +29,21 @@ export class OfficeConnection {
     this.stopped = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.stableTimer);
+    window.clearTimeout(this.pendingWatch);
     this.socket?.close(1000);
   }
 
+  /** Pede a tela do agente. Se o limite por segundo descartar o pedido, tenta de novo assim que abrir vaga. */
   watch(agentId: string): void {
-    this.send({ type: "watch", agentId });
+    window.clearTimeout(this.pendingWatch);
+    if (this.send({ type: "watch", agentId }) || this.socket?.readyState !== WebSocket.OPEN) return;
+    // Sem isto, o painel ficaria em branco até sair e voltar à mesa. Com a conexão caída, o welcome refaz o watch.
+    const wait = Math.max(0, this.budget.nextAllowedAt("watch", Date.now()) - Date.now());
+    this.pendingWatch = window.setTimeout(() => this.watch(agentId), wait);
   }
 
   unwatch(): void {
+    window.clearTimeout(this.pendingWatch);
     this.send({ type: "unwatch" });
   }
 
@@ -49,7 +58,7 @@ export class OfficeConnection {
 
   private send(message: ClientToServer): boolean {
     if (this.socket?.readyState !== WebSocket.OPEN) return false;
-    // Um watch descartado é refeito pelo caminho de "gap" depois de 3 s ou pelo welcome.
+    // Um watch descartado aqui é refeito pelo próprio watch(), quando abre vaga.
     const kind: SendKind = message.type === "move" ? "move" : message.type === "chat" ? "chat" : "watch";
     if (!this.budget.allow(kind, Date.now())) return false;
     this.socket.send(JSON.stringify(message));

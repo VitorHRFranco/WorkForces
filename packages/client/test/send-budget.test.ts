@@ -15,4 +15,12 @@ describe("SendBudget", () => {
     expect(SEND_LIMITS.chat).toBeLessThan(5);
     expect(SEND_LIMITS.watch).toBeLessThan(20);
   });
+
+  it("diz quando abre a próxima vaga", () => {
+    const budget = new SendBudget();
+    expect(budget.nextAllowedAt("watch", 0)).toBe(0);
+    for (let i = 0; i < SEND_LIMITS.watch; i++) budget.allow("watch", i * 10);
+    expect(budget.nextAllowedAt("watch", 500)).toBe(1_000);
+    expect(budget.nextAllowedAt("watch", 1_000)).toBe(1_000);
+  });
 });

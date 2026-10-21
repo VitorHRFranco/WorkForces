@@ -14,4 +14,10 @@ export class SendBudget {
     this.sent[kind] = recent;
     return ok;
   }
+
+  /** Quando cabe a próxima mensagem desse tipo: agora, ou quando a mais antiga da janela sair dela. */
+  nextAllowedAt(kind: SendKind, now: number): number {
+    const recent = this.sent[kind].filter((time) => now - time < 1_000);
+    return recent.length < SEND_LIMITS[kind] ? now : recent[0]! + 1_000;
+  }
 }
