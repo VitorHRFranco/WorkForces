@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runFolders } from "./commands/folders.js";
 import { runLogin, runLogout } from "./commands/login.js";
 import { resolveClaude } from "./claude/resolve.js";
 import { withSessionGuard } from "./guard.js";
@@ -9,12 +10,15 @@ import { compileExtraPatterns } from "./masking/mask.js";
 import { BUILTIN_PATTERNS } from "./masking/patterns.js";
 import { AgentConnection, ServerUrlError, bridgeSocketUrl } from "./net/agent-connection.js";
 
-const USAGE = `uso: workforces <comando>
+const USAGE = `uso: workforces [--home <pasta>] <comando>
 
 comandos:
   login <url> [--insecure]   conecta esta máquina ao escritório (pede o token da ponte)
   logout                     esquece o login desta máquina
   claude [args…]             roda o Claude Code espelhando o terminal no escritório
+  pastas add|list|rm         pastas que o escritório pode abrir em "Chamar agente"
+
+--home <pasta> usa outra pasta de config (o padrão é ~/.workforces).
 `;
 
 export interface MainContext {
@@ -26,10 +30,20 @@ export interface MainContext {
 }
 
 export async function main(ctx: MainContext): Promise<number> {
+  // --home troca a pasta do config só nesta execução (a `ponte` passa a dela aos agentes que abre).
+  if (ctx.argv[0] === "--home") {
+    const home = ctx.argv[1];
+    if (!home) {
+      ctx.io.stderr.write("workforces: --home precisa de uma pasta\n");
+      return 2;
+    }
+    return main({ ...ctx, argv: ctx.argv.slice(2), env: { ...ctx.env, WORKFORCES_HOME: home } });
+  }
   const [command, ...rest] = ctx.argv;
   if (command === "claude") return runClaudeCommand(rest, ctx);
   if (command === "login") return runLogin(rest, ctx);
   if (command === "logout") return runLogout(ctx);
+  if (command === "pastas") return runFolders(rest, ctx);
   if (command === undefined || command === "--help" || command === "-h") {
     ctx.io.stdout.write(USAGE);
     return 0;

@@ -46,7 +46,7 @@ describe("main", () => {
   it("sem argumentos mostra o uso", async () => {
     const { ctx, io } = context([], { WORKFORCES_HOME: home() });
     expect(await main(ctx)).toBe(0);
-    expect(io.out()).toContain("workforces <comando>");
+    expect(io.out()).toContain("workforces [--home <pasta>] <comando>");
   });
 
   it("comando desconhecido devolve 2", async () => {

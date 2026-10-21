@@ -1,24 +1,43 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { LIMITS } from "@workforces/protocol";
+import { ALIAS_PATTERN, LIMITS, MAX_ALIASES } from "@workforces/protocol";
 import { z } from "zod";
 
-export const ALIAS_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** Caminho comparável: absoluto e, no Windows, sem diferenciar maiúsculas. */
+export function folderKey(path: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
+}
 
+export function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// looseObject: as chaves que esta versão não conhece continuam no arquivo quando ele é regravado.
 export const Config = z
-  .object({
+  .looseObject({
     server: z.string().optional(),
     token: z.string().min(1).optional(),
     insecure: z.boolean().default(false),
-    folders: z.array(z.object({ alias: z.string().regex(ALIAS_PATTERN), path: z.string().min(1) })).default([]),
+    folders: z
+      .array(z.object({ alias: z.string().regex(ALIAS_PATTERN), path: z.string().min(1) }))
+      .max(MAX_ALIASES)
+      .default([]),
     secretPatterns: z.array(z.string()).default([]),
   })
   .superRefine((config, ctx) => {
-    const seen = new Set<string>();
+    const aliases = new Set<string>();
+    const paths = new Map<string, string>();
     for (const folder of config.folders) {
-      if (seen.has(folder.alias)) ctx.addIssue({ code: "custom", message: `apelido repetido: ${folder.alias}` });
-      seen.add(folder.alias);
+      if (aliases.has(folder.alias)) ctx.addIssue({ code: "custom", message: `apelido repetido: ${folder.alias}` });
+      aliases.add(folder.alias);
+      const other = paths.get(folderKey(folder.path));
+      if (other !== undefined) ctx.addIssue({ code: "custom", message: `a pasta ${folder.path} aparece duas vezes (${other} e ${folder.alias})` });
+      paths.set(folderKey(folder.path), folder.alias);
     }
   });
 export type Config = z.infer<typeof Config>;
@@ -53,9 +72,8 @@ export function loadConfig(dir: string): Config {
 
 /** Rótulo do agente: o apelido da pasta liberada, ou o nome da pasta atual. */
 export function labelFor(cwd: string, folders: Config["folders"], platform: NodeJS.Platform = process.platform): string {
-  const normalize = (path: string) => (platform === "win32" ? resolve(path).toLowerCase() : resolve(path));
-  const here = normalize(cwd);
-  const match = folders.find((folder) => normalize(folder.path) === here);
+  const here = folderKey(cwd, platform);
+  const match = folders.find((folder) => folderKey(folder.path, platform) === here);
   const label = match?.alias ?? (basename(resolve(cwd)) || resolve(cwd));
   return label.slice(0, LIMITS.maxLabelLength);
 }
