@@ -99,6 +99,23 @@ describe("SpawnHandler", () => {
     expect(broken.opened).toEqual([]);
   });
 
+  it("com um pedido em andamento, outro é recusado sem gastar a vez; depois volta a funcionar", async () => {
+    let release: (count: number) => void = () => {};
+    const slow = deps({ countOpenAgents: () => new Promise<number>((resolve) => (release = resolve)) });
+    const handler = new SpawnHandler(slow.deps);
+    slow.clock.now = SPAWN_INTERVAL_MS;
+    const first = handler.handle("loja");
+    slow.clock.now += SPAWN_INTERVAL_MS + 1;
+    expect(await handler.handle("loja")).toEqual({ ok: false, error: "rate-limited" });
+    release(4);
+    expect(await first).toEqual({ ok: true, folder: "C:\\proj\\loja" });
+    expect(slow.opened).toEqual(["C:\\proj\\loja"]);
+    slow.clock.now += SPAWN_INTERVAL_MS;
+    const third = handler.handle("loja");
+    release(0);
+    expect(await third).toEqual({ ok: true, folder: "C:\\proj\\loja" });
+  });
+
   it("sem Windows Terminal responde no-terminal; outra falha vira spawn-failed", async () => {
     const noTerminal = deps({ spawner: { open: async () => Promise.reject(new SpawnFailure("no-terminal", "sem wt.exe")) } });
     expect(await new SpawnHandler(noTerminal.deps).handle("loja")).toEqual({ ok: false, error: "no-terminal" });

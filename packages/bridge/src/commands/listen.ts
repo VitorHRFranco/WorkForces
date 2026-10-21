@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SpawnError } from "@workforces/protocol";
 import { ConfigError, configDir, isDirectory, loadConfig, type Config } from "../config.js";
-import { SpawnHandler } from "../listener/handler.js";
+import { SpawnHandler, type SpawnOutcome } from "../listener/handler.js";
 import { countOpenAgents } from "../listener/open-agents.js";
 import { windowsTerminalSpawner, type Spawner } from "../listener/spawner.js";
 import { fileLogger } from "../log.js";
@@ -68,6 +68,11 @@ export async function runListener(ctx: MainContext, options: ListenerOptions = {
   }
 
   const log = fileLogger(dir);
+  if (config.insecure && new URL(server).protocol === "http:") {
+    const warning = "conexão sem TLS (--insecure): os pedidos do escritório trafegam sem criptografia";
+    ctx.io.stderr.write(`workforces: ${warning}\n`);
+    log(warning);
+  }
   const handler = new SpawnHandler({
     folders: () => config.folders,
     isDirectory,
@@ -93,11 +98,17 @@ export async function runListener(ctx: MainContext, options: ListenerOptions = {
       onOpen: () => out(`conectada ao escritório ${server}; ${describe(aliasesOf(config))}`),
       onDrop: () => out("sem conexão com o escritório; tentando de novo…"),
       onSpawn: (reqId, alias) => {
-        void handler.handle(alias).then((outcome) => {
-          if (outcome.ok) out(`abrindo agente em ${alias} (${outcome.folder})`);
-          else out(`pedido recusado (${alias}): ${REASONS[outcome.error]}`);
-          connection.sendResult(reqId, outcome.ok, outcome.ok ? undefined : outcome.error);
-        });
+        void handler
+          .handle(alias)
+          .catch((error: unknown): SpawnOutcome => {
+            log(`erro inesperado ao abrir agente: ${error instanceof Error ? error.message : String(error)}`);
+            return { ok: false, error: "spawn-failed" };
+          })
+          .then((outcome) => {
+            if (outcome.ok) out(`abrindo agente em ${alias} (${outcome.folder})`);
+            else out(`pedido recusado (${alias}): ${REASONS[outcome.error]}`);
+            connection.sendResult(reqId, outcome.ok, outcome.ok ? undefined : outcome.error);
+          });
       },
       onFatal: (message) => {
         ctx.io.stderr.write(`workforces: ${message}\n`);

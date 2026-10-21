@@ -137,6 +137,23 @@ describe("workforces ponte", () => {
     expect(other.err()).toContain("só funciona no Windows");
   });
 
+  it("com --insecure em HTTP, avisa no terminal que não há TLS", async () => {
+    const { wss, server } = await startServer();
+    const { home } = setup(server);
+    saveConfig(home, { server, token: "wf_teste", insecure: true, folders: [], secretPatterns: [] });
+    const io = bufferIO();
+    const controller = new AbortController();
+    const pending = nextConnection(wss);
+    const run = runListener(
+      { argv: ["ponte"], env: { WORKFORCES_HOME: home }, cwd: home, io: io.io, platform: "linux" },
+      { spawner: { open: async () => {} }, countOpenAgents: async () => 0, signal: controller.signal, debounceMs: 20 },
+    );
+    await pending;
+    expect(io.err()).toContain("conexão sem TLS (--insecure)");
+    controller.abort();
+    expect(await run).toBe(0);
+  });
+
   it("token recusado (4001) desliga a ponte com a mensagem", async () => {
     const { wss, server } = await startServer();
     const { home } = setup(server);
