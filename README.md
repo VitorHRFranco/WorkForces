@@ -26,7 +26,7 @@ O escritório abre em `http://localhost:4600`. Na primeira execução, o console
 
 ### No escritório
 
-- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer seta levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo navegador ou pela ponte): a primeira livre, na ordem do mapa.
+- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo navegador ou pela ponte): a primeira livre, na ordem do mapa.
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
 - Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha.
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
@@ -41,7 +41,7 @@ O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.
 - um objeto do tipo `spawn` (ponto) marca a entrada;
 - cada mesa é um retângulo do tipo `desk` (a zona onde quem chega vê o terminal), com um nome único em minúsculas (`mesa-1`, `mesa-2`…); a ordem das mesas no mapa é a ordem em que elas são distribuídas;
 - até 3 pontos do tipo `robot` por mesa, com a propriedade `desk` = nome da mesa, marcam onde aparecem os robôs;
-- pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta;
+- pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta (a posição do assento é arredondada para pixels inteiros);
 - pontos do tipo `prop`, com a propriedade `sprite`, desenham um móvel ou uma decoração com a base nesse ponto. Os nomes disponíveis estão em `packages/client/src/game/props.json`; os móveis bloqueiam a passagem pela base.
 
 Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console do navegador. Para usar outro mapa, aponte `WF_MAP` para ele.
