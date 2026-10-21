@@ -85,13 +85,20 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   };
 
   app.server.on("upgrade", (request: IncomingMessage, socket, head) => {
+    let path: string;
     try {
-      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      path = new URL(request.url ?? "/", "http://localhost").pathname;
+    } catch {
+      // Alvo malformado que o parser HTTP aceita: sem isto, o processo cairia.
+      return socket.destroy();
+    }
+    try {
       if (path === "/ws/bridge") bridgeServer.handleUpgrade(request, socket, head, (ws) => onBridge(ws, request));
       else if (path === "/ws/client") clientServer.handleUpgrade(request, socket, head, (ws) => onClient(ws, request));
       else socket.destroy();
-    } catch {
-      // Alvo malformado que o parser HTTP aceita: sem isto, o processo cairia.
+    } catch (error) {
+      // Erro do servidor ao abrir a conexão (banco fora do ar, por exemplo): registra e derruba só esta conexão.
+      ctx.log(`erro ao abrir a conexão ${path}: ${(error as Error).message}`);
       socket.destroy();
     }
   });

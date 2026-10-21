@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildApp } from "../src/app.js";
 import { JSON_HEADERS, ORIGIN, cookieOf, createUser, setupApi, testConfig } from "./helpers/setup.js";
 
 describe("login e sessão", () => {
@@ -162,5 +163,30 @@ describe("tokens da ponte", () => {
     expect(del.statusCode).toBe(404);
     expect(revoked).toEqual([]);
     expect(accounts.tokens.isValid(anaToken.id)).toBe(true);
+  });
+});
+
+describe("erros da API", () => {
+  it("JSON quebrado e corpo grande demais respondem em português, no formato de sempre", async () => {
+    const { app } = await setupApi();
+    const broken = await app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: "{" });
+    expect(broken.statusCode).toBe(400);
+    expect(broken.json()).toEqual({ error: "pedido inválido" });
+    const huge = await app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: JSON.stringify({ name: "x".repeat(70_000), password: "y" }) });
+    expect(huge.statusCode).toBe(413);
+    expect(huge.json()).toEqual({ error: "pedido grande demais" });
+  });
+
+  it("erro inesperado vira 500 em português e vai para o log com o padrão da rota, nunca com a URL", async () => {
+    const logs: string[] = [];
+    const app = buildApp({ config: testConfig(), now: () => 0, log: (message) => logs.push(message) });
+    app.get("/api/quebra/:code", async () => {
+      throw new Error("o banco caiu");
+    });
+    const response = await app.inject({ method: "GET", url: "/api/quebra/codigo-secreto-123" });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: "erro interno do servidor" });
+    expect(logs).toEqual(["erro interno em GET /api/quebra/:code: o banco caiu"]);
+    await app.close();
   });
 });

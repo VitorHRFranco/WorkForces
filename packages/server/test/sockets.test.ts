@@ -169,6 +169,17 @@ describe("conexão do navegador", () => {
     expect(welcome.type === "welcome" ? welcome.me : null).toMatchObject({ name: "ana", deskId: null });
     expect(server.logs.some((line) => line.includes("não consegui gravar a mesa"))).toBe(true);
   });
+
+  it("erro do servidor ao abrir a conexão vai para o log e derruba só aquela conexão", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    server.accounts.sessions.lookup = () => {
+      throw new Error("banco fora do ar");
+    };
+    const tab = clientSocket(server, ana.session);
+    expect(await tab.closed).toBe(1006);
+    expect(server.logs).toContain("erro ao abrir a conexão /ws/client: banco fora do ar");
+  });
 });
 
 describe("repasse de quadros", () => {
