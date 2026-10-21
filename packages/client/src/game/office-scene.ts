@@ -241,7 +241,7 @@ export class OfficeScene extends Phaser.Scene {
             key: animKey(variant, pose),
             frames: this.anims.generateFrameNumbers(PEOPLE_KEY, { frames: poseFrames(variant, pose) }),
             frameRate: kind === "walk" ? 12 : 3,
-            repeat: kind === "sit" ? 0 : -1,
+            repeat: -1,
           });
         }
       }

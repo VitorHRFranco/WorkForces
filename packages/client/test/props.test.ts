@@ -1,7 +1,10 @@
-import { inZone, parseOfficeMap } from "@workforces/protocol";
+import { parseOfficeMap } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
 import officeTmj from "../../../assets/map/office.tmj?raw";
 import { propDef, propOrigin, solidRect } from "../src/game/props";
+
+type Rect = { x: number; y: number; width: number; height: number };
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 const repoMap = () => parseOfficeMap(JSON.parse(officeTmj));
 
@@ -14,9 +17,10 @@ describe("móveis", () => {
 
   it("ninguém entra no mapa preso num móvel", () => {
     const map = repoMap();
+    const feet = { x: map.spawn.x - 8, y: map.spawn.y - 8, width: 16, height: 8 };
     for (const prop of map.props) {
       const solid = solidRect(prop);
-      if (solid) expect(inZone(solid, map.spawn), prop.sprite).toBe(false);
+      if (solid) expect(overlaps(solid, feet), prop.sprite).toBe(false);
     }
   });
 

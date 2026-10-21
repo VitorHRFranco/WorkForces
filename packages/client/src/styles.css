@@ -249,6 +249,7 @@ code {
 }
 
 .desk-panel {
+  /* Largura e margem repetidas em game/camera.ts (panelInset): mude as duas juntas. */
   position: absolute;
   top: 12px;
   right: 12px;

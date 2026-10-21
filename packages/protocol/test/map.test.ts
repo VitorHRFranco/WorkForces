@@ -61,6 +61,11 @@ describe("parseOfficeMap", () => {
     expect(map.props.at(-1)).toEqual({ x: 80, y: 90, sprite: "desk-wood" });
   });
 
+  it("arredonda o assento para pixels inteiros, como as posições que os clientes enviam", () => {
+    const map = parseOfficeMap(broken((tiled) => objectsOf(tiled).push({ ...seatObject("up", 72.4), y: 99.6 })));
+    expect(map.seats.at(-1)).toEqual({ x: 72, y: 100, dir: "up" });
+  });
+
   it("recusa o que o escritório não sabe usar, dizendo o motivo", () => {
     expectMapError("x", /formato/);
     expectMapError("{", /formato/);

@@ -161,7 +161,8 @@ export function parseOfficeMap(raw: unknown): OfficeMap {
   for (const object of objects.filter((candidate) => kindOf(candidate) === "seat")) {
     const dir = propertyOf(object, "dir");
     if (!isSeatDirection(dir)) throw new MapError(`assento com direção inválida: ${String(dir)} (use up, down, left ou right)`);
-    const seat = { x: object.x, y: object.y, dir };
+    // O Tiled grava coordenadas em double; os clientes enviam posições inteiras e detectam "sentado" por igualdade exata.
+    const seat = { x: Math.round(object.x), y: Math.round(object.y), dir };
     if (!insidePoint(seat)) throw new MapError("assento fora do mapa");
     seats.push(seat);
   }
