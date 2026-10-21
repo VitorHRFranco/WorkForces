@@ -29,6 +29,12 @@ describe("limites da ponte", () => {
     expect(() => countAgentCommandLines("não é json", CLI)).toThrow();
   });
 
+  it("conta o agente também quando o cli.js está num caminho com acento", () => {
+    const cli = "C:\\Users\\João\\WorkForces\\packages\\bridge\\dist\\cli.js";
+    const line = `"C:\\Program Files\\nodejs\\node.exe" ${cli} claude`;
+    expect(countAgentCommandLines(JSON.stringify([line]), cli)).toBe(1);
+  });
+
   it("o comando da janela vai em array, com a pasta e o config da ponte; caminho com ; é recusado", () => {
     const options = { node: "C:\\node\\node.exe", cliPath: CLI, home: "C:\\Users\\ana\\.workforces" };
     expect(windowCommand("C:\\proj\\minha loja", "loja", options)).toEqual([

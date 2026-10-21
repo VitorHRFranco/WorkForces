@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 
-/** Script fixo (nada vindo de fora): as linhas de comando dos processos node.exe, em JSON. */
-const LIST_NODE_PROCESSES = `Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | ForEach-Object { $_.CommandLine } | ConvertTo-Json -Compress`;
+/**
+ * Script fixo (nada vindo de fora): as linhas de comando dos processos node.exe, em JSON.
+ * Com a saída redirecionada o PowerShell 5.1 escreve na página de código OEM; o prefixo força UTF-8, senão caminho com acento não casa.
+ */
+const LIST_NODE_PROCESSES = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | ForEach-Object { $_.CommandLine } | ConvertTo-Json -Compress`;
 
 /** Quantas linhas de comando são de um `workforces claude` desta instalação (o mesmo cli.js). */
 export function countAgentCommandLines(json: string, cliPath: string): number {
