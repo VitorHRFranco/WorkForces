@@ -92,7 +92,7 @@ node packages/bridge/dist/cli.js ponte
 
 No escritório, "Chamar agente" lista as pastas liberadas. Escolher uma abre uma janela nova do Windows Terminal com `workforces claude` naquela pasta, e o robô aparece na sua mesa.
 
-O servidor só conhece os apelidos, nunca os caminhos, e a ponte confere tudo de novo: no máximo um pedido a cada 5 s e 5 agentes abertos no computador. É preciso ter o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
+O servidor só conhece os apelidos, nunca os caminhos, e a ponte confere tudo de novo: no máximo um pedido a cada 5 s e 5 agentes abertos (contam os `workforces claude` desta instalação, incluindo os que a ponte abriu). É preciso ter o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
 
 `pastas list` mostra as pastas liberadas, e `pastas rm <apelido>` tira uma da lista. Com a ponte ligada, a lista do escritório muda na hora.
 
