@@ -41,6 +41,14 @@ describe("SessionStore", () => {
     clock.now += SESSION_TTL_MS + 1;
     expect(accounts.sessions.lookup(id)).toBeNull();
   });
+
+  it("a conferência das conexões abertas não renova a sessão", () => {
+    const id = accounts.sessions.create(ana.id);
+    clock.now += 8 * DAY;
+    expect(accounts.sessions.lookup(id, { renew: false })).toEqual(ana);
+    clock.now += 6 * DAY + 1;
+    expect(accounts.sessions.lookup(id, { renew: false })).toBeNull();
+  });
 });
 
 describe("TokenStore", () => {

@@ -247,7 +247,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       }
     }
     for (const client of clients.values()) {
-      if (!accounts.sessions.lookup(client.sessionId)) client.ws.close(CLOSE_CODES.unauthorized, "sessão encerrada");
+      // Só confere: renovar aqui manteria viva para sempre a sessão de uma aba esquecida aberta.
+      if (!accounts.sessions.lookup(client.sessionId, { renew: false })) client.ws.close(CLOSE_CODES.unauthorized, "sessão encerrada");
     }
     // Conta desativada por outro processo (CLI): a mesa fica livre na tela também (spec 6.5).
     for (const desk of world.desks()) {

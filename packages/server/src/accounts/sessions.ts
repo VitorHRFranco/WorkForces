@@ -27,7 +27,8 @@ export class SessionStore {
     return id;
   }
 
-  lookup(sessionId: string | null): User | null {
+  /** Quem é o dono da sessão. Com `renew` (padrão), estica a validade quando faltam menos de 7 dias; a varredura das conexões abertas só confere. */
+  lookup(sessionId: string | null, options: { renew?: boolean } = {}): User | null {
     if (!sessionId) return null;
     const hash = sha256(sessionId);
     const row = this.db
@@ -38,7 +39,7 @@ export class SessionStore {
       )
       .get(hash) as SessionRow | undefined;
     if (!row || row.expires_at <= this.now()) return null;
-    if (row.expires_at - this.now() < RENEW_BELOW_MS) {
+    if ((options.renew ?? true) && row.expires_at - this.now() < RENEW_BELOW_MS) {
       this.db.prepare("update sessions set expires_at = ? where id_hash = ?").run(this.now() + SESSION_TTL_MS, hash);
     }
     return { id: row.id, name: row.name, isAdmin: row.is_admin === 1 };
