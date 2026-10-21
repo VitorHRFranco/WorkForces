@@ -10,6 +10,11 @@ export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 /** Só depois de uma conexão ficar aberta este tempo a espera de reconexão volta ao início. */
 export const STABLE_CONNECTION_MS = 10_000;
+/**
+ * Sem ping nem mensagem do servidor por este tempo (2,5 heartbeats de 30 s), a conexão é tida como morta.
+ * Sem isso, depois de o computador dormir ou a rede trocar, o FIN nunca chega e a ponte não reconecta.
+ */
+export const LIVENESS_TIMEOUT_MS = 75_000;
 /** As mensagens do servidor para a ponte são minúsculas (`viewers`, `spawn`). */
 const SERVER_MAX_PAYLOAD = 64 * 1024;
 
@@ -51,6 +56,7 @@ export interface BridgeSocketOptions {
   onFatal(message: string): void;
   random?: () => number;
   stableMs?: number;
+  livenessMs?: number;
 }
 
 /**
@@ -62,6 +68,7 @@ export class BridgeSocket {
   private attempt = 0;
   private retryTimer: NodeJS.Timeout | null = null;
   private stableTimer: NodeJS.Timeout | null = null;
+  private livenessTimer: NodeJS.Timeout | null = null;
   private rejected = false;
   private closed = false;
 
@@ -84,6 +91,7 @@ export class BridgeSocket {
     this.closed = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.stableTimer) clearTimeout(this.stableTimer);
+    if (this.livenessTimer) clearTimeout(this.livenessTimer);
     this.socket?.close(1000);
     this.socket = null;
   }
@@ -97,7 +105,17 @@ export class BridgeSocket {
     });
     this.socket = socket;
 
+    // Reinicia o prazo a cada sinal de vida do servidor; sem nenhum, derruba o socket e cai no backoff normal.
+    const touch = () => {
+      if (this.livenessTimer) clearTimeout(this.livenessTimer);
+      this.livenessTimer = setTimeout(() => {
+        this.options.log("servidor sem sinal de vida; derrubando a conexão");
+        socket.terminate();
+      }, this.options.livenessMs ?? LIVENESS_TIMEOUT_MS);
+    };
+
     socket.on("open", () => {
+      touch();
       this.stableTimer = setTimeout(() => {
         this.attempt = 0;
       }, this.options.stableMs ?? STABLE_CONNECTION_MS);
@@ -105,7 +123,12 @@ export class BridgeSocket {
       this.options.onOpen();
     });
 
+    socket.on("ping", () => {
+      if (this.socket === socket) touch();
+    });
+
     socket.on("message", (data) => {
+      if (this.socket === socket) touch();
       if (this.closed || this.socket !== socket) return;
       this.options.onMessage(data.toString());
     });
@@ -119,6 +142,7 @@ export class BridgeSocket {
     socket.on("close", (code) => {
       if (this.stableTimer) clearTimeout(this.stableTimer);
       this.stableTimer = null;
+      if (this.socket === socket && this.livenessTimer) clearTimeout(this.livenessTimer);
       if (this.socket === socket) this.socket = null;
       if (this.closed) return;
       if (code === CLOSE_CODES.unauthorized || this.rejected) {
