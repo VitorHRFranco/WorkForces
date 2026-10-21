@@ -1,6 +1,6 @@
 import type { Seat } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
-import { SIT_RADIUS, nearestSeat, seatAt } from "../src/game/seating";
+import { SIT_RADIUS, nearestSeat, seatAt, standSpot } from "../src/game/seating";
 
 const seats: Seat[] = [
   { x: 100, y: 100, dir: "up" },
@@ -24,5 +24,11 @@ describe("assentos", () => {
   it("quem está parado no ponto exato de um assento está sentado nele", () => {
     expect(seatAt(seats, { x: 120, y: 100 })).toEqual(seats[1]);
     expect(seatAt(seats, { x: 120, y: 101 })).toBeNull();
+  });
+
+  it("quem volta no ponto do assento fica em pé a 12 px dele, fora dos móveis", () => {
+    expect(standSpot({ x: 100, y: 100 }, [])).toEqual({ x: 100, y: 112 });
+    const below = { x: 80, y: 100, width: 40, height: 20 };
+    expect(standSpot({ x: 100, y: 100 }, [below])).toEqual({ x: 100, y: 88 });
   });
 });

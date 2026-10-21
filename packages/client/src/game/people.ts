@@ -1,4 +1,4 @@
-import type { Direction } from "@workforces/protocol";
+import type { Direction, Point, Rect } from "@workforces/protocol";
 
 /** Folha people.png (gerada por tools/art/build_art.py): 12 variantes; cada uma ocupa 4 linhas (cima, esquerda, baixo, direita) de 12 quadros. */
 export const PEOPLE_VARIANTS = 12;
@@ -6,6 +6,14 @@ export const PEOPLE_VARIANTS = 12;
 export const PERSON_FRAME = 64;
 /** Linha dos pés dentro do quadro: a posição de uma pessoa no mapa é a dos pés. */
 export const FOOT_Y = 62;
+
+/** Caixa de colisão nos pés, em px do mapa: a cabeça passa na frente da parede e dos móveis, como numa vista de cima. */
+export const FEET = { width: 16, height: 8 };
+
+/** A caixa dos pés de quem está em `at` (com a base nos pés). */
+export function feetBox(at: Point): Rect {
+  return { x: at.x - FEET.width / 2, y: at.y - FEET.height, width: FEET.width, height: FEET.height };
+}
 
 const COLUMNS = 12;
 const ROWS: Record<Direction, number> = { up: 0, left: 1, down: 2, right: 3 };

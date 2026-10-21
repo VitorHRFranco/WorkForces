@@ -1,5 +1,6 @@
 import type { MapProp, Point, Rect } from "@workforces/protocol";
 import data from "./props.json";
+import { feetBox } from "./people";
 
 /** Um móvel no atlas props.png (gerado por tools/art/build_art.py). `solid` é relativo à âncora (meio da base). */
 export interface PropDef {
@@ -29,4 +30,10 @@ export function solidRect(prop: MapProp): Rect | null {
   if (!solid) return null;
   const [left, top, width, height] = solid;
   return { x: prop.x + left, y: prop.y + top, width, height };
+}
+
+/** Os pés em `at` entram em algum bloqueio? Encostar na borda não conta. */
+export function feetBlocked(at: Point, solids: readonly Rect[]): boolean {
+  const box = feetBox(at);
+  return solids.some((solid) => box.x < solid.x + solid.width && solid.x < box.x + box.width && box.y < solid.y + solid.height && solid.y < box.y + box.height);
 }

@@ -1,10 +1,8 @@
 import { parseOfficeMap } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
 import officeTmj from "../../../assets/map/office.tmj?raw";
-import { propDef, propOrigin, solidRect } from "../src/game/props";
-
-type Rect = { x: number; y: number; width: number; height: number };
-const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+import { feetBlocked, propDef, propOrigin, solidRect } from "../src/game/props";
+import { SIT_RADIUS, standSpot } from "../src/game/seating";
 
 const repoMap = () => parseOfficeMap(JSON.parse(officeTmj));
 
@@ -17,11 +15,25 @@ describe("móveis", () => {
 
   it("ninguém entra no mapa preso num móvel", () => {
     const map = repoMap();
-    const feet = { x: map.spawn.x - 8, y: map.spawn.y - 8, width: 16, height: 8 };
-    for (const prop of map.props) {
-      const solid = solidRect(prop);
-      if (solid) expect(overlaps(solid, feet), prop.sprite).toBe(false);
+    const solids = map.props.flatMap((prop) => solidRect(prop) ?? []);
+    expect(feetBlocked(map.spawn, solids)).toBe(false);
+  });
+
+  it("de todo assento do mapa dá para levantar sem ficar preso, perto o bastante para sentar de novo", () => {
+    const map = repoMap();
+    const solids = map.props.flatMap((prop) => solidRect(prop) ?? []);
+    for (const seat of map.seats) {
+      const spot = standSpot(seat, solids);
+      expect(feetBlocked(spot, solids), `assento ${seat.x},${seat.y}`).toBe(false);
+      expect(Math.hypot(spot.x - seat.x, spot.y - seat.y)).toBeLessThanOrEqual(SIT_RADIUS);
     }
+  });
+
+  it("encostar na borda de um móvel não prende; entrar nele, sim", () => {
+    const desk = { x: 0, y: 0, width: 40, height: 20 };
+    expect(feetBlocked({ x: 20, y: 28 }, [desk])).toBe(false); // pés de 20 a 28: encostam na base
+    expect(feetBlocked({ x: 20, y: 27 }, [desk])).toBe(true);
+    expect(feetBlocked({ x: 48, y: 10 }, [desk])).toBe(false); // à direita, encostando
   });
 
   it("o bloqueio fica na base do móvel; cadeiras e quadros não bloqueiam; nome desconhecido não desenha nada", () => {

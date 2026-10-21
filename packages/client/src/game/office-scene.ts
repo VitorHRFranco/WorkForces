@@ -4,9 +4,9 @@ import type { OfficeState } from "../office/office-state";
 import { cameraFrame, panelInset } from "./camera";
 import { layoutDesks, robotLook } from "./desk-layout";
 import type { MoveState } from "./move-sender";
-import { FOOT_Y, PEOPLE_VARIANTS, PERSON_FRAME, animKey, personVariant, poseFrames, poseOf, type PoseKind } from "./people";
+import { FEET, FOOT_Y, PEOPLE_VARIANTS, PERSON_FRAME, animKey, personVariant, poseFrames, poseOf, type PoseKind } from "./people";
 import { propDef, propOrigin, solidRect } from "./props";
-import { SIT_DELAY_MS, nearestSeat, seatAt } from "./seating";
+import { SIT_DELAY_MS, nearestSeat, seatAt, standSpot } from "./seating";
 import { Track } from "./track";
 
 const TILES_KEY = "tiles";
@@ -25,8 +25,6 @@ const ZOOM = 2;
 const SPRITE_DEPTH = 100;
 const SMALL_TEXT_DEPTH = 9_000;
 const LABEL_DEPTH = 10_000;
-/** A colisão é só nos pés: a cabeça passa na frente da parede e dos móveis, como numa vista de cima. */
-const FEET = { width: 16, height: 8 };
 /** Altura do nome acima dos pés. */
 const NAME_ABOVE_FEET = 50;
 const DIRECTIONS: Direction[] = ["up", "down", "left", "right"];
@@ -97,7 +95,10 @@ export class OfficeScene extends Phaser.Scene {
     const solids = this.createProps();
 
     const me = state.me!;
-    const start = state.players.get(me.id) ?? office.spawn;
+    const saved = state.players.get(me.id) ?? office.spawn;
+    // Quem recarrega a página sentado volta no ponto do assento: começa em pé ao lado e senta de novo sozinho, se o assento estiver livre.
+    const savedSeat = seatAt(office.seats, saved);
+    const start = savedSeat ? standSpot(savedSeat, office.props.flatMap((prop) => solidRect(prop) ?? [])) : saved;
     this.variant = personVariant(me.id);
     this.player = this.physics.add.sprite(start.x, start.y, PEOPLE_KEY);
     this.player.setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y);
