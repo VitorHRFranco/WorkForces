@@ -76,7 +76,7 @@ export const Watch = z.object({ type: z.literal("watch"), agentId: z.uuid() });
 export const Unwatch = z.object({ type: z.literal("unwatch") });
 /** Pede à ponte do próprio dono para abrir um agente na pasta com esse apelido. */
 export const SpawnAgent = z.object({ type: z.literal("spawnAgent"), reqId: ReqId, alias: Alias });
-export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend]);
+export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend, SpawnAgent]);
 export type ClientToServer = z.infer<typeof ClientToServer>;
 
 export const Welcome = z.object({

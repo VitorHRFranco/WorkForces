@@ -520,3 +520,113 @@ describe("chat: limites por pessoa e remetente", () => {
     expect(received).toMatchObject({ fromId: bia.user.id, name: "bia", text: "oi" });
   });
 });
+
+describe("chamar agente", () => {
+  const listenerHello = (aliases: string[]) => ({ type: "hello", protocol: 1, kind: "listener", aliases });
+
+  /** Ouvinte (`workforces ponte`) conectado com o token da pessoa. */
+  async function startListener(server: LiveServer, token: string, aliases: string[]) {
+    const socket = bridgeSocket(server, token);
+    await socket.opened();
+    socket.send(listenerHello(aliases));
+    return socket;
+  }
+
+  /** Aba do navegador que já recebeu o welcome. */
+  async function openTab(server: LiveServer, session: string) {
+    const tab = clientSocket(server, session);
+    await tab.waitFor((m) => m.type === "welcome", "welcome");
+    return tab;
+  }
+
+  it("o dono vê as pastas da ponte dele, e o pedido chega só a ela", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaTab = await openTab(server, ana.session);
+    expect(anaTab.messages.find((m) => m.type === "aliases")).toEqual({ type: "aliases", aliases: [], listenerOnline: false });
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    const biaListener = await startListener(server, bia.token.token, ["loja", "site"]);
+    await anaTab.waitFor((m) => m.type === "aliases" && m.listenerOnline === true, "pastas da ana");
+    expect(anaTab.messages.filter((m) => m.type === "aliases").at(-1)).toEqual({ type: "aliases", aliases: ["loja"], listenerOnline: true });
+
+    anaTab.send({ type: "spawnAgent", reqId: "r1", alias: "loja" });
+    expect(await anaListener.waitFor((m) => m.type === "spawn", "spawn")).toEqual({ type: "spawn", reqId: "r1", alias: "loja" });
+    anaListener.send({ type: "spawnResult", reqId: "r1", ok: true });
+    expect(await anaTab.waitFor((m) => m.type === "spawnResult", "resultado")).toEqual({ type: "spawnResult", reqId: "r1", ok: true });
+    await sleep(100);
+    expect(biaListener.messages.some((m) => m.type === "spawn")).toBe(false);
+  });
+
+  it("apelido que a ponte não anunciou ou pessoa sem ponte: a resposta volta na hora, sem chegar a nenhuma ponte", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    const anaTab = await openTab(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "aliases" && m.listenerOnline === true, "pastas");
+    anaTab.send({ type: "spawnAgent", reqId: "r1", alias: "site" });
+    expect(await anaTab.waitFor((m) => m.type === "spawnResult", "recusa")).toEqual({ type: "spawnResult", reqId: "r1", ok: false, error: "unknown-alias" });
+    const biaTab = await openTab(server, bia.session);
+    biaTab.send({ type: "spawnAgent", reqId: "r2", alias: "loja" });
+    expect(await biaTab.waitFor((m) => m.type === "spawnResult", "sem ponte")).toEqual({ type: "spawnResult", reqId: "r2", ok: false, error: "no-listener" });
+    await sleep(100);
+    expect(anaListener.messages.some((m) => m.type === "spawn")).toBe(false);
+  });
+
+  it("a ponte que cai responde por ela: o pedido pendente falha e o botão fica desligado", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    const anaTab = await openTab(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "aliases" && m.listenerOnline === true, "pastas");
+    anaTab.send({ type: "spawnAgent", reqId: "r1", alias: "loja" });
+    await anaListener.waitFor((m) => m.type === "spawn", "spawn");
+    anaListener.ws.close();
+    expect(await anaTab.waitFor((m) => m.type === "spawnResult", "falha")).toEqual({ type: "spawnResult", reqId: "r1", ok: false, error: "no-listener" });
+    await anaTab.waitFor((m) => m.type === "aliases" && m.listenerOnline === false, "ponte desligada");
+  });
+
+  it("o ouvinte troca a lista de pastas e o dono vê na hora", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    const anaTab = await openTab(server, ana.session);
+    anaListener.send({ type: "aliases", aliases: ["loja", "api"] });
+    expect(await anaTab.waitFor((m) => m.type === "aliases" && (m.aliases as string[]).length === 2, "lista nova")).toEqual({ type: "aliases", aliases: ["api", "loja"], listenerOnline: true });
+  });
+
+  it("pedir de novo antes de 5 s fecha a aba com 4008", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    await startListener(server, ana.token.token, ["loja"]);
+    const anaTab = await openTab(server, ana.session);
+    anaTab.send({ type: "spawnAgent", reqId: "r1", alias: "loja" });
+    anaTab.send({ type: "spawnAgent", reqId: "r2", alias: "loja" });
+    expect(await anaTab.closed).toBe(4008);
+  });
+
+  it("o ouvinte não manda quadro nem status: a conexão cai com 4000", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    anaListener.send({ type: "status", state: "working" });
+    expect(await anaListener.closed).toBe(4000);
+  });
+
+  it("revogar o token pelo escritório derruba o ouvinte na hora", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const anaListener = await startListener(server, ana.token.token, ["loja"]);
+    const anaTab = await openTab(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "aliases" && m.listenerOnline === true, "pastas");
+    const response = await server.app.inject({
+      method: "DELETE",
+      url: `/api/tokens/${ana.token.id}`,
+      headers: { cookie: `wf_session=${ana.session}`, origin: ORIGIN, "content-type": "application/json" },
+      payload: "{}",
+    });
+    expect(response.statusCode).toBe(204);
+    expect(await anaListener.closed).toBe(4001);
+  });
+});
