@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { SpawnHandler, type SpawnHandlerDeps } from "../src/listener/handler.js";
 import { MAX_OPEN_AGENTS, SPAWN_INTERVAL_MS, SpawnLimits } from "../src/listener/limits.js";
-import { countAgentCommandLines } from "../src/listener/open-agents.js";
+import { countAgentCommandLines, countOpenAgents } from "../src/listener/open-agents.js";
 import { SpawnFailure, windowCommand } from "../src/listener/spawner.js";
 
 const CLI = "C:\\ProjLocais\\WorkForces\\packages\\bridge\\dist\\cli.js";
@@ -34,6 +35,26 @@ describe("limites da ponte", () => {
     const line = `"C:\\Program Files\\nodejs\\node.exe" ${cli} claude`;
     expect(countAgentCommandLines(JSON.stringify([line]), cli)).toBe(1);
   });
+
+  it("saída com caractere de substituição (decodificação errada) não é contada", () => {
+    const line = `"C:\\node.exe" C:\\Jo\uFFFDo\\cli.js claude`;
+    expect(() => countAgentCommandLines(JSON.stringify([line]), "C:\\João\\cli.js")).toThrow();
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "conta de verdade, pelo PowerShell, um processo com o cli.js em caminho com acento",
+    async () => {
+      const cli = "C:\\x\\João\\cli.js";
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 15000)", cli, "claude"], { stdio: "ignore", windowsHide: true });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(await countOpenAgents(cli)).toBe(1);
+      } finally {
+        child.kill();
+      }
+    },
+    30_000,
+  );
 
   it("o comando da janela vai em array, com a pasta e o config da ponte; caminho com ; é recusado", () => {
     const options = { node: "C:\\node\\node.exe", cliPath: CLI, home: "C:\\Users\\ana\\.workforces" };
