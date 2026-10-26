@@ -1,12 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createProbe, type AddressInfo } from "node:net";
 import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
-import { expect, type Browser, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { parseOfficeMap, type OfficeMap, type Point } from "@workforces/protocol";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -81,6 +80,7 @@ export async function startOffice(): Promise<Office> {
 
 export class Office {
   private readonly agents: IPty[] = [];
+  private readonly contexts: BrowserContext[] = [];
   private admin: Account | null = null;
   private readonly received = new Map<Page, string[]>();
 
@@ -105,7 +105,9 @@ export class Office {
 
   /** Entra pelo formulário, numa janela anônima própria, e espera o mapa carregar. */
   async login(browser: Browser, account: Account): Promise<Page> {
-    const page = await (await browser.newContext()).newPage();
+    const context = await browser.newContext();
+    this.contexts.push(context);
+    const page = await context.newPage();
     const received: string[] = [];
     page.on("websocket", (socket) => socket.on("framereceived", (frame) => received.push(String(frame.payload))));
     this.received.set(page, received);
@@ -143,6 +145,8 @@ export class Office {
   }
 
   async stop(): Promise<void> {
+    // Primeiro as páginas: abertas, elas ficam reconectando enquanto o servidor para.
+    await Promise.all(this.contexts.splice(0).map((context) => context.close().catch(() => {})));
     // No Windows a pasta temporária só sai depois que a ponte (com o cwd lá dentro) termina.
     await Promise.all(this.agents.splice(0).map((agent) => new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 5_000);
@@ -152,9 +156,11 @@ export class Office {
       });
       agent.kill();
     })));
-    if (this.server.exitCode === null && this.server.signalCode === null) {
-      this.server.kill();
-      await once(this.server, "exit");
+    // Com prazo: esperar a saída sem limite já travou o afterAll por 90 s.
+    this.server.kill();
+    if (!(await waitExit(this.server, 10_000))) {
+      this.server.kill("SIGKILL");
+      await waitExit(this.server, 5_000);
     }
     rmSync(this.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
@@ -231,6 +237,22 @@ export async function walkTo(page: Page, target: Point, order: readonly ("x" | "
 
 function position(page: Page): Promise<Point> {
   return page.evaluate(() => (window as unknown as { __workforces: { position(): Point } }).__workforces.position());
+}
+
+/** Resolve `true` quando o processo sai e `false` se o prazo acabar antes. */
+function waitExit(child: ChildProcess, ms: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, ms);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once("exit", onExit);
+  });
 }
 
 function freePort(): Promise<number> {

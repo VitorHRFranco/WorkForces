@@ -20,18 +20,21 @@ export function countAgentCommandLines(json: string, cliPath: string): number {
     .length;
 }
 
+/** Quanto a contagem pode levar; sem conseguir contar, a ponte recusa. */
+export const COUNT_TIMEOUT_MS = 15_000;
+
 /**
  * Agentes abertos neste computador, pela lista de processos do Windows: os `workforces claude` cuja linha de comando tem o caminho deste cli.js
  * (todos os que a ponte abre). Agentes abertos por atalho, link ou caminho relativo podem não entrar na conta.
  * Rejeita se não conseguir contar: quem chama recusa o pedido.
  */
-export function countOpenAgents(cliPath: string): Promise<number> {
+export function countOpenAgents(cliPath: string, timeoutMs: number = COUNT_TIMEOUT_MS): Promise<number> {
   const encoded = Buffer.from(LIST_NODE_PROCESSES, "utf16le").toString("base64");
   return new Promise((resolve, reject) => {
     execFile(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-      { windowsHide: true, timeout: 15_000 },
+      { windowsHide: true, timeout: timeoutMs },
       (error, stdout) => {
         if (error) return reject(error);
         try {

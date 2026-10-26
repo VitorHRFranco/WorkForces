@@ -45,15 +45,16 @@ describe("limites da ponte", () => {
     "conta de verdade, pelo PowerShell, um processo com o cli.js em caminho com acento",
     async () => {
       const cli = "C:\\x\\João\\cli.js";
-      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 15000)", cli, "claude"], { stdio: "ignore", windowsHide: true });
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 90000)", cli, "claude"], { stdio: "ignore", windowsHide: true });
       try {
         await new Promise((resolve) => setTimeout(resolve, 500));
-        expect(await countOpenAgents(cli)).toBe(1);
+        // O PowerShell frio do runner do Windows pode passar de 15 s.
+        expect(await countOpenAgents(cli, 60_000)).toBe(1);
       } finally {
         child.kill();
       }
     },
-    30_000,
+    90_000,
   );
 
   it("o comando da janela vai em array, com a pasta e o config da ponte; caminho com ; é recusado", () => {
