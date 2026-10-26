@@ -2,6 +2,8 @@
 
 Escritório virtual 2D para times que trabalham com agentes de código (Claude Code). Cada agente roda na máquina de quem o chamou; quem chega perto da mesa vê o terminal do agente ao vivo, só para leitura.
 
+![Demonstração: o avatar anda até a mesa de outra pessoa e vê o terminal do agente dela ao vivo, com o token mascarado, e as duas conversam no chat](docs/media/demo.gif)
+
 > Em construção.
 
 ## Desenvolvimento
