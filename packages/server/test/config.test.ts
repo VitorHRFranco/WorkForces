@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ServerConfigError, loadServerConfig } from "../src/config.js";
+import { ServerConfigError, exposureWarning, loadServerConfig } from "../src/config.js";
 
 describe("loadServerConfig", () => {
   it("tem padrões para rodar localmente", () => {
@@ -45,5 +45,14 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ WF_PORT: "" }).port).toBe(4600);
     expect(() => loadServerConfig({ WF_PUBLIC_URL: "ftp://x" })).toThrow(ServerConfigError);
     expect(() => loadServerConfig({ WF_PUBLIC_URL: "não é url" })).toThrow(ServerConfigError);
+  });
+});
+
+describe("exposureWarning", () => {
+  it("avisa quem escuta na rede sem HTTPS; localhost e HTTPS ficam quietos", () => {
+    expect(exposureWarning(loadServerConfig({}))).toBeNull();
+    expect(exposureWarning(loadServerConfig({ WF_HOST: "0.0.0.0", WF_PUBLIC_URL: "https://escritorio.exemplo" }))).toBeNull();
+    expect(exposureWarning(loadServerConfig({ WF_HOST: "0.0.0.0" }))).toContain("sem HTTPS");
+    expect(exposureWarning(loadServerConfig({ WF_HOST: "192.168.0.10", WF_PUBLIC_URL: "http://192.168.0.10:4600", WF_INSECURE: "1" }))).toContain("192.168.0.10");
   });
 });

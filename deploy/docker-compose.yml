@@ -1,0 +1,31 @@
+# Escritório para um time: o WorkForces atrás do Caddy, que cuida do HTTPS.
+# Uso (nesta pasta): WF_DOMAIN=escritorio.exemplo.com.br docker compose up -d --build
+# O primeiro convite de admin aparece em: docker compose logs workforces
+services:
+  workforces:
+    build: ..
+    restart: unless-stopped
+    environment:
+      WF_PUBLIC_URL: https://${WF_DOMAIN:?defina WF_DOMAIN, por exemplo escritorio.exemplo.com.br}
+      # O Caddy manda o IP de quem acessa em X-Forwarded-For (limite de tentativas de login por IP).
+      WF_TRUST_PROXY: "1"
+    volumes:
+      - workforces-data:/data
+
+  caddy:
+    image: caddy:2.11.6
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WF_DOMAIN: ${WF_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  workforces-data:
+  caddy-data:
+  caddy-config:

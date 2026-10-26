@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { createAccountServices, type AccountServices } from "./accounts/index.js";
 import { ADMIN_INVITE_TTL_MS } from "./accounts/invites.js";
 import { buildApp } from "./app.js";
-import type { ServerConfig } from "./config.js";
+import { exposureWarning, type ServerConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDb } from "./db.js";
 import { registerMapRoutes } from "./http/map-routes.js";
@@ -82,6 +82,8 @@ export async function startServer(config: ServerConfig, options: CreateServerOpt
   const { log } = server.ctx;
   log(`escritório no ar em ${config.publicUrl.origin} (escutando em ${config.host}:${config.port})`);
   if (config.insecure) log("WF_INSECURE ligado: o tráfego pode não ter TLS");
+  const exposure = exposureWarning(config);
+  if (exposure) log(exposure);
   if (server.accounts.users.count() === 0) {
     const invite = server.accounts.invites.create({ createdBy: null, isAdmin: true, ttlMs: ADMIN_INVITE_TTL_MS });
     log(`nenhuma conta ainda; convite de admin válido por 24 h: ${config.publicUrl.origin}/invite/${invite.code}`);

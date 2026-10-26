@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+.git
+.github
+.superpowers
+.playwright-mcp
+docs
+deploy
+packages/e2e/test-results
+packages/e2e/playwright-report
+tools
+*.log

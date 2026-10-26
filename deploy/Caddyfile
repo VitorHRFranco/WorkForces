@@ -1,0 +1,5 @@
+# HTTPS automático (Let's Encrypt) para o domínio em WF_DOMAIN; o WebSocket passa sem configuração extra.
+# Rede interna, sem DNS público: troque o bloco por um com "tls internal" (veja "Servidor para um time" no README).
+{$WF_DOMAIN} {
+	reverse_proxy workforces:4600
+}

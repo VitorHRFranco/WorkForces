@@ -18,6 +18,19 @@ export interface ServerConfig {
 export class ServerConfigError extends Error {}
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Interfaces que só o próprio computador alcança. */
+const LOOPBACK_BINDS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+/**
+ * Escutar na rede com o endereço público em HTTP deixa senhas, tokens e terminais sem criptografia para quem acessar
+ * pela rede (spec 9, regra 7). Não impede de subir (o Docker local usa isso), mas avisa.
+ */
+export function exposureWarning(config: ServerConfig): string | null {
+  if (LOOPBACK_BINDS.has(config.host) || config.publicUrl.protocol === "https:") return null;
+  return `escutando em ${config.host} com ${config.publicUrl.origin} (sem HTTPS): quem acessar pela rede manda senha e token sem criptografia; use HTTPS (ex.: atrás do Caddy) ou WF_HOST=127.0.0.1`;
+}
+
 const isOn = (value: string | undefined) => value === "1" || value === "true";
 
 export function loadServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
