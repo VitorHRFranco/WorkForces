@@ -242,8 +242,11 @@ export function OfficePage() {
           <button
             type="button"
             class={myDesk.closed ? "desk-toggle closed" : "desk-toggle"}
-            aria-pressed={myDesk.closed}
-            title={myDesk.closed ? "Ninguém vê seus agentes. Clique para abrir." : "Quem chega perto vê seus agentes. Clique para fechar."}
+            title={
+              myDesk.closed
+                ? "Ninguém vê o terminal dos seus agentes. Clique para abrir."
+                : "Quem chega perto vê o terminal dos seus agentes. Clique para fechar."
+            }
             onClick={() => connection.current?.setDeskClosed(!myDesk.closed)}
           >
             {myDesk.closed ? "Mesa: fechada" : "Mesa: aberta"}

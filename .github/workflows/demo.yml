@@ -4,6 +4,10 @@ name: GIF do README
 # Rode pela aba Actions ("Run workflow") e baixe o artefato "demo-gif"; o GIF vai em docs/media/demo.gif.
 on:
   workflow_dispatch:
+    inputs:
+      scale:
+        description: "escala do GIF (1 = tamanho da janela gravada)"
+        default: "1"
 
 permissions:
   contents: read
@@ -26,6 +30,8 @@ jobs:
       - run: pnpm build
       - run: pnpm --filter @workforces/e2e exec playwright install --with-deps chromium
       - run: pnpm demo
+        env:
+          WF_GIF_SCALE: ${{ inputs.scale }}
       - uses: actions/upload-artifact@v7
         with:
           name: demo-gif

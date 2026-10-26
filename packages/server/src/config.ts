@@ -28,7 +28,7 @@ const LOOPBACK_BINDS = new Set(["localhost", "127.0.0.1", "::1"]);
  */
 export function exposureWarning(config: ServerConfig): string | null {
   if (LOOPBACK_BINDS.has(config.host) || config.publicUrl.protocol === "https:") return null;
-  return `escutando em ${config.host} com ${config.publicUrl.origin} (sem HTTPS): quem acessar pela rede manda senha e token sem criptografia; use HTTPS (ex.: atrás do Caddy) ou WF_HOST=127.0.0.1`;
+  return `escutando em ${config.host} com ${config.publicUrl.origin} (sem HTTPS): quem acessar pela rede manda senha e token sem criptografia; use HTTPS (ex.: atrás do Caddy) ou deixe o servidor só neste computador (WF_HOST=127.0.0.1; no Docker, publique a porta só em 127.0.0.1)`;
 }
 
 const isOn = (value: string | undefined) => value === "1" || value === "true";

@@ -9,6 +9,8 @@ const FRAMES = fileURLToPath(new URL("../demo-frames", import.meta.url));
 const DEMO_AGENT = fileURLToPath(new URL("./demo-agent.mjs", import.meta.url));
 /** Um quadro a cada 4 que o navegador desenha (~15 por segundo): fluido sem pesar no GIF. */
 const EVERY_NTH_FRAME = 4;
+/** O último quadro fica parado um pouco: o GIF pausa no fim antes de recomeçar. */
+const LAST_FRAME_MS = 2_000;
 
 let office: Office;
 test.beforeAll(async () => {
@@ -39,6 +41,7 @@ test("grava a demonstração do README", async ({ browser }) => {
   await biaPage.getByRole("textbox", { name: "Mensagem" }).press("Enter");
   await anaPage.waitForTimeout(2_500);
   const count = await recorder.stop();
+  expect(count).toBeGreaterThan(0);
   console.log(`${count} quadros em ${FRAMES}`);
 });
 
@@ -62,7 +65,7 @@ async function record(page: Page) {
     async stop(): Promise<number> {
       await cdp.send("Page.stopScreencast");
       await cdp.detach();
-      const timing = taken.map((frame, i) => ({ file: frame.file, ms: Math.round(i + 1 < taken.length ? taken[i + 1]!.at - frame.at : 100) }));
+      const timing = taken.map((frame, i) => ({ file: frame.file, ms: Math.round(i + 1 < taken.length ? taken[i + 1]!.at - frame.at : LAST_FRAME_MS) }));
       writeFileSync(join(FRAMES, "timing.json"), JSON.stringify(timing));
       return taken.length;
     },

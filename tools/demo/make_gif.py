@@ -29,7 +29,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("frames", help="pasta com os PNG e o timing.json")
     parser.add_argument("output", help="GIF de saída")
-    parser.add_argument("--scale", type=float, default=1.0, help="escala dos quadros (1 = tamanho da janela gravada)")
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=float(os.environ.get("WF_GIF_SCALE") or "1.0"),
+        help="escala dos quadros (1 = tamanho da janela gravada); o padrão vem da variável WF_GIF_SCALE, se existir",
+    )
     args = parser.parse_args()
 
     with open(os.path.join(args.frames, "timing.json"), encoding="utf-8") as file:

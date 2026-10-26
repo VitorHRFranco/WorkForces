@@ -40,6 +40,24 @@ describe("startServer", () => {
     expect(logs.join("\n")).not.toContain("convite");
     await second.app.close();
   });
+
+  it("a mesa fechada continua fechada depois de reiniciar o servidor", async () => {
+    const dataDir = tempDir("wf-data-");
+    const first = await startServer(testConfig({ dataDir }), { log: () => {} });
+    const ana = await createUser(first.accounts, "ana", { admin: true });
+    const deskIds = first.office.map.desks.map((desk) => desk.id);
+    const { deskId } = first.accounts.desks.ensure(ana.id, deskIds);
+    expect(deskId).not.toBeNull();
+    first.accounts.desks.setClosed(ana.id, true);
+    await first.app.close();
+    const second = await startServer(testConfig({ dataDir }), { log: () => {} });
+    try {
+      expect(second.world.isClosed(ana.id)).toBe(true);
+      expect(second.world.desks().find((desk) => desk.id === deskId)).toMatchObject({ ownerId: ana.id, closed: true });
+    } finally {
+      await second.app.close();
+    }
+  });
 });
 
 describe("workforces-server user disable", () => {
