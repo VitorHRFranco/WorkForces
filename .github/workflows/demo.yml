@@ -1,0 +1,32 @@
+name: GIF do README
+
+# Grava a demonstração do README num runner do GitHub (o navegador desenha o jogo por software e pesa na CPU).
+# Rode pela aba Actions ("Run workflow") e baixe o artefato "demo-gif"; o GIF vai em docs/media/demo.gif.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gif:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install pillow==12.3.0
+      - run: npm install -g pnpm@12.11.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @workforces/e2e exec playwright install --with-deps chromium
+      - run: pnpm demo
+      - uses: actions/upload-artifact@v7
+        with:
+          name: demo-gif
+          path: docs/media/demo.gif
+          retention-days: 14

@@ -7,6 +7,7 @@ coverage/
 # Saídas do Playwright (testes E2E)
 test-results/
 playwright-report/
+demo-frames/
 
 # Specs e planos do processo de construção ficam só locais
 docs/superpowers/

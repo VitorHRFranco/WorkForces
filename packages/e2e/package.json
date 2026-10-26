@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "demo": "playwright test --config playwright.demo.config.ts"
   },
   "devDependencies": {
     "@lydell/node-pty": "1.2.0-beta.15",
