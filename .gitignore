@@ -4,6 +4,10 @@ coverage/
 *.log
 *.tsbuildinfo
 
+# Saídas do Playwright (testes E2E)
+test-results/
+playwright-report/
+
 # Specs e planos do processo de construção ficam só locais
 docs/superpowers/
 

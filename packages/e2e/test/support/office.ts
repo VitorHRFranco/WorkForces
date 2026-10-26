@@ -1,0 +1,206 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createProbe, type AddressInfo } from "node:net";
+import { EOL, tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
+import { expect, type Browser, type Page } from "@playwright/test";
+import { parseOfficeMap, type OfficeMap, type Point } from "@workforces/protocol";
+
+const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const SERVER_CLI = join(ROOT, "packages", "server", "dist", "cli.js");
+const BRIDGE_CLI = join(ROOT, "packages", "bridge", "dist", "cli.js");
+const FAKE_AGENT = fileURLToPath(new URL("./fake-agent.mjs", import.meta.url));
+const PASSWORD = "senha-de-teste-e2e";
+/** O token que o agente de brinquedo imprime (fake-agent.mjs); nunca pode chegar ao navegador. */
+export const FAKE_TOKEN = "ghp_" + "E2Etokendebrinquedo".padEnd(36, "0");
+/** Velocidade do avatar no cliente (game/office-scene.ts), em pixels por segundo. */
+const SPEED = 120;
+const TOLERANCE = 6;
+
+export interface Account {
+  name: string;
+  /** Cookie de sessão, para chamar a API como a pessoa. */
+  cookie: string;
+}
+
+/** Sobe o servidor do build numa pasta e porta temporárias; o convite de admin sai do log da primeira execução. */
+export async function startOffice(): Promise<Office> {
+  const dir = mkdtempSync(join(tmpdir(), "wf-e2e-"));
+  const port = await freePort();
+  const url = `http://localhost:${port}`;
+  const server = spawn(process.execPath, [SERVER_CLI, "start"], {
+    env: { ...process.env, WF_PORT: String(port), WF_PUBLIC_URL: url, WF_DATA_DIR: join(dir, "dados") },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const adminCode = await new Promise<string>((resolve, reject) => {
+    let output = "";
+    const timer = setTimeout(() => reject(new Error(`o servidor não subiu:${EOL}${output}`)), 20_000);
+    const onData = (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+      const match = /\/invite\/([A-Za-z0-9_-]+)/.exec(output);
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[1]!);
+      }
+    };
+    server.stdout!.on("data", onData);
+    // WF_E2E_DEBUG=1 mostra o log do servidor junto com o do teste.
+    if (process.env.WF_E2E_DEBUG) {
+      server.stdout!.pipe(process.stdout);
+      server.stderr!.pipe(process.stderr);
+    }
+    server.stderr!.on("data", onData);
+    server.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`o servidor saiu (${code}):${EOL}${output}`));
+    });
+  });
+  const map = parseOfficeMap(await (await fetch(`http://127.0.0.1:${port}/map/map.tmj`)).json());
+  return new Office(dir, url, port, server, adminCode, map);
+}
+
+export class Office {
+  private readonly agents: IPty[] = [];
+  private admin: Account | null = null;
+
+  constructor(
+    private readonly dir: string,
+    readonly url: string,
+    private readonly port: number,
+    private readonly server: ChildProcess,
+    private readonly adminCode: string,
+    readonly map: OfficeMap,
+  ) {}
+
+  /** A primeira conta usa o convite de admin; as outras, convites gerados por ela. */
+  async account(name: string): Promise<Account> {
+    const code = this.admin ? await this.invite(this.admin) : this.adminCode;
+    const response = await this.post(`/api/invites/${code}/accept`, { name, password: PASSWORD });
+    expect(response.status).toBe(201);
+    const account = { name, cookie: response.headers.get("set-cookie")!.split(";")[0]! };
+    this.admin ??= account;
+    return account;
+  }
+
+  /** Entra pelo formulário, numa janela anônima própria, e espera o mapa carregar. */
+  async login(browser: Browser, account: Account): Promise<Page> {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${this.url}/login`);
+    await page.getByRole("textbox", { name: "Nome" }).fill(account.name);
+    await page.getByRole("textbox", { name: "Senha" }).fill(PASSWORD);
+    await page.getByRole("button", { name: "Entrar" }).click();
+    await page.waitForFunction(() => "__workforces" in window);
+    return page;
+  }
+
+  /** `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. */
+  async startAgent(account: Account, agentScript: string = FAKE_AGENT): Promise<void> {
+    const created = await this.post("/api/tokens", { name: "e2e" }, account);
+    expect(created.status).toBe(201);
+    const { token } = (await created.json()) as { token: string };
+    const home = join(this.dir, `ponte-${account.name}`);
+    const project = join(this.dir, `projeto-${account.name}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(home, "config.json"), JSON.stringify({ server: this.url, token }));
+    const agent = spawnPty(process.execPath, [BRIDGE_CLI, "claude"], {
+      name: "xterm-256color",
+      cols: 100,
+      rows: 30,
+      cwd: project,
+      env: { ...process.env, WORKFORCES_HOME: home, WORKFORCES_CLAUDE_BIN: this.launcher(account.name, agentScript) },
+    });
+    this.agents.push(agent);
+  }
+
+  async stop(): Promise<void> {
+    // No Windows a pasta temporária só sai depois que a ponte (com o cwd lá dentro) termina.
+    await Promise.all(this.agents.splice(0).map((agent) => new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+      agent.onExit(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+      agent.kill();
+    })));
+    if (this.server.exitCode === null) {
+      this.server.kill();
+      await once(this.server, "exit");
+    }
+    rmSync(this.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+
+  private async invite(account: Account): Promise<string> {
+    const response = await this.post("/api/invites", {}, account);
+    expect(response.status).toBe(201);
+    const { url } = (await response.json()) as { url: string };
+    return url.slice(url.lastIndexOf("/") + 1);
+  }
+
+  private post(path: string, body: unknown, account?: Account): Promise<Response> {
+    return fetch(`http://127.0.0.1:${this.port}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: this.url, ...(account ? { cookie: account.cookie } : {}) },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** WORKFORCES_CLAUDE_BIN precisa ser um executável: um .cmd no Windows, um script de shell nos outros. */
+  private launcher(name: string, script: string): string {
+    if (process.platform === "win32") {
+      const file = join(this.dir, `agente-${name}.cmd`);
+      writeFileSync(file, `@"${process.execPath}" "${script}" %*${EOL}`);
+      return file;
+    }
+    const file = join(this.dir, `agente-${name}.sh`);
+    writeFileSync(file, `#!/bin/sh${EOL}exec "${process.execPath}" "${script}" "$@"${EOL}`);
+    chmodSync(file, 0o755);
+    return file;
+  }
+}
+
+/** Centro da zona da mesa, um pouco abaixo (onde fica a cadeira, fora do móvel). */
+export function deskSpot(map: OfficeMap, deskId: string): Point {
+  const desk = map.desks.find((candidate) => candidate.id === deskId);
+  if (!desk) throw new Error(`mesa ${deskId} não está no mapa`);
+  return { x: desk.zone.x + desk.zone.width / 3, y: desk.zone.y + desk.zone.height - 8 };
+}
+
+/** Anda com as setas até o alvo, um eixo de cada vez, lendo a posição pelo gancho da página (window.__workforces). */
+export async function walkTo(page: Page, target: Point, order: readonly ("x" | "y")[] = ["x", "y"]): Promise<void> {
+  for (const axis of order) {
+    let stuck = 0;
+    let last: Point | null = null;
+    for (;;) {
+      const at = await position(page);
+      const delta = target[axis] - at[axis];
+      if (Math.abs(delta) <= TOLERANCE) break;
+      if (last && last.x === at.x && last.y === at.y && ++stuck >= 4) {
+        throw new Error(`o avatar parou em ${JSON.stringify(at)} a caminho de ${JSON.stringify(target)}`);
+      }
+      last = at;
+      const key = axis === "x" ? (delta > 0 ? "ArrowRight" : "ArrowLeft") : delta > 0 ? "ArrowDown" : "ArrowUp";
+      await page.keyboard.down(key);
+      await page.waitForTimeout(Math.max(40, Math.min(400, (Math.abs(delta) / SPEED) * 1000)));
+      await page.keyboard.up(key);
+    }
+  }
+}
+
+function position(page: Page): Promise<Point> {
+  return page.evaluate(() => (window as unknown as { __workforces: { position(): Point } }).__workforces.position());
+}
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createProbe();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close(() => resolve(port));
+    });
+  });
+}
