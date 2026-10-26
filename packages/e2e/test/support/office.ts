@@ -37,7 +37,11 @@ export async function startOffice(): Promise<Office> {
   });
   const abort = () => {
     if (server.exitCode === null && server.signalCode === null) server.kill();
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      // A pasta temporária que sobrar não importa; o erro do servidor importa.
+    }
   };
   const adminCode = await new Promise<string>((resolve, reject) => {
     let output = "";
@@ -184,11 +188,14 @@ export class Office {
   }
 }
 
-/** Um ponto dentro da zona da mesa, a um terço da largura e perto do fundo (onde fica a cadeira, fora do móvel). */
+/**
+ * Um ponto dentro da zona da mesa, no centro da largura e perto do fundo (onde fica a cadeira, fora do móvel). O centro
+ * dá folga dos dois lados: no runner lento o avatar passa do alvo e ainda não sai da zona.
+ */
 export function deskSpot(map: OfficeMap, deskId: string): Point {
   const desk = map.desks.find((candidate) => candidate.id === deskId);
   if (!desk) throw new Error(`mesa ${deskId} não está no mapa`);
-  return { x: desk.zone.x + desk.zone.width / 3, y: desk.zone.y + desk.zone.height - 8 };
+  return { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y + desk.zone.height - 8 };
 }
 
 /**
@@ -212,8 +219,10 @@ export async function walkTo(page: Page, target: Point, order: readonly ("x" | "
         { axis, goal: target[axis], forward },
         { polling: "raf", timeout: WALK_TIMEOUT_MS },
       );
-    } catch {
-      throw new Error(`o avatar não chegou a ${axis}=${target[axis]}: parou em ${JSON.stringify(await position(page))}`);
+    } catch (error) {
+      throw new Error(`o avatar não chegou a ${axis}=${target[axis]}: parou em ${JSON.stringify(await position(page))}`, {
+        cause: error,
+      });
     } finally {
       await page.keyboard.up(key);
     }

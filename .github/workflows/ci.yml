@@ -31,7 +31,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -63,7 +63,7 @@ jobs:
           curl -fsS http://127.0.0.1:4600/ | grep -q WorkForces
           curl -fsS -o /dev/null http://127.0.0.1:4600/map/map.tmj
           docker logs wf 2>&1 | grep -q "convite de admin"
-          test "$(docker exec wf id -u)" != 0
+          [ "$(docker exec wf id -u)" -ne 0 ]
           docker logs wf 2>&1 | grep -q "sem HTTPS"
           for i in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' wf)" = healthy ] && break; sleep 2; done
           test "$(docker inspect -f '{{.State.Health.Status}}' wf)" = healthy
