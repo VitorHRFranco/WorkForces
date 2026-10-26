@@ -15,6 +15,8 @@ pnpm build
 pnpm test
 ```
 
+Testes de ponta a ponta com o Playwright: `pnpm e2e` sobe o servidor e a ponte do build e usa dois navegadores, e `pnpm demo` grava o GIF deste README. Os dois pesam na CPU (o jogo é desenhado por software no navegador sem GPU) e rodam na esteira do GitHub: o E2E no CI, e o GIF no workflow manual "GIF do README". Para rodar localmente, instale antes o navegador: `pnpm --filter @workforces/e2e exec playwright install chromium`.
+
 ## Rodar o escritório localmente
 
 ```bash
@@ -30,6 +32,7 @@ O escritório abre em `http://localhost:4600`. Na primeira execução, o console
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
 - Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha.
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
+- **Mesa: aberta/fechada**, na barra de cima: com a mesa fechada, ninguém vê o terminal dos seus agentes (nem você, pelo mapa). Os robôs continuam na mesa, com a placa "fechada", e a escolha vale até você abrir de novo, mesmo que o servidor reinicie.
 
 ### Editar o mapa
 
@@ -95,6 +98,44 @@ No escritório, "Chamar agente" lista as pastas liberadas. Escolher uma abre uma
 O servidor só conhece os apelidos, nunca os caminhos, e a ponte confere tudo de novo: no máximo um pedido a cada 5 s e 5 agentes abertos (contam os `workforces claude` desta instalação, incluindo os que a ponte abriu). É preciso ter o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
 
 `pastas list` mostra as pastas liberadas, e `pastas rm <apelido>` tira uma da lista. Com a ponte ligada, a lista do escritório muda na hora.
+
+### Servidor para um time (Docker + Caddy)
+
+Para outras pessoas entrarem de outros computadores, o servidor precisa ficar numa máquina que todos alcancem, com HTTPS: fora de localhost, servidor e ponte recusam HTTP sem TLS, e o servidor avisa no log quando escuta na rede sem HTTPS. A pasta `deploy/` tem um exemplo com o [Caddy](https://caddyserver.com/) na frente, que gera e renova o certificado sozinho.
+
+Numa máquina com Docker, as portas 80 e 443 livres e um nome no DNS apontando para ela:
+
+```bash
+cd deploy
+WF_DOMAIN=escritorio.exemplo.com.br docker compose up -d --build
+docker compose logs workforces   # o primeiro convite de admin aparece aqui
+```
+
+- As contas ficam no volume `workforces-data`. Para atualizar: `git pull` e o mesmo `docker compose up -d --build`; depois, peça para todo mundo recarregar a página do escritório.
+- Na primeira subida, o Caddy espera o servidor ficar saudável (uns 30 s) antes de responder.
+- Use um domínio (ou subdomínio) só para o escritório: um site num domínio pai pode criar cookies que atrapalham o de sessão.
+- Não publique a porta 4600 do servidor: só o Caddy fala com ele.
+- Para usar no trabalho: só com aprovação de TI/segurança e num servidor interno.
+
+**Rede interna, sem DNS público.** Troque o bloco do `deploy/Caddyfile` por um com certificado interno:
+
+```text
+{$WF_DOMAIN} {
+    tls internal
+    reverse_proxy workforces:4600
+}
+```
+
+Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a nas máquinas de quem usa o escritório; na ponte, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo.
+
+Para testar só a imagem, sem o Caddy:
+
+```bash
+docker build -t workforces .
+docker run -p 127.0.0.1:4600:4600 -e WF_PUBLIC_URL=http://localhost:4600 workforces
+```
+
+O log avisa que está sem HTTPS (dentro do container o servidor escuta na rede); publicar a porta só em `127.0.0.1` deixa o acesso restrito a este computador.
 
 ### Cliente web com recarga automática
 
