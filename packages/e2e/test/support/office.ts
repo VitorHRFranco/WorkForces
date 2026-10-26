@@ -16,8 +16,8 @@ const FAKE_AGENT = fileURLToPath(new URL("./fake-agent.mjs", import.meta.url));
 const PASSWORD = "senha-de-teste-e2e";
 /** O token que o agente de brinquedo imprime (fake-agent.mjs); nunca pode chegar ao navegador. */
 export const FAKE_TOKEN = "ghp_" + "E2Etokendebrinquedo".padEnd(36, "0");
-/** Velocidade do avatar no cliente (game/office-scene.ts), em pixels por segundo. */
-const SPEED = 120;
+/** Quanto uma caminhada pode levar até o avatar chegar (ou desistir com a posição na mensagem). */
+const WALK_TIMEOUT_MS = 20_000;
 const TOLERANCE = 6;
 
 export interface Account {
@@ -162,29 +162,37 @@ export class Office {
   }
 }
 
-/** Centro da zona da mesa, um pouco abaixo (onde fica a cadeira, fora do móvel). */
+/** Um ponto dentro da zona da mesa, a um terço da largura e perto do fundo (onde fica a cadeira, fora do móvel). */
 export function deskSpot(map: OfficeMap, deskId: string): Point {
   const desk = map.desks.find((candidate) => candidate.id === deskId);
   if (!desk) throw new Error(`mesa ${deskId} não está no mapa`);
   return { x: desk.zone.x + desk.zone.width / 3, y: desk.zone.y + desk.zone.height - 8 };
 }
 
-/** Anda com as setas até o alvo, um eixo de cada vez, lendo a posição pelo gancho da página (window.__workforces). */
+/**
+ * Anda com as setas até o alvo, um eixo de cada vez: segura a seta e solta quando o avatar passa do alvo, conferindo a
+ * cada quadro do navegador (sem GPU o jogo desenha poucos quadros por segundo, e toques curtos passariam do ponto).
+ */
 export async function walkTo(page: Page, target: Point, order: readonly ("x" | "y")[] = ["x", "y"]): Promise<void> {
   for (const axis of order) {
-    let stuck = 0;
-    let last: Point | null = null;
-    for (;;) {
-      const at = await position(page);
-      const delta = target[axis] - at[axis];
-      if (Math.abs(delta) <= TOLERANCE) break;
-      if (last && last.x === at.x && last.y === at.y && ++stuck >= 4) {
-        throw new Error(`o avatar parou em ${JSON.stringify(at)} a caminho de ${JSON.stringify(target)}`);
-      }
-      last = at;
-      const key = axis === "x" ? (delta > 0 ? "ArrowRight" : "ArrowLeft") : delta > 0 ? "ArrowDown" : "ArrowUp";
-      await page.keyboard.down(key);
-      await page.waitForTimeout(Math.max(40, Math.min(400, (Math.abs(delta) / SPEED) * 1000)));
+    const from = await position(page);
+    const delta = target[axis] - from[axis];
+    if (Math.abs(delta) <= TOLERANCE) continue;
+    const forward = delta > 0;
+    const key = axis === "x" ? (forward ? "ArrowRight" : "ArrowLeft") : forward ? "ArrowDown" : "ArrowUp";
+    await page.keyboard.down(key);
+    try {
+      await page.waitForFunction(
+        ({ axis, goal, forward }) => {
+          const at = (window as unknown as { __workforces: { position(): Point } }).__workforces.position()[axis];
+          return forward ? at >= goal : at <= goal;
+        },
+        { axis, goal: target[axis], forward },
+        { polling: "raf", timeout: WALK_TIMEOUT_MS },
+      );
+    } catch {
+      throw new Error(`o avatar não chegou a ${axis}=${target[axis]}: parou em ${JSON.stringify(await position(page))}`);
+    } finally {
       await page.keyboard.up(key);
     }
   }
