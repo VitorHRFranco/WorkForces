@@ -35,6 +35,10 @@ export async function startOffice(): Promise<Office> {
     env: { ...process.env, WF_PORT: String(port), WF_PUBLIC_URL: url, WF_DATA_DIR: join(dir, "dados") },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const abort = () => {
+    if (server.exitCode === null && server.signalCode === null) server.kill();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  };
   const adminCode = await new Promise<string>((resolve, reject) => {
     let output = "";
     const timer = setTimeout(() => reject(new Error(`o servidor não subiu:${EOL}${output}`)), 20_000);
@@ -57,14 +61,24 @@ export async function startOffice(): Promise<Office> {
       clearTimeout(timer);
       reject(new Error(`o servidor saiu (${code}):${EOL}${output}`));
     });
+  }).catch((error: unknown) => {
+    abort();
+    throw error;
   });
-  const map = parseOfficeMap(await (await fetch(`http://127.0.0.1:${port}/map/map.tmj`)).json());
+  let map: OfficeMap;
+  try {
+    map = parseOfficeMap(await (await fetch(`http://127.0.0.1:${port}/map/map.tmj`)).json());
+  } catch (error) {
+    abort();
+    throw error;
+  }
   return new Office(dir, url, port, server, adminCode, map);
 }
 
 export class Office {
   private readonly agents: IPty[] = [];
   private admin: Account | null = null;
+  private readonly received = new Map<Page, string[]>();
 
   constructor(
     private readonly dir: string,
@@ -88,12 +102,20 @@ export class Office {
   /** Entra pelo formulário, numa janela anônima própria, e espera o mapa carregar. */
   async login(browser: Browser, account: Account): Promise<Page> {
     const page = await (await browser.newContext()).newPage();
+    const received: string[] = [];
+    page.on("websocket", (socket) => socket.on("framereceived", (frame) => received.push(String(frame.payload))));
+    this.received.set(page, received);
     await page.goto(`${this.url}/login`);
     await page.getByRole("textbox", { name: "Nome" }).fill(account.name);
     await page.getByRole("textbox", { name: "Senha" }).fill(PASSWORD);
     await page.getByRole("button", { name: "Entrar" }).click();
     await page.waitForFunction(() => "__workforces" in window);
     return page;
+  }
+
+  /** O que o navegador recebeu pelo WebSocket (cada mensagem como texto), desde o login. */
+  messagesFor(page: Page): string[] {
+    return this.received.get(page) ?? [];
   }
 
   /** `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. */
@@ -126,7 +148,7 @@ export class Office {
       });
       agent.kill();
     })));
-    if (this.server.exitCode === null) {
+    if (this.server.exitCode === null && this.server.signalCode === null) {
       this.server.kill();
       await once(this.server, "exit");
     }
