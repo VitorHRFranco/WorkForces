@@ -9,6 +9,8 @@ export interface RobotSpot {
 export interface DeskView {
   deskId: string;
   ownerName: string | null;
+  /** Mesa fechada (spec 8): mostra a placa "fechada". */
+  closed: boolean;
   /** Onde fica a plaquinha com o nome do dono (logo acima da zona). */
   plate: Point;
   robots: RobotSpot[];
@@ -35,6 +37,7 @@ export function layoutDesks(map: OfficeMap, desks: ReadonlyMap<string, DeskInfo>
     return {
       deskId: desk.id,
       ownerName: info?.ownerName ?? null,
+      closed: info?.closed ?? false,
       plate: { x: desk.zone.x + desk.zone.width / 2, y: desk.zone.y - 2 },
       robots: shown.map((agent, i) => ({ agent, at: desk.slots[i]! })),
       extra: mine.length - shown.length,

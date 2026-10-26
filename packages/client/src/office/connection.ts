@@ -54,6 +54,11 @@ export class OfficeConnection {
     this.send({ type: "unwatch" });
   }
 
+  /** Abre ou fecha a própria mesa; a resposta chega como `deskUpdated` (conta na mesma cota do watch). */
+  setDeskClosed(closed: boolean): boolean {
+    return this.send({ type: "setDeskClosed", closed });
+  }
+
   /** Pede à ponte da própria pessoa para abrir um agente; a resposta chega depois, como `spawnResult` com o mesmo reqId. */
   spawnAgent(alias: string): SpawnRequest {
     const now = Date.now();

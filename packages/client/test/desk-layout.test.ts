@@ -56,6 +56,14 @@ describe("layoutDesks", () => {
     expect(shown).not.toContain("sem-mesa");
   });
 
+  it("mesa fechada continua mostrando os robôs e ganha a placa", () => {
+    const closed = new Map(desks).set("mesa-2", { id: "mesa-2", ownerId: 2, ownerName: "bia", closed: true });
+    const [one, two] = layoutDesks(map, closed, [agent(2, "site")]);
+    expect(one!.closed).toBe(false);
+    expect(two!.closed).toBe(true);
+    expect(two!.robots.map((robot) => robot.agent.label)).toEqual(["site"]);
+  });
+
   it("mesa sem posições mostra tudo como +N no meio da zona", () => {
     const owned = new Map(desks).set("mesa-3", { id: "mesa-3", ownerId: 4, ownerName: "caio", closed: false });
     const view = layoutDesks(map, owned, [agent(4, "x")])[2]!;

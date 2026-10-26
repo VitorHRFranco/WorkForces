@@ -31,6 +31,10 @@ const DIRECTIONS: Direction[] = ["up", "down", "left", "right"];
 const POSES: PoseKind[] = ["walk", "idle", "sit"];
 /** Contorno escuro: os textos continuam legíveis sobre o piso e os móveis. */
 const OUTLINE = { stroke: "#1d2027", strokeThickness: 2 };
+/** Placa de mesa fechada: logo abaixo do nome do dono. */
+const CLOSED_SIGN_BELOW = 10;
+const CLOSED_SIGN_COLOR = 0x9c3b3b;
+const CLOSED_SIGN_BORDER = 0x1d2027;
 
 export interface OfficeSceneDeps {
   state: OfficeState;
@@ -49,6 +53,12 @@ interface Remote {
   track: Track;
   variant: number;
 }
+
+/** Leitura da posição do avatar, para os testes E2E. */
+export interface WorkforcesHook {
+  position(): Point;
+}
+type WindowWithHook = Window & { __workforces?: WorkforcesHook };
 
 type ArrowKeys = Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key>;
 type WasdKeys = Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
@@ -122,9 +132,13 @@ export class OfficeScene extends Phaser.Scene {
     this.setKeyboardEnabled(this.keyboardWanted);
 
     const unsubscribe = state.subscribe(() => this.sync());
+    // Para os testes E2E: só lê a posição do avatar (a mesma que já vai para todo mundo pelo `move`).
+    const hook: WorkforcesHook = { position: () => ({ x: this.player.x, y: this.player.y }) };
+    (window as WindowWithHook).__workforces = hook;
     const cleanup = () => {
       unsubscribe();
       this.scale.off(Phaser.Scale.Events.RESIZE, onResize);
+      if ((window as WindowWithHook).__workforces === hook) delete (window as WindowWithHook).__workforces;
     };
     // game.destroy() destrói a cena sem passar por SHUTDOWN: escuta os dois.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, cleanup);
@@ -306,6 +320,7 @@ export class OfficeScene extends Phaser.Scene {
 
     for (const view of layoutDesks(map, state.desks, state.agents.values())) {
       this.deskObjects.push(this.smallText(view.plate.x, view.plate.y, view.ownerName ?? "livre", view.ownerName ? "#e6e8ec" : "#9aa3b2"));
+      if (view.closed) this.deskObjects.push(...this.closedSign(view.plate.x, view.plate.y + CLOSED_SIGN_BELOW));
       for (const { agent, at } of view.robots) {
         const look = robotLook(agent);
         const robot = this.add
@@ -351,6 +366,26 @@ export class OfficeScene extends Phaser.Scene {
       remote.name.destroy();
       this.remotes.delete(id);
     }
+  }
+
+  /** Placa de mesa fechada (spec 8): "fechada" num retângulo vermelho, logo abaixo do nome do dono. */
+  private closedSign(x: number, y: number): Phaser.GameObjects.GameObject[] {
+    const text = this.add
+      .text(x, y, "fechada", { fontFamily: "monospace", fontSize: "7px", color: "#ffffff", resolution: 4 })
+      .setOrigin(0.5, 1)
+      .setDepth(SMALL_TEXT_DEPTH + 1);
+    const width = Math.ceil(text.width) + 6;
+    const height = Math.ceil(text.height) + 2;
+    const left = Math.round(x - width / 2);
+    const top = Math.round(y - height + 1);
+    const board = this.add
+      .graphics()
+      .fillStyle(CLOSED_SIGN_COLOR, 1)
+      .fillRect(left, top, width, height)
+      .lineStyle(1, CLOSED_SIGN_BORDER, 1)
+      .strokeRect(left, top, width, height)
+      .setDepth(SMALL_TEXT_DEPTH);
+    return [board, text];
   }
 
   private smallText(x: number, y: number, text: string, color: string): Phaser.GameObjects.Text {

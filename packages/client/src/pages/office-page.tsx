@@ -139,7 +139,9 @@ export function OfficePage() {
     setDismissed(null);
   }, [zone]);
 
-  const deskAgents = zone !== null && zone !== dismissed && !endedRef.current ? state.agentsAtDesk(zone) : [];
+  // Mesa fechada não abre o painel (spec 9, regra 3); se fechar durante a visita, o painel some.
+  const zoneClosed = zone !== null && state.desks.get(zone)?.closed === true;
+  const deskAgents = zone !== null && zone !== dismissed && !zoneClosed && !endedRef.current ? state.agentsAtDesk(zone) : [];
   const watched = watchTarget(deskAgents, selected);
   const isBlocked = watched !== null && blocked === watched;
 
@@ -227,6 +229,8 @@ export function OfficePage() {
     );
   }
 
+  const myDesk = state.me.deskId === null ? undefined : state.desks.get(state.me.deskId);
+
   return (
     <div class="office">
       <header class="topbar">
@@ -234,6 +238,17 @@ export function OfficePage() {
         <span class="who">{me.name}</span>
         <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>
         <AgentMenu aliases={state.aliases} listenerOnline={state.listenerOnline} busy={spawnBusy} status={spawnStatus} onSpawn={spawnAgent} />
+        {myDesk && (
+          <button
+            type="button"
+            class={myDesk.closed ? "desk-toggle closed" : "desk-toggle"}
+            aria-pressed={myDesk.closed}
+            title={myDesk.closed ? "Ninguém vê seus agentes. Clique para abrir." : "Quem chega perto vê seus agentes. Clique para fechar."}
+            onClick={() => connection.current?.setDeskClosed(!myDesk.closed)}
+          >
+            {myDesk.closed ? "Mesa: fechada" : "Mesa: aberta"}
+          </button>
+        )}
         <span class="spacer" />
         <button type="button" onClick={() => setModal("tokens")}>
           Tokens da ponte

@@ -146,6 +146,12 @@ code {
   color: #f4b41b;
 }
 
+/* Mesa fechada: o botão fica com a cor da placa do mapa. */
+.desk-toggle.closed {
+  background: #9c3b3b;
+  color: #ffffff;
+}
+
 .who {
   color: var(--muted);
 }
