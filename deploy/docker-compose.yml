@@ -5,6 +5,8 @@ services:
   workforces:
     build: ..
     restart: unless-stopped
+    # Não publique a porta 4600: com WF_TRUST_PROXY ligado, quem conectasse direto poderia falsificar o X-Forwarded-For
+    # e driblar o limite de tentativas de login por IP. Só o Caddy (na rede do compose) fala com este serviço.
     environment:
       WF_PUBLIC_URL: https://${WF_DOMAIN:?defina WF_DOMAIN, por exemplo escritorio.exemplo.com.br}
       # O Caddy manda o IP de quem acessa em X-Forwarded-For (limite de tentativas de login por IP).
@@ -15,9 +17,13 @@ services:
   caddy:
     image: caddy:2.11.6
     restart: unless-stopped
+    depends_on:
+      workforces:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp" # HTTP/3
     environment:
       WF_DOMAIN: ${WF_DOMAIN}
     volumes:

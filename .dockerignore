@@ -10,3 +10,7 @@ packages/e2e/test-results
 packages/e2e/playwright-report
 tools
 *.log
+**/.env*
+*.tsbuildinfo
+coverage
+packages/e2e/demo-frames

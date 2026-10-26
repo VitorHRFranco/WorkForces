@@ -44,5 +44,5 @@ USER node
 VOLUME /data
 EXPOSE 4600
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:4600/api/me').then((r) => process.exit(r.status === 401 ? 0 : 1), () => process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.WF_PORT || 4600) + '/api/me').then((r) => process.exit(r.status === 401 ? 0 : 1), () => process.exit(1))"]
 CMD ["node", "packages/server/dist/cli.js", "start"]
