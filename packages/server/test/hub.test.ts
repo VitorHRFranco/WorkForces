@@ -280,6 +280,32 @@ describe("Hub", () => {
   });
 });
 
+describe("Hub: mesa fechada", () => {
+  it("quem assiste sai com desk-closed, a ponte recebe viewers 0 e ninguém volta a assistir, nem a dona", () => {
+    let closed = false;
+    const hub = new Hub(30_000, 200, () => true, () => closed);
+    const bridge = new FakeBridge();
+    hub.registerAgent(ana, hello(), bridge);
+    const visitor = new FakeClient(bia.id);
+    const owner = new FakeClient(ana.id);
+    hub.addClient(visitor);
+    hub.addClient(owner);
+    expect(hub.watch(visitor, AGENT)).toBe("ok");
+    hub.agentFrame(bridge, AGENT, frame(1, true, [[0, "oi"]]));
+    closed = true;
+    hub.closeDesk(bia.id); // a mesa de outra pessoa não muda nada
+    expect(bridge.viewers).toEqual([1]);
+    hub.closeDesk(ana.id);
+    expect(bridge.viewers).toEqual([1, 0]);
+    expect(visitor.messages.at(-1)).toEqual({ type: "watchEnded", agentId: AGENT, reason: "desk-closed" });
+    expect(hub.watch(visitor, AGENT)).toBe("closed");
+    expect(hub.watch(owner, AGENT)).toBe("closed");
+    hub.agentFrame(bridge, AGENT, frame(2, false, [[0, "segredo"]]));
+    expect(visitor.frames().map((f) => f.seq)).toEqual([1]);
+    expect(bridge.viewers).toEqual([1, 0]);
+  });
+});
+
 describe("Hub: navegador lento", () => {
   it("navegador que não lê é desconectado nos avisos gerais", () => {
     const hub = new Hub();

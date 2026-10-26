@@ -43,6 +43,19 @@ describe("DeskStore", () => {
     accounts.desks.ensure(ana.id, IDS);
     expect(() => db.prepare("update users set desk_id = 'mesa-1' where id = ?").run(bia.id)).toThrow(/UNIQUE/);
   });
+  it("guarda quem fechou a mesa; conta desativada não conta", async () => {
+    const accounts = createAccountServices(openDb(":memory:"), Date.now);
+    const ana = await createUser(accounts, "ana");
+    const bia = await createUser(accounts, "bia");
+    expect(accounts.desks.closedOwners()).toEqual(new Set());
+    accounts.desks.setClosed(ana.id, true);
+    accounts.desks.setClosed(bia.id, true);
+    accounts.desks.setClosed(bia.id, false);
+    expect(accounts.desks.closedOwners()).toEqual(new Set([ana.id]));
+    disableUser(accounts, ana.id);
+    expect(accounts.desks.closedOwners()).toEqual(new Set());
+  });
+
   it("conta desativada não ganha mesa e o disable repetido libera a mesa gravada", async () => {
     const db = openDb(":memory:");
     const accounts = createAccountServices(db, Date.now);
@@ -59,16 +72,26 @@ describe("DeskStore", () => {
 describe("World: mesas", () => {
   it("lista as mesas na ordem do mapa, com o dono, e avisa o que mudou", () => {
     const world = new World(officeMap(), new Map([["mesa-2", { id: 7, name: "bia" }], ["mesa-99", { id: 9, name: "zé" }]]));
-    expect(world.desks()[0]).toEqual({ id: "mesa-1", ownerId: null, ownerName: null });
-    expect(world.desks()[1]).toEqual({ id: "mesa-2", ownerId: 7, ownerName: "bia" });
+    expect(world.desks()[0]).toEqual({ id: "mesa-1", ownerId: null, ownerName: null, closed: false });
+    expect(world.desks()[1]).toEqual({ id: "mesa-2", ownerId: 7, ownerName: "bia", closed: false });
     expect(world.deskIdOf(9)).toBeNull();
-    expect(world.setDesk({ id: 8, name: "caio" }, "mesa-1")).toEqual([{ id: "mesa-1", ownerId: 8, ownerName: "caio" }]);
+    expect(world.setDesk({ id: 8, name: "caio" }, "mesa-1")).toEqual([{ id: "mesa-1", ownerId: 8, ownerName: "caio", closed: false }]);
     expect(world.setDesk({ id: 8, name: "caio" }, "mesa-1")).toEqual([]);
     expect(world.setDesk({ id: 8, name: "caio" }, "mesa-3")).toEqual([
-      { id: "mesa-1", ownerId: null, ownerName: null },
-      { id: "mesa-3", ownerId: 8, ownerName: "caio" },
+      { id: "mesa-1", ownerId: null, ownerName: null, closed: false },
+      { id: "mesa-3", ownerId: 8, ownerName: "caio", closed: false },
     ]);
     expect(world.deskIdOf(8)).toBe("mesa-3");
+  });
+
+  it("mesa fechada vale para a pessoa: aparece na mesa dela e segue com ela", () => {
+    const world = new World(officeMap(), new Map([["mesa-1", { id: 7, name: "bia" }]]), new Set([7]));
+    expect(world.desks()[0]).toEqual({ id: "mesa-1", ownerId: 7, ownerName: "bia", closed: true });
+    expect(world.isClosed(7)).toBe(true);
+    expect(world.setClosed({ id: 7, name: "bia" }, true)).toEqual([]);
+    expect(world.setClosed({ id: 7, name: "bia" }, false)).toEqual([{ id: "mesa-1", ownerId: 7, ownerName: "bia", closed: false }]);
+    expect(world.setClosed({ id: 8, name: "caio" }, true)).toEqual([]); // sem mesa: só guarda
+    expect(world.setDesk({ id: 8, name: "caio" }, "mesa-2")).toEqual([{ id: "mesa-2", ownerId: 8, ownerName: "caio", closed: true }]);
   });
 
   it("a mesa reatribuída não fica apontada para o dono antigo", () => {

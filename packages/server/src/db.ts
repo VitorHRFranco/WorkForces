@@ -37,6 +37,8 @@ const MIGRATIONS: readonly string[] = [
   // Plano 3: mesa de cada pessoa (id do objeto `desk` do mapa); uma pessoa por mesa.
   `alter table users add column desk_id text;
    create unique index users_desk_id on users(desk_id) where desk_id is not null;`,
+  // Plano 5: mesa fechada (spec 9, regra 3). Vale para a pessoa: segue com ela se a mesa mudar.
+  `alter table users add column desk_closed integer not null default 0;`,
 ];
 
 export function openDb(file: string): Db {

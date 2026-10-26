@@ -8,7 +8,7 @@ import {
   type ServerToClient,
 } from "@workforces/protocol";
 
-export type WatchResult = "ok" | "gone" | "denied";
+export type WatchResult = "ok" | "gone" | "denied" | "closed";
 
 export const SLOW_VIEWER_BYTES = 1024 * 1024;
 /** Navegador com mais que isto pendente nos avisos gerais é desconectado (o welcome refaz o estado ao reconectar). */
@@ -68,6 +68,8 @@ export class Hub {
     private readonly staleCheckMs: number = STALE_CHECK_MS,
     /** Regra de proximidade (spec 9): quem pode assistir os agentes de quem. */
     private readonly canWatch: (viewerId: number, ownerId: number) => boolean = () => true,
+    /** Mesa fechada (spec 9, regra 3): ninguém assiste os agentes do dono, nem ele mesmo. */
+    private readonly isDeskClosed: (ownerId: number) => boolean = () => false,
   ) {}
 
   registerAgent(owner: Owner, hello: AgentHello, link: BridgeLink): RegisterResult {
@@ -187,6 +189,10 @@ export class Hub {
       this.unwatch(link);
       return "gone";
     }
+    if (this.isDeskClosed(entry.info.ownerId)) {
+      this.unwatch(link);
+      return "closed";
+    }
     if (!this.canWatch(link.userId, entry.info.ownerId)) {
       this.unwatch(link);
       return "denied";
@@ -224,6 +230,22 @@ export class Hub {
     if (entry.stale.size === 0) this.stopStaleTimer(entry);
     entry.link?.sendViewers(entry.viewers.size);
     if (entry.viewers.size === 0) entry.screen = null;
+  }
+
+  /** Mesa fechada: quem assiste os agentes do dono sai na hora, e as pontes param de mandar quadros (`viewers{0}`). */
+  closeDesk(ownerId: number): void {
+    for (const entry of this.agents.values()) {
+      if (entry.info.ownerId !== ownerId || entry.viewers.size === 0) continue;
+      for (const viewer of entry.viewers) {
+        this.watching.delete(viewer);
+        viewer.send({ type: "watchEnded", agentId: entry.info.id, reason: "desk-closed" });
+      }
+      entry.viewers.clear();
+      entry.stale.clear();
+      this.stopStaleTimer(entry);
+      entry.screen = null;
+      entry.link?.sendViewers(0);
+    }
   }
 
   closeBridgesForToken(tokenId: number): void {

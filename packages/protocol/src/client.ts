@@ -19,11 +19,12 @@ export type AgentInfo = z.infer<typeof AgentInfo>;
 export const Me = z.object({ id: z.number().int().min(1), name: z.string(), isAdmin: z.boolean() });
 export type Me = z.infer<typeof Me>;
 
-/** Mesa do mapa e quem é o dono (null = livre). */
+/** Mesa do mapa e quem é o dono (null = livre). Fechada: ninguém assiste os agentes dela (spec 9, regra 3). */
 export const DeskInfo = z.object({
   id: z.string().regex(DESK_ID_PATTERN),
   ownerId: z.number().int().min(1).nullable(),
   ownerName: z.string().nullable(),
+  closed: z.boolean(),
 });
 export type DeskInfo = z.infer<typeof DeskInfo>;
 
@@ -76,7 +77,9 @@ export const Watch = z.object({ type: z.literal("watch"), agentId: z.uuid() });
 export const Unwatch = z.object({ type: z.literal("unwatch") });
 /** Pede à ponte do próprio dono para abrir um agente na pasta com esse apelido. */
 export const SpawnAgent = z.object({ type: z.literal("spawnAgent"), reqId: ReqId, alias: Alias });
-export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend, SpawnAgent]);
+/** Abre ou fecha a própria mesa (vale para a pessoa, não para a mesa: segue com ela se a mesa mudar). */
+export const SetDeskClosed = z.object({ type: z.literal("setDeskClosed"), closed: z.boolean() });
+export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend, SpawnAgent, SetDeskClosed]);
 export type ClientToServer = z.infer<typeof ClientToServer>;
 
 export const Welcome = z.object({
@@ -95,7 +98,7 @@ export const ClientFrame = z.object({ type: z.literal("frame"), agentId: z.uuid(
   const error = frameBoundsError(frame);
   if (error) ctx.addIssue({ code: "custom", message: error });
 });
-export const WatchEnded = z.object({ type: z.literal("watchEnded"), agentId: z.uuid(), reason: z.enum(["left-zone", "agent-gone"]) });
+export const WatchEnded = z.object({ type: z.literal("watchEnded"), agentId: z.uuid(), reason: z.enum(["left-zone", "desk-closed", "agent-gone"]) });
 
 /** Servidor → cliente. */
 export const DeskUpdated = z.object({ type: z.literal("deskUpdated"), desk: DeskInfo });

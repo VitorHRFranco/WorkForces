@@ -49,8 +49,13 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   const db = openDb(dbFile);
   const ctx: AppContext = { config, now: options.now ?? Date.now, log: options.log ?? defaultLog };
   const accounts = createAccountServices(db, ctx.now);
-  const world = new World(office.map, accounts.desks.owners());
-  const hub = new Hub(options.graceMs, undefined, (viewerId, ownerId) => world.canWatch(viewerId, ownerId));
+  const world = new World(office.map, accounts.desks.owners(), accounts.desks.closedOwners());
+  const hub = new Hub(
+    options.graceMs,
+    undefined,
+    (viewerId, ownerId) => world.canWatch(viewerId, ownerId),
+    (ownerId) => world.isClosed(ownerId),
+  );
   const listeners = new Listeners();
   const app = buildApp(ctx);
   const onTokenRevoked = (tokenId: number) => {

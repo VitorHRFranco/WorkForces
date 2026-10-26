@@ -14,14 +14,31 @@ export class World {
   private readonly lastSeen = new Map<number, PlayerInfo>();
   private readonly chatLog: ChatEntry[] = [];
   private nextChatId = 1;
+  /** Quem fechou a mesa (espelho do banco). */
+  private readonly closed: Set<number>;
 
   constructor(
     readonly map: OfficeMap,
     owners: ReadonlyMap<string, Person>,
+    closed: ReadonlySet<number> = new Set(),
   ) {
+    this.closed = new Set(closed);
     for (const [deskId, owner] of owners) {
       if (map.desks.some((desk) => desk.id === deskId)) this.setDesk(owner, deskId);
     }
+  }
+
+  isClosed(userId: number): boolean {
+    return this.closed.has(userId);
+  }
+
+  /** Abre ou fecha a mesa da pessoa; devolve a mesa dela, se mudou (para avisar os navegadores). */
+  setClosed(person: Person, closed: boolean): DeskInfo[] {
+    if (this.closed.has(person.id) === closed) return [];
+    if (closed) this.closed.add(person.id);
+    else this.closed.delete(person.id);
+    const deskId = this.deskIdOf(person.id);
+    return deskId === null ? [] : [this.deskInfo(deskId)];
   }
 
   /** Guarda a mensagem (nunca vai para o disco nem para o log). */
@@ -108,7 +125,7 @@ export class World {
 
   private deskInfo(deskId: string): DeskInfo {
     const owner = this.ownerByDesk.get(deskId);
-    return { id: deskId, ownerId: owner?.id ?? null, ownerName: owner?.name ?? null };
+    return { id: deskId, ownerId: owner?.id ?? null, ownerName: owner?.name ?? null, closed: owner ? this.closed.has(owner.id) : false };
   }
 
   /** Quem assiste precisa estar na zona da mesa do dono, com folga de 1 tile; dono sem mesa no mapa não pode ser assistido. */

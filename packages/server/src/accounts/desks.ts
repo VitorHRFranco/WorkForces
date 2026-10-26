@@ -33,4 +33,14 @@ export class DeskStore {
     }[];
     return new Map(rows.map((row) => [row.desk_id, { id: row.id, name: row.name }]));
   }
+
+  /** Quem fechou a mesa, entre as contas ativas. */
+  closedOwners(): Set<number> {
+    const rows = this.db.prepare("select id from users where desk_closed = 1 and disabled_at is null").all() as { id: number }[];
+    return new Set(rows.map((row) => row.id));
+  }
+
+  setClosed(userId: number, closed: boolean): void {
+    this.db.prepare("update users set desk_closed = ? where id = ?").run(closed ? 1 : 0, userId);
+  }
 }

@@ -20,9 +20,9 @@ const map: OfficeMap = {
   ],
 };
 const desks = new Map<string, DeskInfo>([
-  ["mesa-1", { id: "mesa-1", ownerId: 1, ownerName: "ana" }],
-  ["mesa-2", { id: "mesa-2", ownerId: 2, ownerName: "bia" }],
-  ["mesa-3", { id: "mesa-3", ownerId: null, ownerName: null }],
+  ["mesa-1", { id: "mesa-1", ownerId: 1, ownerName: "ana", closed: false }],
+  ["mesa-2", { id: "mesa-2", ownerId: 2, ownerName: "bia", closed: false }],
+  ["mesa-3", { id: "mesa-3", ownerId: null, ownerName: null, closed: false }],
 ]);
 let next = 0;
 const agent = (ownerId: number, label: string, extra: Partial<AgentInfo> = {}): AgentInfo => ({
@@ -57,7 +57,7 @@ describe("layoutDesks", () => {
   });
 
   it("mesa sem posições mostra tudo como +N no meio da zona", () => {
-    const owned = new Map(desks).set("mesa-3", { id: "mesa-3", ownerId: 4, ownerName: "caio" });
+    const owned = new Map(desks).set("mesa-3", { id: "mesa-3", ownerId: 4, ownerName: "caio", closed: false });
     const view = layoutDesks(map, owned, [agent(4, "x")])[2]!;
     expect(view.robots).toEqual([]);
     expect(view.extra).toBe(1);

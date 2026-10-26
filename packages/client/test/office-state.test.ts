@@ -22,9 +22,9 @@ const welcome = (): ServerToClient => ({
   players: [{ id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false }],
   agents: [agent(A1, 1, "loja"), agent(A2, 1, "api"), agent(A3, 2, "site")],
   desks: [
-    { id: "mesa-1", ownerId: 1, ownerName: "ana" },
-    { id: "mesa-2", ownerId: 2, ownerName: "bia" },
-    { id: "mesa-3", ownerId: null, ownerName: null },
+    { id: "mesa-1", ownerId: 1, ownerName: "ana", closed: false },
+    { id: "mesa-2", ownerId: 2, ownerName: "bia", closed: false },
+    { id: "mesa-3", ownerId: null, ownerName: null, closed: false },
   ],
   chat: [{ id: 1, fromId: 2, name: "bia", text: "oi", at: 1 }],
 });
@@ -59,8 +59,8 @@ describe("OfficeState", () => {
     expect(state.agents.get(A3)?.ownerAway).toBe(true);
     state.apply({ type: "agentRemoved", agentId: A2 });
     expect(state.agents.has(A2)).toBe(false);
-    state.apply({ type: "deskUpdated", desk: { id: "mesa-1", ownerId: null, ownerName: null } });
-    state.apply({ type: "deskUpdated", desk: { id: "mesa-3", ownerId: 1, ownerName: "ana" } });
+    state.apply({ type: "deskUpdated", desk: { id: "mesa-1", ownerId: null, ownerName: null, closed: false } });
+    state.apply({ type: "deskUpdated", desk: { id: "mesa-3", ownerId: 1, ownerName: "ana", closed: false } });
     expect(state.me?.deskId).toBe("mesa-3");
     const version = state.version;
     state.apply({ type: "frame", agentId: A1, seq: 1, key: true, cols: 2, rows: 1, cursor: { x: 0, y: 0, visible: true }, lines: [[0, "oi"]] });

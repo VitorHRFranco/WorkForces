@@ -16,7 +16,7 @@ import type { AccountServices } from "../accounts/index.js";
 import type { AppContext } from "../context.js";
 import { SESSION_COOKIE, bearerToken, readCookie } from "../http/cookies.js";
 import { toMe } from "../http/routes.js";
-import type { BridgeLink, ClientLink, Hub } from "./hub.js";
+import type { BridgeLink, ClientLink, Hub, WatchResult } from "./hub.js";
 import type { ListenerLink, Listeners, SpawnRequester } from "./listeners.js";
 import { MessageRate } from "./rate.js";
 import type { Person, World } from "./world.js";
@@ -46,6 +46,8 @@ const CHATS_PER_SECOND = 5;
 const CONNECTIONS_PER_MINUTE = 20;
 /** "Chamar agente": um pedido a cada 5 s por pessoa (spec 6.7); o navegador espera um pouco mais que isso. */
 const SPAWN_WINDOW_MS = 5_000;
+/** Por que o `watch` foi recusado, do jeito que o navegador entende. */
+const WATCH_END_REASON = { gone: "agent-gone", denied: "left-zone", closed: "desk-closed" } as const satisfies Record<Exclude<WatchResult, "ok">, string>;
 
 interface BridgeConnection {
   ws: WebSocket;
@@ -123,6 +125,19 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       // Nunca derruba a conexão: a pessoa segue com a mesa que o servidor já conhecia (ou sem mesa).
       ctx.log(`não consegui gravar a mesa: ${(error as Error).message}`);
       return world.deskIdOf(person.id);
+    }
+  }
+
+  /** Mesa fechada (spec 9, regra 3): fecha em memória antes de tudo, encerra quem assiste e avisa todo mundo. */
+  function setDeskClosed(person: Person, closed: boolean): void {
+    const changed = world.setClosed(person, closed);
+    if (closed) hub.closeDesk(person.id);
+    for (const desk of changed) hub.broadcast({ type: "deskUpdated", desk });
+    try {
+      accounts.desks.setClosed(person.id, closed);
+    } catch (error) {
+      // A mesa continua como a pessoa pediu até o servidor reiniciar.
+      ctx.log(`não consegui gravar a mesa fechada: ${(error as Error).message}`);
     }
   }
 
@@ -274,9 +289,10 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         return;
       }
       if (!watchRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
+      if (message.type === "setDeskClosed") return setDeskClosed(user, message.closed);
       if (message.type === "unwatch") return hub.unwatch(link);
       const result = hub.watch(link, message.agentId);
-      if (result !== "ok") link.send({ type: "watchEnded", agentId: message.agentId, reason: result === "gone" ? "agent-gone" : "left-zone" });
+      if (result !== "ok") link.send({ type: "watchEnded", agentId: message.agentId, reason: WATCH_END_REASON[result] });
     });
 
     ws.on("close", () => {

@@ -42,17 +42,28 @@ describe("ClientToServer", () => {
   });
 });
 
+describe("mesa fechada", () => {
+  it("o navegador abre e fecha a própria mesa; a mesa diz se está fechada, e a visita pode acabar por isso", () => {
+    expect(ClientToServer.safeParse({ type: "setDeskClosed", closed: true }).success).toBe(true);
+    expect(ClientToServer.safeParse({ type: "setDeskClosed", closed: "sim" }).success).toBe(false);
+    expect(ClientToServer.safeParse({ type: "setDeskClosed" }).success).toBe(false);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-1", ownerId: 1, ownerName: "ana", closed: true } }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-1", ownerId: 1, ownerName: "ana" } }).success).toBe(false);
+    expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "desk-closed" }).success).toBe(true);
+  });
+});
+
 describe("ServerToClient", () => {
   it("aceita as mensagens do escritório", () => {
     const me = { id: 1, name: "ana", isAdmin: true };
-    const desk = { id: "mesa-1", ownerId: 1, ownerName: "ana" };
+    const desk = { id: "mesa-1", ownerId: 1, ownerName: "ana", closed: false };
     const player = { id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false };
     const entry = { id: 1, fromId: 1, name: "ana", text: "oi", at: 1_700_000_000_000 };
     expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: "mesa-1" }, agents: [agent], players: [player], desks: [desk], chat: [entry] }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: null }, agents: [], players: [], desks: [], chat: [] }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "chat", ...entry }).success).toBe(true);
-    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-2", ownerId: null, ownerName: null } }).success).toBe(true);
-    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "Mesa 2", ownerId: null, ownerName: null } }).success).toBe(false);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-2", ownerId: null, ownerName: null, closed: false } }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "Mesa 2", ownerId: null, ownerName: null, closed: false } }).success).toBe(false);
     expect(ServerToClient.safeParse({ type: "agentAdded", agent }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "agentRemoved", agentId }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "watchEnded", agentId, reason: "agent-gone" }).success).toBe(true);

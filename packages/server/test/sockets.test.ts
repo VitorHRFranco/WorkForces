@@ -135,7 +135,7 @@ describe("conexão do navegador", () => {
     const tab = clientSocket(server, ana.session);
     const welcome = await tab.waitFor((m) => m.type === "welcome", "welcome");
     expect(welcome.me).toMatchObject({ name: "ana", deskId: "mesa-1" });
-    expect((welcome.desks as Message[])[0]).toEqual({ id: "mesa-1", ownerId: ana.user.id, ownerName: "ana" });
+    expect((welcome.desks as Message[])[0]).toEqual({ id: "mesa-1", ownerId: ana.user.id, ownerName: "ana", closed: false });
     expect((welcome.desks as Message[])).toHaveLength(8);
     // A ponte de quem nunca abriu o escritório também recebe mesa (no hello).
     const bia = await person(server, "bia");
@@ -628,5 +628,46 @@ describe("chamar agente", () => {
     });
     expect(response.statusCode).toBe(204);
     expect(await anaListener.closed).toBe(4001);
+  });
+});
+
+describe("mesa fechada", () => {
+  it("fechar tira quem assiste, para os quadros, recusa novas visitas e avisa todo mundo; abrir libera", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const agentId = randomUUID();
+    const bridge = bridgeSocket(server, ana.token.token);
+    await bridge.opened();
+    bridge.send(hello(agentId));
+    const owner = clientSocket(server, ana.session);
+    await owner.waitFor((m) => m.type === "welcome", "welcome da ana");
+    const viewer = clientSocket(server, bia.session);
+    await viewer.waitFor(knowsAgent(agentId), "agente na lista");
+    watchFromDesk(server, viewer, ana.user.id, agentId);
+    await bridge.waitFor((m) => m.type === "viewers" && m.n === 1, "viewers 1");
+    const deskId = server.world.deskIdOf(ana.user.id);
+    const deskClosed = (closed: boolean) => (m: Message) => m.type === "deskUpdated" && (m.desk as Message).id === deskId && (m.desk as Message).closed === closed;
+
+    owner.send({ type: "setDeskClosed", closed: true });
+    await viewer.waitFor((m) => m.type === "watchEnded" && m.reason === "desk-closed", "visita encerrada");
+    await bridge.waitFor((m) => m.type === "viewers" && m.n === 0, "viewers 0");
+    await viewer.waitFor(deskClosed(true), "mesa fechada para quem visita");
+    await owner.waitFor(deskClosed(true), "mesa fechada para a dona");
+    expect(server.accounts.desks.closedOwners()).toEqual(new Set([ana.user.id]));
+
+    viewer.send({ type: "watch", agentId });
+    await viewer.waitFor(() => viewer.messages.filter((m) => m.type === "watchEnded" && m.reason === "desk-closed").length === 2, "nova visita recusada");
+    expect(bridge.messages.filter((m) => m.type === "viewers")).toHaveLength(2);
+
+    const caio = await person(server, "caio");
+    const third = clientSocket(server, caio.session);
+    const welcome = await third.waitFor((m) => m.type === "welcome", "welcome do caio");
+    expect((welcome.desks as Message[]).find((desk) => desk.id === deskId)).toMatchObject({ closed: true });
+
+    owner.send({ type: "setDeskClosed", closed: false });
+    await viewer.waitFor(deskClosed(false), "mesa aberta");
+    viewer.send({ type: "watch", agentId });
+    await bridge.waitFor(() => bridge.messages.filter((m) => m.type === "viewers" && m.n === 1).length === 2, "visita de novo");
   });
 });
