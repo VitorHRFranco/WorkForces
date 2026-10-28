@@ -1,12 +1,14 @@
 import { parseOfficeMap, type Me, type OfficeMap } from "@workforces/protocol";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ApiError, api, errorText } from "../api";
+import { bridge } from "../bridge";
 import { GameView } from "../game/game-view";
 import { MoveSender } from "../game/move-sender";
 import type { OfficeSceneDeps } from "../game/office-scene";
 import { useTyping } from "../game/typing";
 import { AgentMenu, type SpawnStatus } from "../office/agent-menu";
 import { OfficeConnection, SPAWN_COOLDOWN_MS } from "../office/connection";
+import { IpcSocket } from "../office/ipc-socket";
 import { ChatBox } from "../office/chat-box";
 import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
@@ -28,6 +30,7 @@ export function OfficePage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [officeUrl, setOfficeUrl] = useState("");
   const [modal, setModal] = useState<"tokens" | "invite" | null>(null);
   const state = useMemo(() => new OfficeState(), []);
   useOfficeVersion(state);
@@ -45,6 +48,13 @@ export function OfficePage() {
   const [spawnBusy, setSpawnBusy] = useState(false);
   /** O pedido de agente que espera resposta (a resposta traz o mesmo reqId). */
   const pendingSpawn = useRef<{ reqId: string; alias: string } | null>(null);
+
+  useEffect(() => {
+    bridge.offices.current().then(
+      (current) => current && setOfficeUrl(current.url),
+      () => {},
+    );
+  }, []);
 
   useEffect(() => {
     setLoadFailed(false);
@@ -105,11 +115,11 @@ export function OfficePage() {
       },
       onEnd: (reason) => {
         if (reason === "unauthorized") navigate("/login", { replace: true });
-        else if (reason === "outdated") end("O escritório foi atualizado. Recarregue a página.");
-        else if (reason === "origin") end("Este endereço não é o do escritório. Abra-o pelo endereço configurado em WF_PUBLIC_URL.");
-        else end("O escritório foi aberto em outra aba. Recarregue esta página para usá-lo aqui.");
+        else if (reason === "outdated") end("Este app e o escritório estão em versões diferentes. Atualize o WorkForces ou peça para atualizarem o servidor.");
+        else if (reason === "origin") end("O escritório recusou a conexão deste app. Volte aos escritórios e entre de novo.");
+        else end("Você abriu este escritório em outro lugar. Volte aos escritórios para entrar de novo aqui.");
       },
-    });
+    }, () => new IpcSocket(bridge.socket));
     connection.current = conn;
     conn.start();
     return () => {
@@ -206,7 +216,7 @@ export function OfficePage() {
       setNotice(errorText(failure));
       return;
     }
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true });
   };
 
   if (loadFailed) {
@@ -217,6 +227,9 @@ export function OfficePage() {
         </p>
         <button type="button" onClick={() => setAttempt((n) => n + 1)}>
           Tentar de novo
+        </button>
+        <button type="button" onClick={() => navigate("/")}>
+          Voltar aos escritórios
         </button>
       </div>
     );
@@ -253,6 +266,9 @@ export function OfficePage() {
           </button>
         )}
         <span class="spacer" />
+        <button type="button" onClick={() => navigate("/")}>
+          Escritórios
+        </button>
         <button type="button" onClick={() => setModal("tokens")}>
           Tokens da ponte
         </button>
@@ -295,7 +311,7 @@ export function OfficePage() {
         )}
         <ChatBox messages={state.chat} onSend={(text) => connection.current?.chat(text) ?? false} />
       </main>
-      {modal === "tokens" && <TokensModal onClose={closeModal} />}
+      {modal === "tokens" && <TokensModal onClose={closeModal} officeUrl={officeUrl} />}
       {modal === "invite" && <InviteModal onClose={closeModal} />}
     </div>
   );

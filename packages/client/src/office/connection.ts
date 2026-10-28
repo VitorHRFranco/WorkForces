@@ -1,6 +1,18 @@
 import { CLOSE_CODES, PROTOCOL_VERSION, ServerToClient, parseJson, type ClientToServer, type Direction } from "@workforces/protocol";
 import { SendBudget, type SendKind } from "./send-budget";
 
+/** O que a conexão precisa de um socket; o app entrega um `IpcSocket`. */
+export interface SocketLike {
+  readonly readyState: number;
+  send(data: string): void;
+  close(code?: number): void;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: string }) => void) | null;
+  onclose: ((event: { code: number }) => void) | null;
+}
+
+export const SOCKET_OPEN = 1;
+
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting";
 
 /** Um pedido de agente a cada 5 s no servidor (spec 6.7); o navegador espera um pouco mais para nunca passar do limite. */
@@ -15,7 +27,7 @@ export interface OfficeConnectionHandlers {
 }
 
 export class OfficeConnection {
-  private socket: WebSocket | null = null;
+  private socket: SocketLike | null = null;
   private attempt = 0;
   private timer: number | undefined;
   private stableTimer: number | undefined;
@@ -26,7 +38,10 @@ export class OfficeConnection {
   private spawnCount = 0;
   private readonly budget = new SendBudget();
 
-  constructor(private readonly handlers: OfficeConnectionHandlers) {}
+  constructor(
+    private readonly handlers: OfficeConnectionHandlers,
+    private readonly openSocket: () => SocketLike,
+  ) {}
 
   start(): void {
     this.connect();
@@ -43,7 +58,7 @@ export class OfficeConnection {
   /** Pede a tela do agente. Se o limite por segundo descartar o pedido, tenta de novo assim que abrir vaga. */
   watch(agentId: string): void {
     window.clearTimeout(this.pendingWatch);
-    if (this.send({ type: "watch", agentId }) || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.send({ type: "watch", agentId }) || this.socket?.readyState !== SOCKET_OPEN) return;
     // Sem isto, o painel ficaria em branco até sair e voltar à mesa. Com a conexão caída, o welcome refaz o watch.
     const wait = Math.max(0, this.budget.nextAllowedAt("watch", Date.now()) - Date.now());
     this.pendingWatch = window.setTimeout(() => this.watch(agentId), wait);
@@ -79,7 +94,7 @@ export class OfficeConnection {
   }
 
   private send(message: ClientToServer): boolean {
-    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    if (this.socket?.readyState !== SOCKET_OPEN) return false;
     // Um watch descartado aqui é refeito pelo próprio watch(), quando abre vaga.
     // spawnAgent tem a própria espera (SPAWN_COOLDOWN_MS) e não gasta vaga de watch.
     const kind: SendKind | null = message.type === "move" ? "move" : message.type === "chat" ? "chat" : message.type === "spawnAgent" ? null : "watch";
@@ -89,8 +104,7 @@ export class OfficeConnection {
   }
 
   private connect(): void {
-    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${scheme}//${location.host}/ws/client`);
+    const socket = this.openSocket();
     this.socket = socket;
     this.handlers.onStatus(this.attempt === 0 ? "connecting" : "reconnecting");
     socket.onopen = () => {

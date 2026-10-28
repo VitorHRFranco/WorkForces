@@ -1,3 +1,4 @@
+import type { AppRoute } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
 
 export function navigate(path: string, options: { replace?: boolean } = {}): void {
@@ -16,4 +17,18 @@ export function usePath(): string {
     return () => removeEventListener("popstate", update);
   }, []);
   return path;
+}
+
+/** O caminho de cada rota do app. */
+export function routePath(route: AppRoute): string {
+  switch (route.page) {
+    case "login":
+      return "/login";
+    case "invite":
+      return `/invite/${encodeURIComponent(route.code)}`;
+    case "office":
+      return "/office";
+    default:
+      return "/";
+  }
 }

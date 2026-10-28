@@ -5,7 +5,7 @@ import { formatDate } from "../format";
 import { CopyField } from "./copy-field";
 import { Modal } from "./modal";
 
-export function TokensModal({ onClose }: { onClose: () => void }) {
+export function TokensModal({ onClose, officeUrl }: { onClose: () => void; officeUrl: string }) {
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
   const [name, setName] = useState("");
   const [created, setCreated] = useState<TokenCreated | null>(null);
@@ -58,7 +58,7 @@ export function TokensModal({ onClose }: { onClose: () => void }) {
           </p>
           <CopyField key={created.token} value={created.token} />
           <p>
-            Na sua máquina, rode <code>workforces login {location.origin}</code> e cole o token quando ele pedir.
+            Na sua máquina, rode <code>workforces login {officeUrl}</code> e cole o token quando ele pedir.
           </p>
         </div>
       )}

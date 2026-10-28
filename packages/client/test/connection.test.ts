@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OfficeConnection, SPAWN_COOLDOWN_MS } from "../src/office/connection";
+import { OfficeConnection, SPAWN_COOLDOWN_MS, type SocketLike } from "../src/office/connection";
 import { SEND_LIMITS } from "../src/office/send-budget";
 
 /** WebSocket de mentira, já aberto: guarda o que a conexão manda. */
-class FakeSocket {
-  static readonly OPEN = 1;
+class FakeSocket implements SocketLike {
   static last: FakeSocket | null = null;
   readonly readyState = 1;
   readonly sent: { type: string; agentId?: string }[] = [];
@@ -33,9 +32,7 @@ function exhaust(connection: OfficeConnection): void {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal("WebSocket", FakeSocket);
   vi.stubGlobal("window", globalThis);
-  vi.stubGlobal("location", { protocol: "http:", host: "localhost" });
 });
 
 afterEach(() => {
@@ -45,7 +42,7 @@ afterEach(() => {
 
 describe("OfficeConnection: watch descartado pelo limite", () => {
   it("é refeito sozinho quando abre vaga", () => {
-    const connection = new OfficeConnection(handlers);
+    const connection = new OfficeConnection(handlers, () => new FakeSocket());
     connection.start();
     exhaust(connection);
     connection.watch("agente-1");
@@ -56,7 +53,7 @@ describe("OfficeConnection: watch descartado pelo limite", () => {
   });
 
   it("um watch mais novo substitui o pendente", () => {
-    const connection = new OfficeConnection(handlers);
+    const connection = new OfficeConnection(handlers, () => new FakeSocket());
     connection.start();
     exhaust(connection);
     connection.watch("agente-1");
@@ -67,7 +64,7 @@ describe("OfficeConnection: watch descartado pelo limite", () => {
   });
 
   it("unwatch e stop cancelam o pendente", () => {
-    const connection = new OfficeConnection(handlers);
+    const connection = new OfficeConnection(handlers, () => new FakeSocket());
     connection.start();
     exhaust(connection);
     connection.watch("agente-1");
@@ -84,7 +81,7 @@ describe("OfficeConnection: watch descartado pelo limite", () => {
 
 describe("OfficeConnection: chamar agente", () => {
   it("manda o pedido com um reqId novo e segura o próximo até passar a espera", () => {
-    const connection = new OfficeConnection(handlers);
+    const connection = new OfficeConnection(handlers, () => new FakeSocket());
     connection.start();
     const first = connection.spawnAgent("loja");
     expect(first.ok).toBe(true);
@@ -100,7 +97,7 @@ describe("OfficeConnection: chamar agente", () => {
   });
 
   it("o pedido de agente não gasta as vagas de watch", () => {
-    const connection = new OfficeConnection(handlers);
+    const connection = new OfficeConnection(handlers, () => new FakeSocket());
     connection.start();
     exhaust(connection);
     expect(connection.spawnAgent("loja").ok).toBe(true);

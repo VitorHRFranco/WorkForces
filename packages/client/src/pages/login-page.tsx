@@ -1,5 +1,7 @@
-import { useState } from "preact/hooks";
+import type { CurrentOffice } from "@workforces/protocol";
+import { useEffect, useState } from "preact/hooks";
 import { api, errorText } from "../api";
+import { bridge } from "../bridge";
 import { navigate } from "../router";
 
 export function LoginPage() {
@@ -7,6 +9,14 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [office, setOffice] = useState<CurrentOffice | null>(null);
+
+  useEffect(() => {
+    bridge.offices.current().then(
+      (current) => (current ? setOffice(current) : navigate("/", { replace: true })),
+      () => navigate("/", { replace: true }),
+    );
+  }, []);
 
   const submit = async (event: Event) => {
     event.preventDefault();
@@ -14,7 +24,7 @@ export function LoginPage() {
     setError(null);
     try {
       await api.login(name, password);
-      navigate("/", { replace: true });
+      navigate("/office", { replace: true });
     } catch (failure) {
       setError(errorText(failure));
     } finally {
@@ -22,9 +32,16 @@ export function LoginPage() {
     }
   };
 
+  if (!office) return <p class="loading" role="status">Carregando…</p>;
+
   return (
     <main class="card">
-      <h1>WorkForces</h1>
+      <h1>Entrar em {office.host}</h1>
+      {office.sessionExpired && (
+        <p class="notice" role="status">
+          Sua sessão expirou. Entre de novo.
+        </p>
+      )}
       <form onSubmit={submit}>
         <label>
           Nome
@@ -39,6 +56,9 @@ export function LoginPage() {
           Entrar
         </button>
       </form>
+      <button type="button" onClick={() => navigate("/")}>
+        Voltar aos escritórios
+      </button>
     </main>
   );
 }

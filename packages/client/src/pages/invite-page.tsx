@@ -1,6 +1,7 @@
 import { MIN_PASSWORD_LENGTH } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { ApiError, api, errorText } from "../api";
+import { bridge } from "../bridge";
 import { navigate } from "../router";
 
 export function InvitePage({ code }: { code: string }) {
@@ -11,8 +12,19 @@ export function InvitePage({ code }: { code: string }) {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [host, setHost] = useState("o escritório");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    bridge.offices.current().then(
+      (current) => current && setHost(current.host),
+      () => {},
+    );
+  }, []);
+
+  useEffect(() => {
+    setValid(null);
+    setUnreachable(false);
     api.inviteStatus(code).then(
       (status) => setValid(status.valid),
       (failure: unknown) => {
@@ -20,7 +32,7 @@ export function InvitePage({ code }: { code: string }) {
         else setUnreachable(true);
       },
     );
-  }, [code]);
+  }, [code, attempt]);
 
   const submit = async (event: Event) => {
     event.preventDefault();
@@ -30,7 +42,7 @@ export function InvitePage({ code }: { code: string }) {
     setError(null);
     try {
       await api.acceptInvite(code, name, password);
-      navigate("/", { replace: true });
+      navigate("/office", { replace: true });
     } catch (failure) {
       setError(errorText(failure));
     } finally {
@@ -38,17 +50,18 @@ export function InvitePage({ code }: { code: string }) {
     }
   };
 
-  const toLogin = (event: Event) => {
-    event.preventDefault();
-    navigate("/login");
-  };
-
   if (unreachable) {
     return (
       <main class="card">
         <p class="error" role="alert">
-          Não consegui conferir o convite. Tente de novo em instantes.
+          Não consegui falar com {host}. Confira a internet ou a VPN e tente de novo.
         </p>
+        <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          Tentar de novo
+        </button>
+        <button type="button" onClick={() => navigate("/")}>
+          Voltar aos escritórios
+        </button>
       </main>
     );
   }
@@ -64,15 +77,18 @@ export function InvitePage({ code }: { code: string }) {
       <main class="card">
         <h1>WorkForces</h1>
         <p class="error" role="alert">Este convite é inválido ou já foi usado. Peça um novo a quem administra o escritório.</p>
-        <a href="/login" onClick={toLogin}>
-          Ir para o login
-        </a>
+        <button type="button" onClick={() => navigate("/login")}>
+          Entrar com uma conta que já tenho
+        </button>
+        <button type="button" onClick={() => navigate("/")}>
+          Voltar aos escritórios
+        </button>
       </main>
     );
   }
   return (
     <main class="card">
-      <h1>Criar sua conta</h1>
+      <h1>Criar sua conta em {host}</h1>
       <form onSubmit={submit}>
         <label>
           Nome (2 a 32 letras, números, ponto, _ ou -)

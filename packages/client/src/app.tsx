@@ -1,4 +1,5 @@
 import { InvitePage } from "./pages/invite-page";
+import { LauncherPage } from "./pages/launcher-page";
 import { LoginPage } from "./pages/login-page";
 import { OfficePage } from "./pages/office-page";
 import { usePath } from "./router";
@@ -16,5 +17,6 @@ export function App() {
   if (path === "/login") return <LoginPage />;
   const invite = /^\/invite\/([^/]+)$/.exec(path);
   if (invite) return <InvitePage code={decodeCode(invite[1]!)} />;
-  return <OfficePage />;
+  if (path === "/office") return <OfficePage />;
+  return <LauncherPage />;
 }
