@@ -35,6 +35,12 @@ def main():
         default=float(os.environ.get("WF_GIF_SCALE") or "1.0"),
         help="escala dos quadros (1 = tamanho da janela gravada); o padrão vem da variável WF_GIF_SCALE, se existir",
     )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=float(os.environ.get("WF_GIF_SPEED") or "1.0"),
+        help="velocidade da reprodução (1 = tempo real; a pausa do último quadro não muda); o padrão vem da variável WF_GIF_SPEED, se existir",
+    )
     args = parser.parse_args()
 
     with open(os.path.join(args.frames, "timing.json"), encoding="utf-8") as file:
@@ -47,8 +53,9 @@ def main():
         frames.append(frame)
     palette = build_palette(frames)
     indexed = [frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in frames]
-    # O GIF guarda a duração em centésimos de segundo.
-    durations = [max(20, round(entry["ms"] / 10) * 10) for entry in timing]
+    # O GIF guarda a duração em centésimos de segundo; a pausa do último quadro fica com o tamanho gravado.
+    last = len(timing) - 1
+    durations = [max(20, round(entry["ms"] / (1 if i == last else args.speed) / 10) * 10) for i, entry in enumerate(timing)]
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     indexed[0].save(args.output, save_all=True, append_images=indexed[1:], duration=durations, loop=0, optimize=True, disposal=1)
     print(f"{args.output}: {len(indexed)} quadros, {os.path.getsize(args.output) // 1024} KB")

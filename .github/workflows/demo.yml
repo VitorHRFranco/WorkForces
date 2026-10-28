@@ -8,6 +8,9 @@ on:
       scale:
         description: "escala do GIF (1 = tamanho da janela gravada)"
         default: "1"
+      speed:
+        description: "velocidade da reprodução (1 = tempo real)"
+        default: "1.5"
 
 permissions:
   contents: read
@@ -32,6 +35,7 @@ jobs:
       - run: pnpm demo
         env:
           WF_GIF_SCALE: ${{ inputs.scale }}
+          WF_GIF_SPEED: ${{ inputs.speed }}
       - uses: actions/upload-artifact@v7
         with:
           name: demo-gif

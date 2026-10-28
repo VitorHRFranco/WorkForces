@@ -31,18 +31,19 @@ test("grava a demonstração do README", async ({ browser }) => {
   await office.startAgent(bia, DEMO_AGENT, { project: "loja", cols: 64, rows: 20 });
   await anaPage.waitForTimeout(2_500); // o robô da bia aparece e começa a trabalhar
 
+  // Esperas curtas: o GIF também toca acelerado (WF_GIF_SPEED no workflow).
   const recorder = await record(anaPage);
-  await anaPage.waitForTimeout(800);
+  await anaPage.waitForTimeout(300);
   await walkTo(anaPage, deskSpot(office.map, "mesa-2"));
   await expect(anaPage.getByRole("region", { name: "Terminal da mesa" })).toBeVisible();
-  await anaPage.waitForTimeout(4_500);
+  await anaPage.waitForTimeout(3_500);
   // Enter abre o chat (o painel cobre parte da caixa: clicar nela não daria).
   await anaPage.keyboard.press("Enter");
-  await anaPage.keyboard.type("que legal, bia!", { delay: 45 });
+  await anaPage.keyboard.type("que legal, bia!", { delay: 30 });
   await anaPage.keyboard.press("Enter");
-  await anaPage.waitForTimeout(600);
+  await anaPage.waitForTimeout(400);
   biaOnline.chat("valeu! já já sobe o frete");
-  await anaPage.waitForTimeout(1_800);
+  await anaPage.waitForTimeout(1_200);
   const count = await recorder.stop();
   expect(count).toBeGreaterThan(0);
   console.log(`${count} quadros em ${FRAMES}`);
