@@ -38,10 +38,11 @@ test("o convite abre o app na criação da conta, entra no escritório e continu
   // Fechar a janela só a esconde: o app continua rodando na bandeja.
   await first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
   await expect.poll(() => first.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.isVisible()))).toEqual([false]);
-  expect(first.app.process().exitCode).toBeNull();
+  const child = first.app.process();
+  expect(child.exitCode).toBeNull();
   // Com a janela escondida, sair pelo app (app.quit) ainda encerra o processo, sem precisar matá-lo.
   await office.closeApp(first.app);
-  expect(first.app.process().signalCode).toBeNull();
+  expect(child.signalCode).toBeNull();
 
   const again = await office.launchApp({ dataDir: first.dataDir });
   await again.page.waitForFunction(() => "__workforces" in window);
