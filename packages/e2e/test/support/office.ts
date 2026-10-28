@@ -6,7 +6,7 @@ import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
-import { _electron, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron, errors, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { parseOfficeMap, type AppBridge, type OfficeMap, type Point } from "@workforces/protocol";
 import WebSocket from "ws";
 
@@ -23,6 +23,8 @@ export const PASSWORD = "senha-de-teste-e2e";
 export const FAKE_TOKEN = "ghp_" + "E2Etokendebrinquedo".padEnd(36, "0");
 /** Quanto uma caminhada pode levar até o avatar chegar (ou desistir com a posição na mensagem). */
 const WALK_TIMEOUT_MS = 20_000;
+/** De quanto em quanto a seta segurada se repete (mais devagar que um teclado de verdade: basta repor o aperto perdido). */
+const KEY_REPEAT_MS = 250;
 const TOLERANCE = 6;
 /** Janela pequena: o jogo é desenhado por software sem GPU, e cada janela pesa na CPU. */
 const APP_SIZE = { width: 960, height: 640 };
@@ -340,6 +342,9 @@ export function deskSpot(map: OfficeMap, deskId: string): Point {
 /**
  * Anda com as setas até o alvo, um eixo de cada vez: segura a seta e solta quando o avatar passa do alvo, conferindo a
  * cada quadro da página (sem GPU o jogo desenha poucos quadros por segundo, e toques curtos passariam do ponto).
+ *
+ * A seta segurada se repete, como num teclado de verdade: o jogo descarta a tecla que chega antes de ele ter as setas de
+ * volta (o Esc do chat só as devolve depois do quadro seguinte), e o primeiro aperto sozinho se perderia.
  */
 export async function walkTo(page: Page, target: Point, order: readonly ("x" | "y")[] = ["x", "y"]): Promise<void> {
   for (const axis of order) {
@@ -348,16 +353,25 @@ export async function walkTo(page: Page, target: Point, order: readonly ("x" | "
     if (Math.abs(delta) <= TOLERANCE) continue;
     const forward = delta > 0;
     const key = axis === "x" ? (forward ? "ArrowRight" : "ArrowLeft") : forward ? "ArrowDown" : "ArrowUp";
+    const deadline = Date.now() + WALK_TIMEOUT_MS;
     await page.keyboard.down(key);
     try {
-      await page.waitForFunction(
-        ({ axis, goal, forward }) => {
-          const at = (window as unknown as { __workforces: { position(): Point } }).__workforces.position()[axis];
-          return forward ? at >= goal : at <= goal;
-        },
-        { axis, goal: target[axis], forward },
-        { polling: "raf", timeout: WALK_TIMEOUT_MS },
-      );
+      for (;;) {
+        try {
+          await page.waitForFunction(
+            ({ axis, goal, forward }) => {
+              const at = (window as unknown as { __workforces: { position(): Point } }).__workforces.position()[axis];
+              return forward ? at >= goal : at <= goal;
+            },
+            { axis, goal: target[axis], forward },
+            { polling: "raf", timeout: Math.max(1, Math.min(KEY_REPEAT_MS, deadline - Date.now())) },
+          );
+          break;
+        } catch (error) {
+          if (!(error instanceof errors.TimeoutError) || Date.now() >= deadline) throw error;
+          await page.keyboard.down(key); // a repetição (KeyboardEvent.repeat)
+        }
+      }
     } catch (error) {
       throw new Error(`o avatar não chegou a ${axis}=${target[axis]}: parou em ${JSON.stringify(await position(page))}`, {
         cause: error,
