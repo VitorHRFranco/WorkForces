@@ -240,9 +240,15 @@ importers:
       '@playwright/test':
         specifier: 1.64.0
         version: 1.64.0
+      '@types/ws':
+        specifier: 8.18.2
+        version: 8.18.2
       '@workforces/protocol':
         specifier: workspace:*
         version: link:../protocol
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
 
   packages/protocol:
     dependencies:

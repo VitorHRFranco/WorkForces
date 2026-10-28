@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { parseOfficeMap, type OfficeMap, type Point } from "@workforces/protocol";
+import WebSocket from "ws";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 const SERVER_CLI = join(ROOT, "packages", "server", "dist", "cli.js");
@@ -23,6 +24,20 @@ export interface Account {
   name: string;
   /** Cookie de sessão, para chamar a API como a pessoa. */
   cookie: string;
+}
+
+export interface AgentOptions {
+  /** Nome da pasta do projeto, que vira o rótulo do robô (padrão: projeto-<nome da pessoa>). */
+  project?: string;
+  /** Tamanho do terminal do agente (padrão: 100 × 30). */
+  cols?: number;
+  rows?: number;
+}
+
+/** Uma pessoa no escritório sem navegador: aparece online, anda e conversa, sem desenhar o jogo. */
+export interface Presence {
+  move(to: Point): void;
+  chat(text: string): void;
 }
 
 /** Sobe o servidor do build numa pasta e porta temporárias; o convite de admin sai do log da primeira execução. */
@@ -81,6 +96,7 @@ export async function startOffice(): Promise<Office> {
 export class Office {
   private readonly agents: IPty[] = [];
   private readonly contexts: BrowserContext[] = [];
+  private readonly sockets: WebSocket[] = [];
   private admin: Account | null = null;
   private readonly received = new Map<Page, string[]>();
 
@@ -125,27 +141,44 @@ export class Office {
   }
 
   /** `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. */
-  async startAgent(account: Account, agentScript: string = FAKE_AGENT): Promise<void> {
+  async startAgent(account: Account, agentScript: string = FAKE_AGENT, options: AgentOptions = {}): Promise<void> {
     const created = await this.post("/api/tokens", { name: "e2e" }, account);
     expect(created.status).toBe(201);
     const { token } = (await created.json()) as { token: string };
     const home = join(this.dir, `ponte-${account.name}`);
-    const project = join(this.dir, `projeto-${account.name}`);
+    const project = join(this.dir, options.project ?? `projeto-${account.name}`);
     mkdirSync(home, { recursive: true });
     mkdirSync(project, { recursive: true });
     writeFileSync(join(home, "config.json"), JSON.stringify({ server: this.url, token }));
     const agent = spawnPty(process.execPath, [BRIDGE_CLI, "claude"], {
       name: "xterm-256color",
-      cols: 100,
-      rows: 30,
+      cols: options.cols ?? 100,
+      rows: options.rows ?? 30,
       cwd: project,
       env: { ...process.env, WORKFORCES_HOME: home, WORKFORCES_CLAUDE_BIN: this.launcher(account.name, agentScript) },
     });
     this.agents.push(agent);
   }
 
+  /** Entra no escritório só com a conexão do navegador, sem abrir um (um navegador a menos desenhando o jogo). */
+  async connect(account: Account): Promise<Presence> {
+    const socket = new WebSocket(`ws://127.0.0.1:${this.port}/ws/client`, { headers: { origin: this.url, cookie: account.cookie } });
+    this.sockets.push(socket);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("message", () => resolve()); // o welcome
+      socket.once("error", reject);
+      socket.once("close", (code) => reject(new Error(`o escritório fechou a conexão de ${account.name} (${code})`)));
+    });
+    const send = (message: object) => socket.send(JSON.stringify(message));
+    return {
+      move: (to) => send({ type: "move", x: to.x, y: to.y, dir: "up", moving: false }),
+      chat: (text) => send({ type: "chat", text }),
+    };
+  }
+
   async stop(): Promise<void> {
-    // Primeiro as páginas: abertas, elas ficam reconectando enquanto o servidor para.
+    // Primeiro as páginas e as conexões: abertas, elas ficam reconectando enquanto o servidor para.
+    for (const socket of this.sockets.splice(0)) socket.terminate();
     await Promise.all(this.contexts.splice(0).map((context) => context.close().catch(() => {})));
     // No Windows a pasta temporária só sai depois que a ponte (com o cwd lá dentro) termina.
     await Promise.all(this.agents.splice(0).map((agent) => new Promise<void>((resolve) => {
@@ -192,6 +225,14 @@ export class Office {
     chmodSync(file, 0o755);
     return file;
   }
+}
+
+/** O assento da mesa (o primeiro dentro da zona dela): quem para ali aparece sentado para os outros. */
+export function deskSeat(map: OfficeMap, deskId: string): Point {
+  const zone = map.desks.find((candidate) => candidate.id === deskId)?.zone;
+  const seat = zone && map.seats.find((s) => s.x >= zone.x && s.x <= zone.x + zone.width && s.y >= zone.y && s.y <= zone.y + zone.height);
+  if (!seat) throw new Error(`a mesa ${deskId} não tem assento no mapa`);
+  return { x: seat.x, y: seat.y };
 }
 
 /**
