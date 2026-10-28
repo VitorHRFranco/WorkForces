@@ -10,7 +10,7 @@ const DEMO_AGENT = fileURLToPath(new URL("./demo-agent.mjs", import.meta.url));
 /** Todo quadro que o navegador desenha: sem GPU ele já desenha poucos por segundo. */
 const EVERY_NTH_FRAME = 1;
 /** O último quadro fica parado um pouco: o GIF pausa no fim antes de recomeçar. */
-const LAST_FRAME_MS = 2_000;
+const LAST_FRAME_MS = 3_000;
 
 let office: Office;
 test.beforeAll(async () => {

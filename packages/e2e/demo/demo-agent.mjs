@@ -22,7 +22,8 @@ const SESSION = [
   paint("1;32", "✓ pronto: carrinho com total e frete"),
 ];
 const LINE_MS = 700;
-const PAUSE_MS = 3000;
+// A tela pronta fica um bom tempo antes de recomeçar: a gravação termina com a sessão inteira, não com a tela limpa.
+const PAUSE_MS = 15000;
 
 let next = 0;
 function tick() {
