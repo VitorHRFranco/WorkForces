@@ -51,7 +51,7 @@ O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.
 - pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta (a posição do assento é arredondada para pixels inteiros);
 - pontos do tipo `prop`, com a propriedade `sprite`, desenham um móvel ou uma decoração com a base nesse ponto. Os nomes disponíveis estão em `packages/client/src/game/props.json`; os móveis bloqueiam a passagem pela base.
 
-Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console do navegador. Para usar outro mapa, aponte `WF_MAP` para ele.
+Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console das DevTools do app (F12, em desenvolvimento). Para usar outro mapa, aponte `WF_MAP` para ele.
 
 **Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. As imagens são geradas por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), que baixa as peças do LPC Revised de um commit fixado:
 
@@ -66,10 +66,10 @@ Configuração por variáveis de ambiente:
 |---|---|---|
 | `WF_PORT` | `4600` | porta do servidor |
 | `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede; defina também `WF_PUBLIC_URL` com o endereço que as pessoas abrem) |
-| `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço que o navegador usa (links de convite e origem aceita) |
+| `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço público do escritório: vai nos links de convite e é a única origem aceita |
 | `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
 | `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled, tiles de 32 px); a imagem do tileset fica na mesma pasta |
-| `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost |
+| `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost; o app só aceita HTTP em localhost, então quem está em outro computador não entra num servidor sem HTTPS |
 | `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
 
 Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`.
@@ -129,7 +129,7 @@ docker compose logs workforces   # o primeiro convite de admin aparece aqui
 }
 ```
 
-Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a nas máquinas de quem usa o escritório; na ponte, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo.
+Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a no Windows de quem usa o escritório, em "Autoridades de Certificação Raiz Confiáveis": o app confia nos certificados instalados no Windows, além dos que vêm com ele. Na ponte, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo. Quando o convite levar o pino do certificado (num plano futuro do app), o app deixa de precisar desse passo.
 
 Para testar só a imagem, sem o Caddy:
 
@@ -142,4 +142,4 @@ O log avisa que está sem HTTPS (dentro do container o servidor escuta na rede);
 
 ### O app em desenvolvimento
 
-`pnpm app` abre o app a partir do build (`packages/app/dist` e `packages/client/dist`). Depois de mudar o cliente, rode `pnpm --filter @workforces/client build` (ou deixe `pnpm --filter @workforces/client dev` rodando) e aperte F5 na janela do app. Ao abrir, o app registra o link `workforces://` neste Windows para esta cópia; é assim que o link de convite do navegador chega a ele.
+`pnpm app` abre o app a partir do build (`packages/app/dist` e `packages/client/dist`). Depois de mudar o cliente, rode `pnpm --filter @workforces/client build` (ou deixe `pnpm --filter @workforces/client dev` rodando) e aperte F5 na janela do app; F12 abre as DevTools. Ao abrir, o app registra o link `workforces://` neste Windows para esta cópia; é assim que o link de convite do navegador chega a ele.
