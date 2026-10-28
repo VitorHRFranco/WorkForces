@@ -1,0 +1,225 @@
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  protocol,
+  safeStorage,
+  session,
+  shell,
+  Tray,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from "electron";
+import type { AppRoute } from "@workforces/protocol";
+import { findInviteArg } from "./links.js";
+import { checkReachable } from "./net/forward.js";
+import { SocketRelay } from "./net/office-socket.js";
+import { OfficeStore, type SecretBox } from "./offices/store.js";
+import { createPageHandler, PAGE_HOST } from "./page/handler.js";
+import { AppState } from "./state.js";
+
+const PAGE_PREFIX = `app://${PAGE_HOST}/`;
+const MAX_TEXT = 2048;
+const MAX_SOCKET_TEXT = 64 * 1024;
+
+// A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
+if (process.env.WF_APP_DATA_DIR) app.setPath("userData", resolve(process.env.WF_APP_DATA_DIR));
+
+protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+
+if (!app.requestSingleInstanceLock()) app.quit();
+else void start();
+
+const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
+const isSocketId = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+
+/** Só a página empacotada fala com o processo principal. */
+const fromPage = (event: IpcMainEvent | IpcMainInvokeEvent): boolean => event.senderFrame?.url.startsWith(PAGE_PREFIX) === true;
+
+async function start(): Promise<void> {
+  let initialLink = findInviteArg(process.argv);
+  let quitting = false;
+  let window: BrowserWindow | null = null;
+  let tray: Tray | null = null; // fica numa variável: sem referência o coletor de lixo remove o ícone
+  let state: AppState | null = null;
+  let relay: SocketRelay | null = null;
+
+  if (!process.env.WF_APP_NO_PROTOCOL) {
+    if (process.defaultApp) app.setAsDefaultProtocolClient("workforces", process.execPath, [resolve(process.argv[1]!)]);
+    else app.setAsDefaultProtocolClient("workforces");
+  }
+
+  const showWindow = (): void => {
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  };
+
+  app.on("second-instance", (_event, argv) => {
+    showWindow();
+    const link = findInviteArg(argv);
+    if (link === null || !state || !relay) return;
+    const route: AppRoute = state.openLink(link);
+    relay.closeAll();
+    window?.webContents.send("app:route", route);
+  });
+
+  app.on("before-quit", () => {
+    quitting = true;
+    relay?.closeAll();
+  });
+
+  app.on("web-contents-created", (_e, contents) => {
+    contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+      return { action: "deny" };
+    });
+    contents.on("will-navigate", (event, url) => {
+      if (url.startsWith(PAGE_PREFIX)) return;
+      event.preventDefault();
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+    });
+  });
+
+  await app.whenReady();
+  Menu.setApplicationMenu(null);
+
+  // Só o botão "Copiar" do convite precisa de permissão; o resto é negado.
+  const allowed = (permission: string): boolean => permission === "clipboard-sanitized-write";
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => callback(allowed(permission)));
+  session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission));
+
+  // Sem chaveiro no Linux o Chromium cai no texto puro; no Windows vale o DPAPI.
+  if (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text") safeStorage.setUsePlainTextEncryption(true);
+  const box: SecretBox = {
+    available: () => safeStorage.isEncryptionAvailable(),
+    seal: (plain) => safeStorage.encryptString(plain).toString("base64"),
+    open: (sealed) => safeStorage.decryptString(Buffer.from(sealed, "base64")),
+  };
+
+  const appState = new AppState(OfficeStore.load(join(app.getPath("userData"), "offices.json"), box, console.warn));
+  state = appState;
+
+  const clientDir = fileURLToPath(new URL("../../client/dist", import.meta.url));
+  const preload = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+
+  const socketRelay = new SocketRelay(
+    (id, event) => window?.webContents.send("socket:event", id, event),
+    () => appState.unauthorized(),
+  );
+  relay = socketRelay;
+
+  protocol.handle(
+    "app",
+    createPageHandler({
+      clientDir,
+      target: () => appState.target(),
+      onAuth: (change) => appState.applyAuth(change),
+      onUnauthorized: () => appState.unauthorized(),
+    }),
+  );
+
+  // IPC: cada handler confere o remetente e os argumentos antes de tocar no estado.
+  const handle = (channel: string, fn: (...args: unknown[]) => unknown): void => {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!fromPage(event)) throw new Error("remetente não autorizado");
+      return fn(...args);
+    });
+  };
+  const on = (channel: string, fn: (...args: unknown[]) => void): void => {
+    ipcMain.on(channel, (event, ...args) => {
+      if (fromPage(event)) fn(...args);
+    });
+  };
+  const text = (value: unknown): string => {
+    if (!isText(value, MAX_TEXT)) throw new Error("argumento inválido");
+    return value;
+  };
+  // Mudar o escritório aberto derruba o socket do anterior.
+  const switching = (route: () => AppRoute): AppRoute => {
+    socketRelay.closeAll();
+    return route();
+  };
+
+  handle("app:startup", () => {
+    const link = initialLink;
+    initialLink = null;
+    return appState.startup(link);
+  });
+  handle("offices:list", () => appState.list());
+  handle("offices:current", () => appState.current());
+  handle("offices:reachable", async (id) => {
+    const wanted = text(id);
+    const entry = appState.list().find((office) => office.id === wanted);
+    return entry ? checkReachable(entry.url) : false;
+  });
+  handle("offices:open", (id) => switching(() => appState.open(text(id))));
+  handle("offices:add", (address) => switching(() => appState.add(text(address))));
+  handle("offices:forget", (id) => {
+    const wanted = text(id);
+    socketRelay.closeAll();
+    appState.forget(wanted);
+  });
+  handle("invites:open", (link) => switching(() => appState.openLink(text(link))));
+
+  on("socket:open", (id) => {
+    if (isSocketId(id)) socketRelay.open(id, appState.target());
+  });
+  on("socket:send", (id, payload) => {
+    if (isSocketId(id) && isText(payload, MAX_SOCKET_TEXT)) socketRelay.send(id, payload);
+  });
+  on("socket:close", (id, code) => {
+    if (isSocketId(id) && typeof code === "number" && Number.isInteger(code)) socketRelay.close(id, code);
+  });
+
+  const icon = nativeImage.createFromPath(join(clientDir, "sprites", "robot.png")).crop({ x: 0, y: 0, width: 24, height: 28 });
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    title: "WorkForces",
+    icon,
+    autoHideMenuBar: true,
+    webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  window = win;
+  void win.loadURL(PAGE_PREFIX);
+  win.once("ready-to-show", () => win.show());
+  win.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    win.hide();
+  });
+  if (!app.isPackaged) {
+    win.webContents.on("before-input-event", (event, input) => {
+      if (input.type === "keyDown" && input.key === "F5") {
+        event.preventDefault();
+        win.webContents.reload();
+      }
+    });
+  }
+
+  tray = new Tray(icon.resize({ height: 16 }));
+  tray.setToolTip("WorkForces");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "Abrir o WorkForces", click: showWindow },
+      { type: "separator" },
+      {
+        label: "Sair",
+        click: () => {
+          quitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
+  tray.on("click", showWindow);
+}
