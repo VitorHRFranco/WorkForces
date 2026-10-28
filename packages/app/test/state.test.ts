@@ -84,4 +84,16 @@ describe("AppState", () => {
     expect(state.current()).toBeNull();
     expect(state.target()).toBeNull();
   });
+
+  it("trocar de escritório nunca leva a sessão do anterior", () => {
+    const other = "workforces://invite?server=https%3A%2F%2Foutro.exemplo&code=abc";
+    const state = fresh();
+    state.openLink(LINK);
+    state.applyAuth({ session: "s1", userName: "ana" });
+    state.openLink(other);
+    expect(state.target()).toEqual({ url: "https://outro.exemplo", session: null });
+    state.applyAuth({ session: "s1", userName: "ana" });
+    state.add("terceiro.exemplo");
+    expect(state.target()).toEqual({ url: "https://terceiro.exemplo", session: null });
+  });
 });

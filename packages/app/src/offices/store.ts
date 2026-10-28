@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { parseOfficeAddress } from "../links.js";
 
 /** Onde as sessões ficam cifradas (no Electron, o `safeStorage`; no Windows, o DPAPI). */
 export interface SecretBox {
@@ -24,7 +25,7 @@ export interface StoredOffice {
 const OfficesFile = z.object({
   version: z.literal(1),
   lastUsed: z.string().nullable(),
-  offices: z.array(z.object({ id: z.string(), url: z.string(), userName: z.string().nullable(), session: z.string().nullable() })),
+  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable() })),
 });
 
 /** Os escritórios do perfil local: quem o app já abriu e a sessão de cada um. */
@@ -49,8 +50,11 @@ export class OfficeStore {
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
-    } catch {
-      // Sem arquivo ainda: perfil novo.
+    } catch (err) {
+      // Só "não existe" é perfil novo. Outro erro (antivírus ou backup segurando o arquivo) não pode
+      // virar um perfil vazio que a próxima gravação use para sobrescrever o arquivo de verdade.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return new OfficeStore(file, box, [], null);
+      OfficeStore.keepBadCopy(file, `não consegui ler o offices.json (${err instanceof Error ? err.message : String(err)})`, log);
       return new OfficeStore(file, box, [], null);
     }
     try {
@@ -59,14 +63,18 @@ export class OfficeStore {
       const last = offices.some((entry) => entry.id === data.lastUsed) ? data.lastUsed : null;
       return new OfficeStore(file, box, offices, last);
     } catch (err) {
-      try {
-        copyFileSync(file, `${file}.bad`);
-      } catch {
-        // Sem a cópia, o arquivo estragado só é ignorado.
-      }
-      log(`offices.json ilegível (${err instanceof Error ? err.message : String(err)}); copiado para ${file}.bad e recomeçando vazio`);
+      OfficeStore.keepBadCopy(file, `offices.json ilegível (${err instanceof Error ? err.message : String(err)})`, log);
       return new OfficeStore(file, box, [], null);
     }
+  }
+
+  private static keepBadCopy(file: string, reason: string, log: (message: string) => void): void {
+    try {
+      copyFileSync(file, `${file}.bad`);
+    } catch {
+      // Sem a cópia, o arquivo estragado só é ignorado.
+    }
+    log(`${reason}; copiado para ${file}.bad e recomeçando vazio`);
   }
 
   /** Sessão que não decifra (outro usuário do sistema, cofre trocado): vira null, e a pessoa entra de novo. */
@@ -143,7 +151,12 @@ export class OfficeStore {
     mkdirSync(dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(data));
-    renameSync(tmp, this.file);
+    try {
+      renameSync(tmp, this.file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
     this.written = snapshot;
   }
 }

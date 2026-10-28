@@ -63,8 +63,9 @@ export class AppState {
   }
 
   forget(id: string): void {
-    this.store.forget(id);
+    // Fecha antes: se a gravação falhar, o aberto não fica apontando para um escritório esquecido.
     if (this.open_?.officeId === id) this.open_ = null;
+    this.store.forget(id);
   }
 
   list(): OfficeSummary[] {
@@ -106,6 +107,9 @@ export class AppState {
         open.session = change.session;
         return;
       }
+      // A sessão que o servidor acabou de dar fica na memória mesmo que a gravação falhe.
+      open.session = change.session;
+      open.sessionExpired = false;
       const saved = this.store.saveLogin(open.url, userName, change.session);
       this.open_ = { url: saved.url, officeId: saved.id, userName: saved.userName, session: change.session, sessionExpired: false };
       return;

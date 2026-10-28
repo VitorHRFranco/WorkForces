@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -82,5 +82,23 @@ describe("OfficeStore", () => {
     const again = OfficeStore.load(file, box());
     expect(again.list()).toEqual([]);
     expect(again.lastUsed()).toBeNull();
+  });
+
+  it("endereço inválido ou http fora de localhost no arquivo vira lista vazia e uma cópia .bad", () => {
+    for (const url of ["x", "http://10.0.0.5"]) {
+      rmSync(file + ".bad", { force: true });
+      writeFileSync(file, JSON.stringify({ version: 1, lastUsed: "a", offices: [{ id: "a", url, userName: "ana", session: null }] }));
+      expect(OfficeStore.load(file, box()).list(), url).toEqual([]);
+      expect(existsSync(file + ".bad"), url).toBe(true);
+    }
+  });
+
+  it("erro de leitura que não é arquivo ausente é registrado, não vira perfil novo calado", () => {
+    // Uma pasta no lugar do arquivo dá EISDIR, como um bloqueio do antivírus daria EBUSY.
+    mkdirSync(file);
+    const log: string[] = [];
+    const store = OfficeStore.load(file, box(), (m) => log.push(m));
+    expect(store.list()).toEqual([]);
+    expect(log).toHaveLength(1);
   });
 });
