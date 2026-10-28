@@ -61,3 +61,8 @@ export function cookieOf(response: LightMyRequestResponse): string {
   if (!value) throw new Error("sem set-cookie");
   return value.split(";")[0]!;
 }
+
+/** O id da sessão (o valor do cookie), para mandar como Bearer, como o app faz. */
+export function sessionOf(response: LightMyRequestResponse): string {
+  return decodeURIComponent(cookieOf(response).slice("wf_session=".length));
+}

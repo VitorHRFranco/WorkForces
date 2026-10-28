@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
-import { JSON_HEADERS, ORIGIN, cookieOf, createUser, setupApi, testConfig } from "./helpers/setup.js";
+import { JSON_HEADERS, ORIGIN, cookieOf, createUser, sessionOf, setupApi, testConfig } from "./helpers/setup.js";
 
 describe("login e sessão", () => {
   it("login certo devolve o usuário e um cookie protegido", async () => {
@@ -61,13 +61,15 @@ describe("login e sessão", () => {
 });
 
 describe("proteção contra requisição forjada", () => {
-  it("recusa POST de outra origem, sem origem ou com text/plain", async () => {
+  it("com cookie, recusa POST de outra origem ou sem origem; text/plain e formulário dão 415", async () => {
     const { app, accounts } = await setupApi();
     await createUser(accounts, "ana");
+    const login = await app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: { name: "ana", password: "senha-forte-123" } });
+    const cookie = cookieOf(login);
     const payload = JSON.stringify({ name: "ana", password: "senha-forte-123" });
-    const foreign = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json", origin: "https://malicioso.exemplo" }, payload });
+    const foreign = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json", origin: "https://malicioso.exemplo", cookie }, payload });
     expect(foreign.statusCode).toBe(403);
-    const noOrigin = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json" }, payload });
+    const noOrigin = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json", cookie }, payload });
     expect(noOrigin.statusCode).toBe(403);
     const plain = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "text/plain", origin: ORIGIN }, payload });
     expect(plain.statusCode).toBe(415);
@@ -188,5 +190,39 @@ describe("erros da API", () => {
     expect(response.json()).toEqual({ error: "erro interno do servidor" });
     expect(logs).toEqual(["erro interno em GET /api/quebra/:code: o banco caiu"]);
     await app.close();
+  });
+});
+
+describe("sessão por Bearer (o app)", () => {
+  const APP_JSON = { "content-type": "application/json" };
+
+  it("o app entra sem Origin e sem cookie, e a sessão vale como Bearer na API", async () => {
+    const { app, accounts } = await setupApi();
+    await createUser(accounts, "ana", { admin: true });
+    const login = await app.inject({ method: "POST", url: "/api/login", headers: APP_JSON, payload: { name: "ana", password: "senha-forte-123" } });
+    expect(login.statusCode).toBe(200);
+    const bearer = { authorization: `Bearer ${sessionOf(login)}` };
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: bearer })).json()).toMatchObject({ name: "ana" });
+    expect((await app.inject({ method: "POST", url: "/api/invites", headers: { ...APP_JSON, ...bearer }, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: "/api/tokens", headers: { ...APP_JSON, ...bearer }, payload: { name: "app" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: "/api/logout", headers: { ...APP_JSON, ...bearer }, payload: {} })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: bearer })).statusCode).toBe(401);
+  });
+
+  it("sem cookie, o JSON continua obrigatório", async () => {
+    const { app, accounts } = await setupApi();
+    await createUser(accounts, "ana");
+    const plain = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "text/plain" }, payload: JSON.stringify({ name: "ana", password: "senha-forte-123" }) });
+    expect(plain.statusCode).toBe(415);
+    expect(plain.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("token da ponte não vale como sessão, e sessão não vale como token da ponte", async () => {
+    const { app, accounts } = await setupApi();
+    const ana = await createUser(accounts, "ana");
+    const { token } = accounts.tokens.create(ana.id, "notebook");
+    const session = accounts.sessions.create(ana.id);
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/bridge/whoami", headers: { authorization: `Bearer ${session}` } })).statusCode).toBe(401);
   });
 });

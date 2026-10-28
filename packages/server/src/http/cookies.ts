@@ -27,3 +27,8 @@ export function bearerToken(header: string | undefined): string | null {
   const match = /^Bearer\s+(\S+)$/i.exec(header ?? "");
   return match ? match[1]! : null;
 }
+
+/** A sessão vem como Bearer (o app) ou como cookie (o navegador); o Bearer tem prioridade. */
+export function sessionIdOf(headers: { authorization?: string; cookie?: string }): string | null {
+  return bearerToken(headers.authorization) ?? readCookie(headers.cookie, SESSION_COOKIE);
+}

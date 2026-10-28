@@ -4,7 +4,7 @@ import type { AccountServices } from "../accounts/index.js";
 import { INVITE_TTL_MS } from "../accounts/invites.js";
 import { nameKeyOf, type User } from "../accounts/users.js";
 import type { AppContext } from "../context.js";
-import { SESSION_COOKIE, bearerToken, clearedSessionCookie, readCookie, sessionCookie } from "./cookies.js";
+import { bearerToken, clearedSessionCookie, sessionCookie, sessionIdOf } from "./cookies.js";
 import { AttemptLimiter } from "./limiter.js";
 
 export interface ApiDeps {
@@ -27,12 +27,12 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   const secure = ctx.config.publicUrl.protocol === "https:";
   const byIp = new AttemptLimiter(30, LOGIN_WINDOW_MS, ctx.now);
   const byName = new AttemptLimiter(10, LOGIN_WINDOW_MS, ctx.now);
-  const currentUser = (request: FastifyRequest) => accounts.sessions.lookup(readCookie(request.headers.cookie, SESSION_COOKIE));
+  const currentUser = (request: FastifyRequest) => accounts.sessions.lookup(sessionIdOf(request.headers));
 
-  // Contra requisição forjada: origem exata e JSON (text/plain passa sem pré-checagem do navegador).
+  // Contra requisição forjada: origem exata quando o pedido leva cookie (é com ele que o navegador entra sozinho) e JSON sempre (application/json força a pré-checagem do navegador, que este servidor não aprova).
   app.addHook("onRequest", async (request, reply) => {
     if (!STATE_CHANGING.has(request.method)) return;
-    if (request.headers.origin !== origin) return reply.code(403).send({ error: `origem não permitida; abra o escritório em ${origin}` });
+    if (request.headers.cookie !== undefined && request.headers.origin !== origin) return reply.code(403).send({ error: `origem não permitida; abra o escritório em ${origin}` });
     if (!String(request.headers["content-type"] ?? "").startsWith("application/json")) {
       return reply.code(415).send({ error: "use application/json" });
     }
@@ -57,13 +57,13 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   });
 
   app.post("/api/logout", async (request, reply) => {
-    const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const sessionId = sessionIdOf(request.headers);
     if (sessionId) accounts.sessions.delete(sessionId);
     return reply.code(204).header("set-cookie", clearedSessionCookie(secure)).send();
   });
 
   app.get("/api/me", async (request, reply) => {
-    const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const sessionId = sessionIdOf(request.headers);
     const user = accounts.sessions.lookup(sessionId);
     if (!user || !sessionId) return reply.code(401).send({ error: "faça login" });
     return reply.header("set-cookie", sessionCookie(sessionId, secure)).send(toMe(user));

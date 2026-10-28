@@ -112,6 +112,22 @@ describe("conexão da ponte", () => {
 });
 
 describe("conexão do navegador", () => {
+  it("o app entra com a sessão por Bearer, sem Origin; token da ponte não serve", async () => {
+    const server = await live();
+    const { session, token } = await person(server, "ana");
+    const app = new TestSocket(`${server.wsBase}/ws/client`, { headers: { authorization: `Bearer ${session}` } });
+    await app.waitFor((m) => m.type === "welcome", "welcome do app");
+    const withBridgeToken = new TestSocket(`${server.wsBase}/ws/client`, { headers: { authorization: `Bearer ${token.token}` } });
+    expect(await withBridgeToken.closed).toBe(4001);
+  });
+
+  it("com cookie, a origem continua obrigatória mesmo com Bearer", async () => {
+    const server = await live();
+    const { session } = await person(server, "ana");
+    const mixed = new TestSocket(`${server.wsBase}/ws/client`, { headers: { authorization: `Bearer ${session}`, cookie: `wf_session=${session}` }, origin: "https://malicioso.exemplo" });
+    expect(await mixed.closed).toBe(4003);
+  });
+
   it("exige a origem do escritório e uma sessão válida", async () => {
     const server = await live();
     const { session } = await person(server, "ana");
