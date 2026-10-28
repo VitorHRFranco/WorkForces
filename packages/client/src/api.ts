@@ -13,7 +13,7 @@ export function errorText(error: unknown): string {
   return error instanceof ApiError ? error.message : "não consegui falar com o escritório";
 }
 
-/** Fora de GET, sempre JSON com corpo: o servidor exige application/json e Origin (proteção contra CSRF). */
+/** Fora de GET, sempre JSON com corpo: o servidor exige application/json (proteção contra CSRF). O processo principal repassa sem Origin nem cookie, com a sessão como Bearer. */
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "same-origin" };
   if (method !== "GET") {

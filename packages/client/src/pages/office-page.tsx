@@ -27,7 +27,8 @@ interface LoadedMap {
 export function OfficePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [office, setOffice] = useState<LoadedMap | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  /** Por que o escritório não carregou (o 502 do processo principal diz o que fazer), ou null. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [officeUrl, setOfficeUrl] = useState("");
@@ -57,15 +58,15 @@ export function OfficePage() {
   }, []);
 
   useEffect(() => {
-    setLoadFailed(false);
+    setLoadError(null);
     api.me().then(setMe, (failure: unknown) => {
       if (failure instanceof ApiError && failure.status === 401) navigate("/login", { replace: true });
-      else setLoadFailed(true);
+      else setLoadError(errorText(failure));
     });
     api
       .map()
       .then((json) => setOffice({ map: parseOfficeMap(json), json }))
-      .catch(() => setLoadFailed(true));
+      .catch((failure: unknown) => setLoadError(errorText(failure)));
   }, [attempt]);
 
   useEffect(() => {
@@ -219,11 +220,11 @@ export function OfficePage() {
     navigate("/", { replace: true });
   };
 
-  if (loadFailed) {
+  if (loadError !== null) {
     return (
       <div class="card">
         <p class="error" role="alert">
-          Não consegui falar com o escritório.
+          {loadError}
         </p>
         <button type="button" onClick={() => setAttempt((n) => n + 1)}>
           Tentar de novo
