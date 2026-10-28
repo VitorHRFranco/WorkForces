@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -39,6 +39,23 @@ describe("AppState", () => {
     const route = state.startup("workforces://invite?server=http%3A%2F%2F10.0.0.5&code=abc");
     expect(route).toMatchObject({ page: "launcher", notice: expect.stringContaining("https") });
     expect(state.current()).toBeNull();
+  });
+
+  it("perfil corrompido abre a tela inicial com o aviso, em vez de uma lista vazia calada", () => {
+    writeFileSync(file, "{oops");
+    expect(fresh().startup(null)).toEqual({ page: "launcher", notice: "não consegui ler os escritórios salvos; guardei uma cópia em offices.json.bad" });
+  });
+
+  it("perfil que não pôde ser lido avisa o que fazer", () => {
+    mkdirSync(file);
+    expect(fresh().startup(null)).toEqual({
+      page: "launcher",
+      notice: "não consegui ler os escritórios salvos; feche outros programas que usem a pasta do WorkForces e abra de novo",
+    });
+  });
+
+  it("perfil novo abre a tela inicial sem aviso", () => {
+    expect(fresh().startup(null)).toEqual({ page: "launcher" });
   });
 
   it("a sessão entregue no login salva o escritório e vira o último usado", () => {

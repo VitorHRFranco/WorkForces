@@ -28,7 +28,7 @@ export class AppState {
 
   constructor(private readonly store: OfficeStore) {}
 
-  /** Primeira tela: o convite da linha de comando, o último escritório com sessão, ou a tela inicial. */
+  /** Primeira tela: o convite da linha de comando, o último escritório com sessão, ou a tela inicial (com o aviso do perfil ilegível, se houver). */
   startup(link: string | null): AppRoute {
     if (link !== null) return this.openLink(link);
     const last = this.store.lastUsed();
@@ -36,7 +36,8 @@ export class AppState {
       this.open_ = { url: last.url, officeId: last.id, userName: last.userName, session: last.session, sessionExpired: false };
       return { page: "office" };
     }
-    return { page: "launcher" };
+    const problem = this.store.problem;
+    return problem === null ? { page: "launcher" } : { page: "launcher", notice: problem };
   }
 
   openLink(link: string): AppRoute {

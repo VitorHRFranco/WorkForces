@@ -7,11 +7,22 @@ const BAD_GATEWAY = 502;
 const NOT_FOUND = 404;
 /** A resposta repassada tem a origem da página: sem isto, um HTML vindo do escritório rodaria com os poderes dela. */
 const ISOLATION_HEADERS = { "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox" } as const;
-/** Valores de sessão aceitos: ASCII visível, para nunca quebrar um cabeçalho nem a URL do WebSocket. */
+/** Valores de sessão aceitos: ASCII visível, para nunca quebrar o cabeçalho `Authorization` (no HTTP e no WebSocket). */
 const SESSION_VALUE = /^[!-~]+$/;
 const FORWARDED_PATHS = ["/api/", "/map/"] as const;
 /** Só o que a página precisa ler da resposta; o resto (e sobretudo o `set-cookie`) fica no processo principal. */
 const PAGE_RESPONSE_HEADERS = ["content-type", "cache-control"] as const;
+/** Teto da resposta repassada: o mapa e a API cabem com folga; mais que isso só enche a memória do processo principal. */
+export const MAX_FORWARD_BYTES = 8 * 1024 * 1024;
+/** Erros do TLS do Node que dizem que o certificado do escritório não é confiável (e não que a rede caiu). */
+const CERTIFICATE_ERRORS = new Set([
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "CERT_HAS_EXPIRED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
 
 /** O `wf_session` de um `Set-Cookie`: `set` com o valor, `cleared` se foi apagado, `null` se o cookie não veio. */
 export function sessionFromSetCookie(values: readonly string[]): { kind: "set"; value: string } | { kind: "cleared" } | null {
@@ -48,6 +59,45 @@ function failed(response: Response): Forwarded {
   return { response, auth: null, unauthorized: false };
 }
 
+const fieldOf = (value: unknown, field: "code" | "cause"): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[field] : undefined);
+
+/** O `fetch` do Node embrulha o erro do TLS em `cause`; o código diz se o problema é o certificado, e não a rede. */
+function isCertificateError(error: unknown): boolean {
+  return [fieldOf(error, "code"), fieldOf(fieldOf(error, "cause"), "code")].some(
+    (code) => typeof code === "string" && (CERTIFICATE_ERRORS.has(code) || code.startsWith("CERT_")),
+  );
+}
+
+/** Lê o corpo até o teto; null se passar dele (pelo `content-length` ou pelo que chegou de fato). */
+async function readCapped(response: Response, max: number): Promise<ArrayBuffer | null> {
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > max) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (response.body === null) return new ArrayBuffer(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
+
 function userNameFrom(body: ArrayBuffer): string | null {
   try {
     const name = (JSON.parse(new TextDecoder().decode(body)) as { name?: unknown }).name;
@@ -71,7 +121,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
   if (target.session !== null) headers.set("authorization", `Bearer ${target.session}`);
 
   let upstream: Response;
-  let body: ArrayBuffer;
+  let body: ArrayBuffer | null;
   try {
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
     upstream = await fetchImpl(url, {
@@ -81,9 +131,15 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
       redirect: "manual",
       signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
     });
-    body = await upstream.arrayBuffer();
-  } catch {
+    body = await readCapped(upstream, MAX_FORWARD_BYTES);
+  } catch (error) {
+    if (isCertificateError(error)) {
+      return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} não é confiável neste computador; peça a quem administra o escritório o certificado da rede interna`));
+    }
     return failed(jsonError(BAD_GATEWAY, `não consegui falar com ${url.host}; confira a internet ou a VPN e tente de novo`));
+  }
+  if (body === null) {
+    return failed(jsonError(BAD_GATEWAY, "o escritório mandou uma resposta grande demais; tente de novo e, se repetir, avise quem cuida do escritório"));
   }
   if (upstream.status >= 300 && upstream.status < 400) {
     return failed(jsonError(BAD_GATEWAY, "o escritório respondeu com um redirecionamento; confira o endereço"));

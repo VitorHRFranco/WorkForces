@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -44,9 +44,16 @@ describe("OfficeStore", () => {
     const store = OfficeStore.load(file, box(), (m) => log.push(m));
     expect(store.list()).toEqual([]);
     expect(existsSync(file + ".bad")).toBe(true);
-    expect(log).toHaveLength(1);
+    expect(log).toEqual([expect.stringContaining("copiado para")]);
+    expect(store.problem).toBe("não consegui ler os escritórios salvos; guardei uma cópia em offices.json.bad");
     store.saveLogin("https://e.exemplo", "ana", "s1");
     expect(OfficeStore.load(file, box()).list()).toHaveLength(1);
+  });
+
+  it("perfil novo ou lido sem erro não tem aviso", () => {
+    expect(OfficeStore.load(file, box()).problem).toBeNull();
+    OfficeStore.load(file, box()).saveLogin("https://e.exemplo", "ana", "s1");
+    expect(OfficeStore.load(file, box()).problem).toBeNull();
   });
 
   it("versão desconhecida também vira lista vazia", () => {
@@ -93,12 +100,21 @@ describe("OfficeStore", () => {
     }
   });
 
-  it("erro de leitura que não é arquivo ausente é registrado, não vira perfil novo calado", () => {
+  it("erro de leitura que não é arquivo ausente é registrado, avisa e não grava por cima nesta execução", () => {
     // Uma pasta no lugar do arquivo dá EISDIR, como um bloqueio do antivírus daria EBUSY.
     mkdirSync(file);
     const log: string[] = [];
     const store = OfficeStore.load(file, box(), (m) => log.push(m));
     expect(store.list()).toEqual([]);
     expect(log).toHaveLength(1);
+    // A cópia .bad não foi feita (é uma pasta): o registro não pode dizer que foi.
+    expect(log[0]).not.toContain("copiado para");
+    expect(existsSync(file + ".bad")).toBe(false);
+    expect(store.problem).toBe("não consegui ler os escritórios salvos; feche outros programas que usem a pasta do WorkForces e abra de novo");
+    // A lista funciona na memória, mas nada é gravado no lugar do arquivo de verdade.
+    const saved = store.saveLogin("https://e.exemplo", "ana", "s1");
+    expect(store.get(saved.id)).toMatchObject({ session: "s1" });
+    expect(statSync(file).isDirectory()).toBe(true);
+    expect(existsSync(file + ".tmp")).toBe(false);
   });
 });

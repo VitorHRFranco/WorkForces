@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { z } from "zod";
 import { parseOfficeAddress } from "../links.js";
 
@@ -21,6 +21,42 @@ export interface StoredOffice {
   session: string | null;
 }
 
+/** Avisos da tela inicial quando o perfil não pôde ser lido. */
+const PROFILE_LOCKED = "não consegui ler os escritórios salvos; feche outros programas que usem a pasta do WorkForces e abra de novo";
+const profileReset = (copied: string | null): string =>
+  copied === null
+    ? "não consegui ler os escritórios salvos; entre de novo pelo convite ou por \"Já tenho conta\""
+    : `não consegui ler os escritórios salvos; guardei uma cópia em ${copied}`;
+
+/** No Windows, antivírus e indexador seguram o arquivo por instantes: a troca tenta de novo antes de desistir. */
+const RENAME_RETRIES = 5;
+const RENAME_WAIT_MS = 30;
+const RENAME_BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/** Espera curta e síncrona (a gravação é síncrona); sem `Atomics.wait` permitido, espera ocupada. */
+function pause(ms: number): void {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      // espera
+    }
+  }
+}
+
+function renameWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (err) {
+      if (attempt >= RENAME_RETRIES || !RENAME_BUSY.has((err as NodeJS.ErrnoException).code ?? "")) throw err;
+      pause(RENAME_WAIT_MS);
+    }
+  }
+}
+
 /** O `offices.json`: a `session` vai cifrada pelo `SecretBox`. */
 const OfficesFile = z.object({
   version: z.literal(1),
@@ -34,15 +70,23 @@ export class OfficeStore {
   private last: string | null;
   /** O que foi gravado por último (com as sessões em claro), para não regravar sem mudança. */
   private written: string;
+  /** O aviso para a tela inicial quando o perfil não pôde ser lido, ou null. */
+  readonly problem: string | null;
+  /** O arquivo existe mas não pôde ser lido: nesta execução nada é gravado por cima dele. */
+  private readonly readOnly: boolean;
 
   private constructor(
     private readonly file: string,
     private readonly box: SecretBox,
     offices: StoredOffice[],
     last: string | null,
+    problem: string | null = null,
+    readOnly = false,
   ) {
     this.offices = offices;
     this.last = last;
+    this.problem = problem;
+    this.readOnly = readOnly;
     this.written = this.snapshot();
   }
 
@@ -51,11 +95,11 @@ export class OfficeStore {
     try {
       raw = readFileSync(file, "utf8");
     } catch (err) {
-      // Só "não existe" é perfil novo. Outro erro (antivírus ou backup segurando o arquivo) não pode
-      // virar um perfil vazio que a próxima gravação use para sobrescrever o arquivo de verdade.
+      // Só "não existe" é perfil novo. Outro erro (antivírus ou backup segurando o arquivo) não pode virar um perfil
+      // vazio que a próxima gravação use para sobrescrever o arquivo de verdade: a lista vale só na memória até fechar.
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return new OfficeStore(file, box, [], null);
-      OfficeStore.keepBadCopy(file, `não consegui ler o offices.json (${err instanceof Error ? err.message : String(err)})`, log);
-      return new OfficeStore(file, box, [], null);
+      OfficeStore.keepBadCopy(file, `não consegui ler o offices.json (${err instanceof Error ? err.message : String(err)})`, log, "a lista fica só na memória até fechar o app");
+      return new OfficeStore(file, box, [], null, PROFILE_LOCKED, true);
     }
     try {
       const data = OfficesFile.parse(JSON.parse(raw));
@@ -63,18 +107,22 @@ export class OfficeStore {
       const last = offices.some((entry) => entry.id === data.lastUsed) ? data.lastUsed : null;
       return new OfficeStore(file, box, offices, last);
     } catch (err) {
-      OfficeStore.keepBadCopy(file, `offices.json ilegível (${err instanceof Error ? err.message : String(err)})`, log);
-      return new OfficeStore(file, box, [], null);
+      const copied = OfficeStore.keepBadCopy(file, `offices.json ilegível (${err instanceof Error ? err.message : String(err)})`, log, "recomeçando vazio");
+      return new OfficeStore(file, box, [], null, profileReset(copied));
     }
   }
 
-  private static keepBadCopy(file: string, reason: string, log: (message: string) => void): void {
+  /** Guarda `<arquivo>.bad` e registra o motivo; devolve o nome da cópia, ou null se ela não foi feita. */
+  private static keepBadCopy(file: string, reason: string, log: (message: string) => void, outcome: string): string | null {
+    const copy = `${file}.bad`;
     try {
-      copyFileSync(file, `${file}.bad`);
+      copyFileSync(file, copy);
     } catch {
-      // Sem a cópia, o arquivo estragado só é ignorado.
+      log(`${reason}; ${outcome}`);
+      return null;
     }
-    log(`${reason}; copiado para ${file}.bad e recomeçando vazio`);
+    log(`${reason}; copiado para ${copy} e ${outcome}`);
+    return basename(copy);
   }
 
   /** Sessão que não decifra (outro usuário do sistema, cofre trocado): vira null, e a pessoa entra de novo. */
@@ -139,6 +187,7 @@ export class OfficeStore {
 
   /** Grava `<arquivo>.tmp` e renomeia, para um corte no meio não deixar o arquivo pela metade. */
   private persist(): void {
+    if (this.readOnly) return;
     const snapshot = this.snapshot();
     if (snapshot === this.written) return;
     const canSeal = this.box.available();
@@ -152,7 +201,7 @@ export class OfficeStore {
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(data));
     try {
-      renameSync(tmp, this.file);
+      renameWithRetry(tmp, this.file);
     } catch (err) {
       rmSync(tmp, { force: true });
       throw err;

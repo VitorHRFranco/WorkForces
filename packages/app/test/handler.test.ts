@@ -77,6 +77,47 @@ describe("createPageHandler", () => {
     }
   });
 
+  it("resposta atrasada da conta anterior no mesmo escritório não troca nem apaga a sessão da nova", async () => {
+    const ana: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-ana" };
+    const bia: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-bia" };
+    for (const late of [
+      () => new Response('{"name":"ana"}', { headers: { "content-type": "application/json", "set-cookie": "wf_session=sessao-ana; Path=/" } }),
+      () => new Response("{}", { status: 401 }),
+    ]) {
+      let current: ForwardTarget | null = ana;
+      let reply!: (response: Response) => void;
+      const onAuth = vi.fn();
+      const onUnauthorized = vi.fn();
+      const fetchImpl = (() => new Promise<Response>((resolve) => (reply = resolve))) as unknown as typeof fetch;
+      const handler = createPageHandler({ clientDir, target: () => current, onAuth, onUnauthorized, fetchImpl });
+      const pending = handler(new Request("app://workforces/api/me"));
+      await vi.waitFor(() => expect(reply).toBeDefined());
+      current = bia;
+      reply(late());
+      await pending;
+      expect(onAuth).not.toHaveBeenCalled();
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    }
+  });
+
+  it("gravar a sessão falhar não estraga a resposta que o escritório deu", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fetchImpl = (async () => new Response('{"name":"ana"}', { headers: { "content-type": "application/json", "set-cookie": "wf_session=tok; Path=/" } })) as unknown as typeof fetch;
+      const onAuth = vi.fn(() => {
+        throw Object.assign(new Error("operation not permitted, rename"), { code: "EPERM" });
+      });
+      const handler = createPageHandler({ clientDir, target: () => ({ url: "https://escritorio.exemplo", session: null }), onAuth, onUnauthorized: vi.fn(), fetchImpl });
+      const res = await handler(new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
+      expect(onAuth).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ name: "ana" });
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("login e 401 chegam ao estado", async () => {
     const login = setup(() => new Response('{"name":"ana"}', { headers: { "content-type": "application/json", "set-cookie": "wf_session=tok; Path=/; HttpOnly" } }));
     await login.handler(new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));

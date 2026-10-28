@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import * as tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import {
   app,
@@ -15,7 +16,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import type { AppRoute } from "@workforces/protocol";
-import { findInviteArg } from "./links.js";
+import { findInviteArg, parseInviteLink } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
 import { OfficeStore, type SecretBox } from "./offices/store.js";
@@ -39,6 +40,19 @@ const fail = (error: unknown): void => {
   console.error(error);
   app.exit(1);
 };
+
+/**
+ * O `fetch` e o `ws` do processo principal passam a confiar também nas CAs instaladas no sistema (no Windows, o
+ * repositório de certificados), além das que vêm com o Node: a CA da rede interna instalada na máquina vale para o app.
+ */
+function trustSystemCertificates(): void {
+  if (typeof tls.getCACertificates !== "function" || typeof tls.setDefaultCACertificates !== "function") return;
+  try {
+    tls.setDefaultCACertificates([...tls.getCACertificates("default"), ...tls.getCACertificates("system")]);
+  } catch (error) {
+    console.warn("não consegui usar os certificados do sistema; só as CAs do Node valem", error);
+  }
+}
 
 // A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
 if (process.env.WF_APP_DATA_DIR) app.setPath("userData", resolve(process.env.WF_APP_DATA_DIR));
@@ -76,6 +90,12 @@ async function start(): Promise<void> {
     showWindow();
     const link = findInviteArg(argv);
     if (link === null || !state || !relay) return;
+    // Link inválido não tira ninguém do escritório: o motivo só aparece se nenhum estiver aberto.
+    const parsed = parseInviteLink(link);
+    if ("error" in parsed) {
+      if (state.current() === null) sendToPage("app:route", { page: "launcher", notice: parsed.error } satisfies AppRoute);
+      return;
+    }
     relay.closeAll();
     sendToPage("app:route", state.openLink(link));
   });
@@ -99,6 +119,7 @@ async function start(): Promise<void> {
   });
 
   await app.whenReady();
+  trustSystemCertificates();
   Menu.setApplicationMenu(null);
 
   // Só o botão "Copiar" do convite precisa de permissão; o resto é negado.
@@ -122,7 +143,14 @@ async function start(): Promise<void> {
 
   const socketRelay = new SocketRelay(
     (id, event) => sendToPage("socket:event", id, event),
-    () => appState.unauthorized(),
+    () => {
+      // Falhar ao gravar o perfil aqui viraria exceção sem dono no processo principal; a sessão já saiu da memória.
+      try {
+        appState.unauthorized();
+      } catch (error) {
+        console.warn("não consegui apagar a sessão guardada", error);
+      }
+    },
   );
   relay = socketRelay;
 
@@ -212,9 +240,13 @@ async function start(): Promise<void> {
   });
   if (!app.isPackaged) {
     win.webContents.on("before-input-event", (event, input) => {
-      if (input.type === "keyDown" && input.key === "F5") {
+      if (input.type !== "keyDown") return;
+      if (input.key === "F5") {
         event.preventDefault();
         win.webContents.reload();
+      } else if (input.key === "F12") {
+        event.preventDefault();
+        win.webContents.toggleDevTools();
       }
     });
   }

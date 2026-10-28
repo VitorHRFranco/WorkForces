@@ -26,10 +26,17 @@ export function createPageHandler(deps: PageHandlerDeps): (request: Request) => 
       const target = deps.target();
       if (target === null) return jsonError(409, "nenhum escritório aberto");
       const forwarded = await forwardToOffice(target, request, deps.fetchImpl);
-      // Se outro escritório abriu enquanto este respondia, a sessão e o 401 não são dele.
-      if (deps.target()?.url === target.url) {
-        if (forwarded.auth !== null) deps.onAuth(forwarded.auth);
-        if (forwarded.unauthorized) deps.onUnauthorized();
+      // Se outro escritório ou outra conta (no mesmo endereço) abriu enquanto este respondia, a sessão e o 401 não são
+      // dela. Login, logout, a renovação do /api/me e o 401 passam: a sessão não muda entre o pedido e a resposta.
+      const now = deps.target();
+      if (now?.url === target.url && now.session === target.session) {
+        try {
+          if (forwarded.auth !== null) deps.onAuth(forwarded.auth);
+          if (forwarded.unauthorized) deps.onUnauthorized();
+        } catch (error) {
+          // Gravar o perfil falhou (antivírus segurando o arquivo): a sessão já vale na memória, e a resposta do escritório chega à página.
+          console.warn("não consegui guardar a sessão do escritório", error);
+        }
       }
       return forwarded.response;
     }

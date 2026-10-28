@@ -1,7 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkReachable, forwardToOffice, sessionFromSetCookie } from "../src/net/forward.js";
+import { checkReachable, forwardToOffice, MAX_FORWARD_BYTES, sessionFromSetCookie } from "../src/net/forward.js";
 
 interface Seen {
   url: string | undefined;
@@ -117,6 +117,33 @@ describe("forwardToOffice", () => {
     const body = (await out.response.json()) as { error: string };
     expect(body.error).toContain(new URL(url).host);
     expect(body.error).toContain("internet ou a VPN");
+  });
+
+  it("certificado não confiável dá 502 dizendo que é o certificado, não a VPN", async () => {
+    for (const code of ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "SELF_SIGNED_CERT_IN_CHAIN", "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_NOT_YET_VALID"]) {
+      const rejecting = (async () => {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("certificado"), { code }) });
+      }) as typeof fetch;
+      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/api/me"), rejecting);
+      expect(out.response.status, code).toBe(502);
+      const body = (await out.response.json()) as { error: string };
+      expect(body.error, code).toContain("o certificado de escritorio.exemplo não é confiável");
+      expect(body.error, code).not.toContain("VPN");
+    }
+  });
+
+  it("resposta grande demais dá 502, pelo content-length ou pelo que chegou", async () => {
+    const declared = (async () => new Response("{}", { headers: { "content-length": String(MAX_FORWARD_BYTES + 1) } })) as typeof fetch;
+    const streamed = (async () => new Response(new Uint8Array(MAX_FORWARD_BYTES + 1))) as typeof fetch;
+    for (const fetchImpl of [declared, streamed]) {
+      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/map/map.tmj"), fetchImpl);
+      expect(out.response.status).toBe(502);
+      expect(((await out.response.json()) as { error: string }).error).toContain("grande demais");
+    }
+    const fits = (async () => new Response(new Uint8Array(MAX_FORWARD_BYTES))) as typeof fetch;
+    const ok = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/map/map.tmj"), fits);
+    expect(ok.response.status).toBe(200);
+    expect((await ok.response.arrayBuffer()).byteLength).toBe(MAX_FORWARD_BYTES);
   });
 
   it("resposta que não cabe num Response dá 502 em vez de exceção", async () => {
