@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Servidor do WorkForces, com o site e o mapa. Para um time, use deploy/docker-compose.yml (com o Caddy na frente, em HTTPS).
+# Servidor do WorkForces (API, mapa e a página do link de convite). Para um time, use deploy/docker-compose.yml (com o Caddy na frente, em HTTPS).
 # Node 24 LTS; ao sair uma versão de segurança do Node, atualize as duas linhas FROM.
 
 FROM node:24.22.1-bookworm-slim AS build
@@ -12,11 +12,10 @@ COPY packages/server/package.json packages/server/
 COPY packages/client/package.json packages/client/
 COPY packages/bridge/package.json packages/bridge/
 COPY packages/e2e/package.json packages/e2e/
-RUN pnpm install --frozen-lockfile --filter "@workforces/server..." --filter "@workforces/client..."
+RUN pnpm install --frozen-lockfile --filter "@workforces/server..."
 COPY packages/protocol packages/protocol
 COPY packages/server packages/server
-COPY packages/client packages/client
-RUN pnpm --filter "@workforces/server..." --filter "@workforces/client" run build
+RUN pnpm --filter "@workforces/server..." run build
 # A imagem final leva só as dependências de produção do servidor.
 RUN rm -rf node_modules packages/*/node_modules \
   && pnpm install --frozen-lockfile --prod --filter "@workforces/server..."
@@ -34,7 +33,6 @@ COPY --from=build /app/packages/protocol/node_modules packages/protocol/node_mod
 COPY --from=build /app/packages/server/package.json packages/server/
 COPY --from=build /app/packages/server/dist packages/server/dist
 COPY --from=build /app/packages/server/node_modules packages/server/node_modules
-COPY --from=build /app/packages/client/dist packages/client/dist
 COPY assets/map assets/map
 # A arte do LPC (OGA-BY 3.0) vai junto, então os créditos também.
 COPY LICENSE ./

@@ -23,7 +23,6 @@ export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     host: "127.0.0.1",
     publicUrl: new URL(ORIGIN),
     dataDir: "",
-    clientDir: "",
     mapFile: REPO_MAP,
     insecure: false,
     trustProxy: false,

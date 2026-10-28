@@ -7,6 +7,7 @@ import { buildApp } from "./app.js";
 import { exposureWarning, type ServerConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDb } from "./db.js";
+import { registerInvitePage } from "./http/invite-page.js";
 import { registerMapRoutes } from "./http/map-routes.js";
 import { registerApi } from "./http/routes.js";
 import { loadMap, type LoadedMap } from "./map/load-map.js";
@@ -14,7 +15,6 @@ import { Hub } from "./realtime/hub.js";
 import { Listeners } from "./realtime/listeners.js";
 import { World } from "./realtime/world.js";
 import { registerSockets, type SocketOptions } from "./realtime/sockets.js";
-import { registerClient } from "./static.js";
 
 export interface CreateServerOptions {
   dbFile?: string;
@@ -65,7 +65,7 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   registerApi(app, { ctx, accounts, onTokenRevoked });
   registerSockets(app, { ctx, accounts, hub, world, listeners }, options.sockets);
   registerMapRoutes(app, office);
-  registerClient(app, ctx);
+  registerInvitePage(app, ctx);
   app.addHook("onClose", async () => db.close());
   return { app, ctx, accounts, hub, listeners, office, world };
 }

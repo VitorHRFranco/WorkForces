@@ -1,7 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type { AppContext } from "./context.js";
 
-/** Erros que o próprio Fastify gera (JSON quebrado, corpo grande demais, 403 do static…), no formato das outras respostas. */
+/** Erros que o próprio Fastify gera (JSON quebrado, corpo grande demais…), no formato das outras respostas. */
 const ERROR_TEXT: Record<number, string> = {
   400: "pedido inválido",
   403: "acesso negado",

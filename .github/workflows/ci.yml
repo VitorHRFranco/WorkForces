@@ -55,12 +55,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t workforces:ci .
-      - name: A imagem sobe saudável, sem root, serve o escritório e avisa que está sem HTTPS
+      - name: A imagem sobe saudável, sem root, serve a API, o mapa e a página do convite, e avisa que está sem HTTPS
         run: |
           docker run -d --name wf --health-interval=2s -p 127.0.0.1:4600:4600 -e WF_PUBLIC_URL=http://localhost:4600 workforces:ci
-          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:4600/ && break; sleep 1; done
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:4600/api/health && break; sleep 1; done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4600/api/me)" = 401
-          curl -fsS http://127.0.0.1:4600/ | grep -q WorkForces
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4600/)" = 404
+          curl -fsS http://127.0.0.1:4600/invite/convite-de-teste | grep -q "workforces://invite"
           curl -fsS -o /dev/null http://127.0.0.1:4600/map/map.tmj
           docker logs wf 2>&1 | grep -q "convite de admin"
           [ "$(docker exec wf id -u)" -ne 0 ]
