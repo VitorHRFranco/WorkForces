@@ -15,6 +15,8 @@ function validCloseCode(code: number): number {
 /** O WebSocket do escritório vive aqui, no processo principal; a página só recebe eventos e manda texto. Uma conexão por vez. */
 export class SocketRelay {
   private current: { id: number; ws: WebSocket } | null = null;
+  /** Conexões que fechamos aqui (`open`, `close`, `closeAll`): o 4001 delas não é a sessão acabando. */
+  private readonly closedHere = new WeakSet<WebSocket>();
 
   constructor(
     private readonly emit: (id: number, event: SocketEvent) => void,
@@ -39,8 +41,10 @@ export class SocketRelay {
     // Erro de rede: o `ws` fecha em seguida com 1006, e é esse `close` que a página vê.
     ws.on("error", () => {});
     ws.on("close", (code) => {
-      if (this.current?.ws === ws) this.current = null;
-      if (code === CLOSE_CODES.unauthorized) this.onUnauthorized();
+      const live = this.current?.ws === ws;
+      if (live) this.current = null;
+      // Só vale o 4001 que o escritório mandou à conexão viva.
+      if (code === CLOSE_CODES.unauthorized && live && !this.closedHere.has(ws)) this.onUnauthorized();
       this.emit(id, { type: "close", code });
     });
   }
@@ -50,13 +54,17 @@ export class SocketRelay {
   }
 
   close(id: number, code: number): void {
-    if (this.current?.id === id) this.current.ws.close(validCloseCode(code));
+    if (this.current?.id !== id) return;
+    this.closedHere.add(this.current.ws);
+    this.current.ws.close(validCloseCode(code));
   }
 
-  /** Fecha a conexão viva sem avisar a página: ela mesma pediu, ou o app está saindo. */
+  /** Fecha a conexão viva (1000). O `close` dela ainda chega à página com o id antigo; só não vale como sessão expirada. */
   closeAll(): void {
     const old = this.current;
     this.current = null;
-    old?.ws.close(NORMAL_CLOSE);
+    if (old === null) return;
+    this.closedHere.add(old.ws);
+    old.ws.close(NORMAL_CLOSE);
   }
 }

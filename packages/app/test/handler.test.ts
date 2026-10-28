@@ -49,6 +49,34 @@ describe("createPageHandler", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("barra invertida nunca chega ao escritório", async () => {
+    const { handler, fetchImpl } = setup();
+    for (const path of ["/api\\..\\..\\x", "/api/%5c..%5cx", "/map/%5Cx"]) {
+      expect((await handler(new Request(`app://workforces${path}`))).status, path).toBe(404);
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("resposta atrasada do escritório antigo não mexe na sessão do novo", async () => {
+    const other: ForwardTarget = { url: "https://outro.exemplo", session: null };
+    for (const late of [
+      () => new Response("{}", { headers: { "set-cookie": "wf_session=tokenA; Path=/" } }),
+      () => new Response("{}", { status: 401 }),
+    ]) {
+      let current: ForwardTarget | null = target;
+      const onAuth = vi.fn();
+      const onUnauthorized = vi.fn();
+      const fetchImpl = (async () => {
+        current = other;
+        return late();
+      }) as unknown as typeof fetch;
+      const handler = createPageHandler({ clientDir, target: () => current, onAuth, onUnauthorized, fetchImpl });
+      await handler(new Request("app://workforces/api/me"));
+      expect(onAuth).not.toHaveBeenCalled();
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    }
+  });
+
   it("login e 401 chegam ao estado", async () => {
     const login = setup(() => new Response('{"name":"ana"}', { headers: { "content-type": "application/json", "set-cookie": "wf_session=tok; Path=/; HttpOnly" } }));
     await login.handler(new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));

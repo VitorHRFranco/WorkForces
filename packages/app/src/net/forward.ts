@@ -4,6 +4,12 @@ const SESSION_COOKIE = "wf_session=";
 const FORWARD_TIMEOUT_MS = 15_000;
 const HEALTH_TIMEOUT_MS = 3_000;
 const BAD_GATEWAY = 502;
+const NOT_FOUND = 404;
+/** A resposta repassada tem a origem da página: sem isto, um HTML vindo do escritório rodaria com os poderes dela. */
+const ISOLATION_HEADERS = { "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox" } as const;
+/** Valores de sessão aceitos: ASCII visível, para nunca quebrar um cabeçalho nem a URL do WebSocket. */
+const SESSION_VALUE = /^[!-~]+$/;
+const FORWARDED_PATHS = ["/api/", "/map/"] as const;
 /** Só o que a página precisa ler da resposta; o resto (e sobretudo o `set-cookie`) fica no processo principal. */
 const PAGE_RESPONSE_HEADERS = ["content-type", "cache-control"] as const;
 
@@ -16,9 +22,10 @@ export function sessionFromSetCookie(values: readonly string[]): { kind: "set"; 
     const expired = attributes.some((attribute) => attribute.toLowerCase() === "max-age=0");
     if (expired || raw === "") return { kind: "cleared" };
     try {
-      return { kind: "set", value: decodeURIComponent(raw) };
+      const value = decodeURIComponent(raw);
+      return SESSION_VALUE.test(value) ? { kind: "set", value } : null;
     } catch {
-      return { kind: "cleared" };
+      return null;
     }
   }
   return null;
@@ -34,7 +41,7 @@ export interface Forwarded {
 }
 
 export function jsonError(status: number, error: string): Response {
-  return new Response(JSON.stringify({ error }), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify({ error }), { status, headers: { "content-type": "application/json", ...ISOLATION_HEADERS } });
 }
 
 function failed(response: Response): Forwarded {
@@ -56,6 +63,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
   const url = new URL(target.url);
   url.pathname = incoming.pathname;
   url.search = incoming.search;
+  if (!FORWARDED_PATHS.some((prefix) => url.pathname.startsWith(prefix))) return failed(jsonError(NOT_FOUND, "caminho não encontrado"));
 
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
@@ -80,6 +88,10 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
   if (upstream.status >= 300 && upstream.status < 400) {
     return failed(jsonError(BAD_GATEWAY, "o escritório respondeu com um redirecionamento; confira o endereço"));
   }
+  // Estes status não cabem num `Response`; a página recebe um erro em vez de uma exceção.
+  if (upstream.status < 200 || upstream.status > 599 || upstream.status === 205) {
+    return failed(jsonError(BAD_GATEWAY, `${url.host} respondeu algo que o app não entende; tente de novo e, se repetir, avise quem cuida do escritório`));
+  }
 
   const cookie = sessionFromSetCookie(upstream.headers.getSetCookie());
   let auth: AuthChange | null = null;
@@ -90,7 +102,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
     auth = { session: null, userName: null };
   }
 
-  const pageHeaders = new Headers();
+  const pageHeaders = new Headers(ISOLATION_HEADERS);
   for (const name of PAGE_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
     if (value !== null) pageHeaders.set(name, value);
@@ -106,6 +118,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
 export async function checkReachable(url: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
   try {
     const response = await fetchImpl(new URL("/api/health", url), { redirect: "manual", signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
+    await response.body?.cancel();
     return response.ok;
   } catch {
     return false;

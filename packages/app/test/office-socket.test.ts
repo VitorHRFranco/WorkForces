@@ -101,13 +101,33 @@ describe("SocketRelay", () => {
     await until(() => opened(events, 1));
     relay.open(2, { url: server.url, session: "s1" });
     expect(await first.closeCode).toBe(1000);
-    relay.send(1, "x");
     const second = await server.next();
     await until(() => opened(events, 2));
+    relay.send(1, "x");
+    relay.close(1, 1000);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(second.socket.readyState).toBe(1);
     relay.send(2, "y");
     await until(() => second.received.length === 1);
     expect(first.received).toEqual([]);
     expect(second.received).toEqual(["y"]);
+  });
+
+  it("4001 de conexão trocada ou fechada pela página não vale como sessão expirada", async () => {
+    const server = await fakeServer();
+    const { relay, events, onUnauthorized } = makeRelay();
+    relay.open(1, { url: server.url, session: "s1" });
+    const first = await server.next();
+    await until(() => opened(events, 1));
+    first.socket.close(4001);
+    relay.open(2, { url: server.url, session: "s1" });
+    await until(() => events.some(([id, e]) => id === 1 && e.type === "close"));
+    const second = await server.next();
+    await until(() => opened(events, 2));
+    relay.close(2, 4001);
+    await second.closeCode;
+    await until(() => events.some(([id, e]) => id === 2 && e.type === "close"));
+    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
   it("sem sessão não vai à rede", async () => {

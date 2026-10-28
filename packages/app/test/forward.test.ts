@@ -1,7 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkReachable, forwardToOffice } from "../src/net/forward.js";
+import { checkReachable, forwardToOffice, sessionFromSetCookie } from "../src/net/forward.js";
 
 interface Seen {
   url: string | undefined;
@@ -71,6 +71,8 @@ describe("forwardToOffice", () => {
     expect(out.auth).toEqual({ session: "abc/d", userName: "ana" });
     expect(out.response.headers.get("set-cookie")).toBeNull();
     expect(await out.response.json()).toMatchObject({ name: "ana" });
+    expect(out.response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(out.response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
   });
 
   it("o POST leva o corpo e o content-type", async () => {
@@ -103,8 +105,8 @@ describe("forwardToOffice", () => {
         return new Response("{}");
       }) as typeof fetch;
       await forwardToOffice(target, new Request(`app://workforces${path}`), spy);
-      expect(called, path).toHaveLength(1);
-      expect(new URL(called[0]).origin, path).toBe(new URL(target.url).origin);
+      expect(called.length, path).toBeLessThanOrEqual(1);
+      for (const url of called) expect(new URL(url).origin, path).toBe(new URL(target.url).origin);
     }
   });
 
@@ -117,6 +119,26 @@ describe("forwardToOffice", () => {
     expect(body.error).toContain("internet ou a VPN");
   });
 
+  it("resposta que não cabe num Response dá 502 em vez de exceção", async () => {
+    for (const status of [205, 600]) {
+      const { base } = await fakeOffice({ status });
+      const out = await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/me"));
+      expect(out.response.status, String(status)).toBe(502);
+      expect(out.response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    }
+  });
+
+  it("barra invertida não leva a fora de /api e /map", async () => {
+    const called: string[] = [];
+    const spy = (async (input: URL | string) => {
+      called.push(String(input));
+      return new Response("{}");
+    }) as typeof fetch;
+    const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/api\\..\\..\\x"), spy);
+    expect(out.response.status).toBe(404);
+    expect(called).toEqual([]);
+  });
+
   it("redirecionamento não é seguido", async () => {
     const other = await fakeOffice();
     const { base } = await fakeOffice({ status: 302, headers: { location: `${other.base}/api/me` } });
@@ -126,11 +148,24 @@ describe("forwardToOffice", () => {
   });
 });
 
+describe("sessionFromSetCookie", () => {
+  it("ignora valor que não cabe num cabeçalho", () => {
+    expect(sessionFromSetCookie(["wf_session=%0A; Path=/"])).toBeNull();
+    expect(sessionFromSetCookie(["wf_session=%E0%A4%A; Path=/"])).toBeNull();
+    expect(sessionFromSetCookie(["wf_session=ok; Path=/"])).toEqual({ kind: "set", value: "ok" });
+  });
+});
+
 describe("checkReachable", () => {
   it("diz se o escritório responde", async () => {
     const { base, seen } = await fakeOffice({ status: 200, body: "{}" });
     expect(await checkReachable(base)).toBe(true);
     expect(seen[0].url).toBe("/api/health");
     expect(await checkReachable(await closedPort())).toBe(false);
+  });
+
+  it("checkReachable não segue redirecionamento", async () => {
+    const { base } = await fakeOffice({ status: 302, headers: { location: "http://127.0.0.1:1/" } });
+    expect(await checkReachable(base)).toBe(false);
   });
 });
