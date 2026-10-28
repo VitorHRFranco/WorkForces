@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "pnpm -r run build",
-    "typecheck": "tsc -p tsconfig.json && tsc -p packages/client/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p packages/client/tsconfig.json && tsc -p packages/app/tsconfig.check.json",
+    "app": "pnpm --filter @workforces/app start",
     "test": "vitest run",
     "e2e": "pnpm --filter @workforces/e2e run e2e",
     "demo": "pnpm --filter @workforces/e2e run demo && python tools/demo/make_gif.py packages/e2e/demo-frames docs/media/demo.gif"

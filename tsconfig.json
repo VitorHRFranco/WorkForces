@@ -4,5 +4,5 @@
     "noEmit": true
   },
   "include": ["packages/*/src", "packages/*/test", "packages/e2e/demo", "packages/e2e/*.config.ts", "vitest.config.ts"],
-  "exclude": ["packages/client"]
+  "exclude": ["packages/client", "packages/app"]
 }

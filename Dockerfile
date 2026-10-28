@@ -9,6 +9,7 @@ RUN npm install -g pnpm@12.11.2
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json tsconfig.json ./
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/server/package.json packages/server/
+COPY packages/app/package.json packages/app/
 COPY packages/client/package.json packages/client/
 COPY packages/bridge/package.json packages/bridge/
 COPY packages/e2e/package.json packages/e2e/

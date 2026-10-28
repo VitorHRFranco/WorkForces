@@ -7,3 +7,4 @@ export * from "./parse.js";
 export * from "./map.js";
 export * from "./listener.js";
 export * from "./invite.js";
+export * from "./app-bridge.js";
