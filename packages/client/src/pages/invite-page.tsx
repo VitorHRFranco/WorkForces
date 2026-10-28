@@ -12,13 +12,13 @@ export function InvitePage({ code }: { code: string }) {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [host, setHost] = useState("o escritório");
+  const [host, setHost] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     bridge.offices.current().then(
-      (current) => current && setHost(current.host),
-      () => {},
+      (current) => (current ? setHost(current.host) : navigate("/", { replace: true })),
+      () => navigate("/", { replace: true }),
     );
   }, []);
 
@@ -50,6 +50,13 @@ export function InvitePage({ code }: { code: string }) {
     }
   };
 
+  if (host === null) {
+    return (
+      <main class="card">
+        <p role="status">Conferindo o convite…</p>
+      </main>
+    );
+  }
   if (unreachable) {
     return (
       <main class="card">

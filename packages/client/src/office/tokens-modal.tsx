@@ -57,9 +57,11 @@ export function TokensModal({ onClose, officeUrl }: { onClose: () => void; offic
             <strong>Copie agora:</strong> este token não aparece de novo.
           </p>
           <CopyField key={created.token} value={created.token} />
-          <p>
-            Na sua máquina, rode <code>workforces login {officeUrl}</code> e cole o token quando ele pedir.
-          </p>
+          {officeUrl && (
+            <p>
+              Na sua máquina, rode <code>workforces login {officeUrl}</code> e cole o token quando ele pedir.
+            </p>
+          )}
         </div>
       )}
       <form class="inline" onSubmit={create}>

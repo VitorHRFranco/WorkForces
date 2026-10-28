@@ -1,5 +1,6 @@
 import type { AppRoute } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
+import { currentGeneration, onGeneration } from "./generation";
 
 export function navigate(path: string, options: { replace?: boolean } = {}): void {
   if (location.pathname !== path) {
@@ -17,6 +18,12 @@ export function usePath(): string {
     return () => removeEventListener("popstate", update);
   }, []);
   return path;
+}
+
+export function useGeneration(): number {
+  const [value, setValue] = useState(currentGeneration());
+  useEffect(() => onGeneration(() => setValue(currentGeneration())), []);
+  return value;
 }
 
 /** O caminho de cada rota do app. */

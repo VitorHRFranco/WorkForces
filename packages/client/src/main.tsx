@@ -5,6 +5,7 @@ import { render } from "preact";
 import { App } from "./app";
 import { bridge, hasBridge } from "./bridge";
 import { setFlash } from "./flash";
+import { bumpGeneration } from "./generation";
 import { navigate, routePath } from "./router";
 
 const root = document.getElementById("app")!;
@@ -12,6 +13,7 @@ const root = document.getElementById("app")!;
 function go(route: AppRoute): void {
   if (route.page === "launcher" && route.notice) setFlash(route.notice);
   navigate(routePath(route), { replace: true });
+  bumpGeneration();
 }
 
 if (!hasBridge()) {

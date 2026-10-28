@@ -2,7 +2,7 @@ import { InvitePage } from "./pages/invite-page";
 import { LauncherPage } from "./pages/launcher-page";
 import { LoginPage } from "./pages/login-page";
 import { OfficePage } from "./pages/office-page";
-import { usePath } from "./router";
+import { useGeneration, usePath } from "./router";
 
 function decodeCode(raw: string): string {
   try {
@@ -14,9 +14,10 @@ function decodeCode(raw: string): string {
 
 export function App() {
   const path = usePath();
-  if (path === "/login") return <LoginPage />;
+  const generation = useGeneration();
+  if (path === "/login") return <LoginPage key={generation} />;
   const invite = /^\/invite\/([^/]+)$/.exec(path);
-  if (invite) return <InvitePage code={decodeCode(invite[1]!)} />;
-  if (path === "/office") return <OfficePage />;
-  return <LauncherPage />;
+  if (invite) return <InvitePage key={generation} code={decodeCode(invite[1]!)} />;
+  if (path === "/office") return <OfficePage key={generation} />;
+  return <LauncherPage key={generation} />;
 }

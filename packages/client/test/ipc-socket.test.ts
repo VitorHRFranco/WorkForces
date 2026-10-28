@@ -32,6 +32,11 @@ describe("IpcSocket", () => {
     fake.emit(b.id, { type: "message", data: "da outra" });
     fake.emit(a.id, { type: "message", data: "minha" });
     expect(got).toEqual(["minha"]);
+    const closes: number[] = [];
+    a.onclose = (event) => closes.push(event.code);
+    fake.emit(b.id, { type: "close", code: 1006 });
+    expect(a.readyState).toBe(0);
+    expect(closes).toEqual([]);
   });
 
   it("manda só depois de aberto; ao fechar, avisa uma vez e para de ouvir", () => {
