@@ -18,6 +18,9 @@ jobs:
         os: [windows-latest, ubuntu-latest]
         node: [22, 24]
     runs-on: ${{ matrix.os }}
+    # Este job não abre o app: o binário do Electron não precisa ser baixado.
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -40,8 +43,12 @@ jobs:
       - run: npm install -g pnpm@12.11.2
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm --filter @workforces/e2e exec playwright install --with-deps chromium
-      - run: pnpm e2e
+      # O pacote electron não baixa o binário ao instalar; baixa aqui, antes dos testes.
+      - run: node packages/app/node_modules/electron/install.js
+      - run: pnpm --filter @workforces/e2e exec playwright install-deps chromium
+      # O Ubuntu 24 bloqueia o namespace que o sandbox do Electron usa; no runner descartável, libera.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: xvfb-run -a pnpm e2e
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

@@ -7,7 +7,7 @@ import { deskSeat, deskSpot, startOffice, walkTo, type Office } from "../test/su
 /** Os quadros vão para packages/e2e/demo-frames; tools/demo/make_gif.py monta o GIF a partir deles. */
 const FRAMES = fileURLToPath(new URL("../demo-frames", import.meta.url));
 const DEMO_AGENT = fileURLToPath(new URL("./demo-agent.mjs", import.meta.url));
-/** Todo quadro que o navegador desenha: sem GPU ele já desenha poucos por segundo. */
+/** Todo quadro que o app desenha: sem GPU ele já desenha poucos por segundo. */
 const EVERY_NTH_FRAME = 1;
 /** O último quadro fica parado um pouco: o GIF pausa no fim antes de recomeçar. */
 const LAST_FRAME_MS = 3_000;
@@ -20,11 +20,12 @@ test.afterAll(async () => {
   await office?.stop();
 });
 
-test("grava a demonstração do README", async ({ browser }) => {
+test("grava a demonstração do README", async () => {
   const ana = await office.account("ana");
   const bia = await office.account("bia");
-  const anaPage = await office.login(browser, ana);
-  // A bia não abre navegador: só a conexão. Um navegador a menos desenhando o jogo deixa a gravação fluida.
+  // Larga o bastante para o mapa aparecer ao lado do painel do terminal (760 px).
+  const anaPage = await office.login(ana, { width: 1280, height: 720 });
+  // A bia não abre o app: só a conexão. Um app a menos desenhando o jogo deixa a gravação fluida.
   const biaOnline = await office.connect(bia);
   biaOnline.move(deskSeat(office.map, "mesa-2")); // sentada na mesa dela
   // Pasta "loja" (o rótulo do robô) e um terminal estreito, para a letra caber maior no painel.
@@ -50,7 +51,7 @@ test("grava a demonstração do README", async ({ browser }) => {
 });
 
 /**
- * Grava a página pelo screencast do Chromium (quadros mandados pelo próprio navegador, com a hora de cada um) até
+ * Grava a página pelo screencast do Chromium do app (quadros mandados pelo próprio Chromium, com a hora de cada um) até
  * `stop()`; timing.json guarda quanto cada quadro dura.
  */
 async function record(page: Page) {

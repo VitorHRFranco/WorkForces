@@ -1,6 +1,6 @@
 name: GIF do README
 
-# Grava a demonstração do README num runner do GitHub (o navegador desenha o jogo por software e pesa na CPU).
+# Grava a demonstração do README num runner do GitHub (o app desenha o jogo por software e pesa na CPU).
 # Rode pela aba Actions ("Run workflow") e baixe o artefato "demo-gif"; o GIF vai em docs/media/demo.gif.
 on:
   workflow_dispatch:
@@ -31,8 +31,12 @@ jobs:
       - run: npm install -g pnpm@12.11.2
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm --filter @workforces/e2e exec playwright install --with-deps chromium
-      - run: pnpm demo
+      # O pacote electron não baixa o binário ao instalar; baixa aqui, antes da gravação.
+      - run: node packages/app/node_modules/electron/install.js
+      - run: pnpm --filter @workforces/e2e exec playwright install-deps chromium
+      # O Ubuntu 24 bloqueia o namespace que o sandbox do Electron usa; no runner descartável, libera.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: xvfb-run -a pnpm demo
         env:
           WF_GIF_SCALE: ${{ inputs.scale }}
           WF_GIF_SPEED: ${{ inputs.speed }}

@@ -1,30 +1,62 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer as createProbe, type AddressInfo } from "node:net";
 import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
-import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { parseOfficeMap, type OfficeMap, type Point } from "@workforces/protocol";
+import { _electron, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { parseOfficeMap, type AppBridge, type OfficeMap, type Point } from "@workforces/protocol";
 import WebSocket from "ws";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 const SERVER_CLI = join(ROOT, "packages", "server", "dist", "cli.js");
 const BRIDGE_CLI = join(ROOT, "packages", "bridge", "dist", "cli.js");
+/** O app do build: o `main` do package.json aponta para dist/main.js. */
+const APP_DIR = join(ROOT, "packages", "app");
+/** O executável do Electron: o pacote `electron` do app devolve o caminho dele. */
+const ELECTRON = createRequire(join(APP_DIR, "package.json"))("electron") as string;
 const FAKE_AGENT = fileURLToPath(new URL("./fake-agent.mjs", import.meta.url));
-const PASSWORD = "senha-de-teste-e2e";
-/** O token que o agente de brinquedo imprime (fake-agent.mjs); nunca pode chegar ao navegador. */
+export const PASSWORD = "senha-de-teste-e2e";
+/** O token que o agente de brinquedo imprime (fake-agent.mjs); nunca pode chegar ao app. */
 export const FAKE_TOKEN = "ghp_" + "E2Etokendebrinquedo".padEnd(36, "0");
 /** Quanto uma caminhada pode levar até o avatar chegar (ou desistir com a posição na mensagem). */
 const WALK_TIMEOUT_MS = 20_000;
 const TOLERANCE = 6;
+/** Janela pequena: o jogo é desenhado por software sem GPU, e cada janela pesa na CPU. */
+const APP_SIZE = { width: 960, height: 640 };
+/** Quanto o app tem para sair sozinho antes de ser morto. */
+const APP_CLOSE_MS = 10_000;
 
 export interface Account {
   name: string;
   /** Cookie de sessão, para chamar a API como a pessoa. */
   cookie: string;
 }
+
+export interface Size {
+  width: number;
+  height: number;
+}
+
+export interface LaunchOptions {
+  /** Pasta de dados do app (padrão: uma nova dentro da pasta do teste); a mesma pasta reabre o mesmo perfil. */
+  dataDir?: string;
+  /** Link `workforces://` passado ao app ao abrir, como o sistema faz ao clicar num convite. */
+  link?: string;
+  /** Tamanho da área da página (padrão: 960 × 640). */
+  size?: Size;
+}
+
+export interface LaunchedApp {
+  app: ElectronApplication;
+  page: Page;
+  dataDir: string;
+}
+
+/** O que o gravador de mensagens deixa na página. */
+type RecordingWindow = { workforces: AppBridge; __e2eMessages?: string[] };
 
 export interface AgentOptions {
   /** Nome da pasta do projeto, que vira o rótulo do robô (padrão: projeto-<nome da pessoa>). */
@@ -34,7 +66,7 @@ export interface AgentOptions {
   rows?: number;
 }
 
-/** Uma pessoa no escritório sem navegador: aparece online, anda e conversa, sem desenhar o jogo. */
+/** Uma pessoa no escritório sem o app: aparece online, anda e conversa, sem desenhar o jogo. */
 export interface Presence {
   move(to: Point): void;
   chat(text: string): void;
@@ -95,10 +127,11 @@ export async function startOffice(): Promise<Office> {
 
 export class Office {
   private readonly agents: IPty[] = [];
-  private readonly contexts: BrowserContext[] = [];
+  private readonly apps: ElectronApplication[] = [];
   private readonly sockets: WebSocket[] = [];
   private admin: Account | null = null;
-  private readonly received = new Map<Page, string[]>();
+  /** `localhost:<porta>`, como o app mostra o escritório. */
+  readonly host: string;
 
   constructor(
     private readonly dir: string,
@@ -107,7 +140,9 @@ export class Office {
     private readonly server: ChildProcess,
     private readonly adminCode: string,
     readonly map: OfficeMap,
-  ) {}
+  ) {
+    this.host = new URL(url).host;
+  }
 
   /** A primeira conta usa o convite de admin; as outras, convites gerados por ela. */
   async account(name: string): Promise<Account> {
@@ -119,25 +154,82 @@ export class Office {
     return account;
   }
 
-  /** Entra pelo formulário, numa janela anônima própria, e espera o mapa carregar. */
-  async login(browser: Browser, account: Account): Promise<Page> {
-    const context = await browser.newContext();
-    this.contexts.push(context);
-    const page = await context.newPage();
-    const received: string[] = [];
-    page.on("websocket", (socket) => socket.on("framereceived", (frame) => received.push(String(frame.payload))));
-    this.received.set(page, received);
-    await page.goto(`${this.url}/login`);
+  /**
+   * Abre o app do build numa pasta de dados própria, sem registrar o `workforces://` no sistema. No Linux sem chaveiro,
+   * `--password-store=basic` deixa o `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
+   */
+  async launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
+    const dataDir = options.dataDir ?? mkdtempSync(join(this.dir, "app-"));
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+    const app = await _electron.launch({
+      executablePath: ELECTRON,
+      args: [APP_DIR, "--password-store=basic", ...(options.link ? [options.link] : [])],
+      env: { ...env, WF_APP_DATA_DIR: dataDir, WF_APP_NO_PROTOCOL: "1" },
+    });
+    this.apps.push(app);
+    const page = await app.firstWindow();
+    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), options.size ?? APP_SIZE);
+    return { app, page, dataDir };
+  }
+
+  /** Fecha o app (o Playwright pede `app.quit()` e espera o processo sair), com prazo: se vencer, mata o processo. */
+  async closeApp(app: ElectronApplication): Promise<void> {
+    const index = this.apps.indexOf(app);
+    if (index !== -1) this.apps.splice(index, 1);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), APP_CLOSE_MS);
+    });
+    const closed = await Promise.race([app.close().then(() => true, () => false), deadline]);
+    clearTimeout(timer);
+    if (closed) return;
+    const child = app.process();
+    child.kill();
+    if (!(await waitExit(child, 5_000))) {
+      child.kill("SIGKILL");
+      await waitExit(child, 5_000);
+    }
+  }
+
+  /** Abre o app e entra por "Já tenho conta" (endereço do escritório e depois login), e espera o mapa carregar. */
+  async login(account: Account, size?: Size): Promise<Page> {
+    const { page } = await this.launchApp({ size });
+    const haveAccount = page.getByRole("button", { name: "Já tenho conta" });
+    // A tela inicial na janela é a página do app já carregada: o gravador fica nela até o fim do teste.
+    await haveAccount.waitFor();
+    await page.evaluate(() => {
+      const target = window as unknown as RecordingWindow;
+      const messages: string[] = [];
+      target.__e2eMessages = messages;
+      target.workforces.socket.onEvent((_id, event) => {
+        if (event.type === "message") messages.push(event.data);
+      });
+    });
+    await haveAccount.click();
+    await page.getByRole("textbox", { name: "Endereço do escritório" }).fill(this.url);
+    await page.getByRole("button", { name: "Continuar" }).click();
     await page.getByRole("textbox", { name: "Nome" }).fill(account.name);
     await page.getByRole("textbox", { name: "Senha" }).fill(PASSWORD);
-    await page.getByRole("button", { name: "Entrar" }).click();
+    await page.getByRole("button", { name: "Entrar", exact: true }).click();
     await page.waitForFunction(() => "__workforces" in window);
     return page;
   }
 
-  /** O que o navegador recebeu pelo WebSocket (cada mensagem como texto), desde o login. */
-  messagesFor(page: Page): string[] {
-    return this.received.get(page) ?? [];
+  /** O que a página recebeu do escritório pelo socket do app (cada mensagem como texto), desde o login. */
+  messagesFor(page: Page): Promise<string[]> {
+    return page.evaluate(() => (window as unknown as RecordingWindow).__e2eMessages ?? []);
+  }
+
+  /** Gera um convite pela API e devolve o link do app que a página do convite (`/invite/<código>`) abre. */
+  async inviteAppLink(admin: Account): Promise<string> {
+    const code = await this.invite(admin);
+    const response = await fetch(`http://127.0.0.1:${this.port}/invite/${code}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    const match = /href="(workforces:[^"]+)"/.exec(html);
+    if (!match) throw new Error(`a página do convite não tem o link do app:${EOL}${html}`);
+    return match[1]!.replace(/&amp;/g, "&");
   }
 
   /** `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. */
@@ -160,7 +252,7 @@ export class Office {
     this.agents.push(agent);
   }
 
-  /** Entra no escritório só com a conexão do navegador, sem abrir um (um navegador a menos desenhando o jogo). */
+  /** Entra no escritório só com a conexão do cliente, sem abrir o app (um app a menos desenhando o jogo). */
   async connect(account: Account): Promise<Presence> {
     const socket = new WebSocket(`ws://127.0.0.1:${this.port}/ws/client`, { headers: { origin: this.url, cookie: account.cookie } });
     this.sockets.push(socket);
@@ -177,9 +269,9 @@ export class Office {
   }
 
   async stop(): Promise<void> {
-    // Primeiro as páginas e as conexões: abertas, elas ficam reconectando enquanto o servidor para.
+    // Primeiro os apps e as conexões: abertos, eles ficam reconectando enquanto o servidor para.
+    await Promise.all(this.apps.slice().map((app) => this.closeApp(app)));
     for (const socket of this.sockets.splice(0)) socket.terminate();
-    await Promise.all(this.contexts.splice(0).map((context) => context.close().catch(() => {})));
     // No Windows a pasta temporária só sai depois que a ponte (com o cwd lá dentro) termina.
     await Promise.all(this.agents.splice(0).map((agent) => new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 5_000);
@@ -247,7 +339,7 @@ export function deskSpot(map: OfficeMap, deskId: string): Point {
 
 /**
  * Anda com as setas até o alvo, um eixo de cada vez: segura a seta e solta quando o avatar passa do alvo, conferindo a
- * cada quadro do navegador (sem GPU o jogo desenha poucos quadros por segundo, e toques curtos passariam do ponto).
+ * cada quadro da página (sem GPU o jogo desenha poucos quadros por segundo, e toques curtos passariam do ponto).
  */
 export async function walkTo(page: Page, target: Point, order: readonly ("x" | "y")[] = ["x", "y"]): Promise<void> {
   for (const axis of order) {

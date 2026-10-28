@@ -1,6 +1,6 @@
 # WorkForces
 
-Escritório virtual 2D para times que trabalham com agentes de código (Claude Code). Cada agente roda na máquina de quem o chamou; quem chega perto da mesa vê o terminal do agente ao vivo, só para leitura.
+Escritório virtual 2D para times que trabalham com agentes de código (Claude Code). Cada pessoa entra pelo app de desktop (Windows). Cada agente roda na máquina de quem o chamou; quem chega perto da mesa vê o terminal do agente ao vivo, só para leitura.
 
 ![Demonstração: o avatar anda até a mesa de outra pessoa e vê o terminal do agente dela ao vivo, com o token mascarado, e as duas conversam no chat](docs/media/demo.gif)
 
@@ -17,7 +17,7 @@ pnpm build
 pnpm test
 ```
 
-Testes de ponta a ponta com o Playwright: `pnpm e2e` sobe o servidor e a ponte do build e usa dois navegadores, e `pnpm demo` grava o GIF deste README. Os dois pesam na CPU (o jogo é desenhado por software no navegador sem GPU) e rodam na esteira do GitHub: o E2E no CI, e o GIF no workflow manual "GIF do README". Para rodar localmente, instale antes o navegador: `pnpm --filter @workforces/e2e exec playwright install chromium`.
+`pnpm e2e` sobe o servidor, a ponte e o app (Electron) do build, e `pnpm demo` grava o GIF deste README. Os dois pesam na CPU e rodam na esteira do GitHub: o E2E no CI, e o GIF no workflow manual "GIF do README". No Linux sem tela, rode com `xvfb-run -a`.
 
 ## Rodar o escritório localmente
 
@@ -26,11 +26,13 @@ pnpm build
 node packages/server/dist/cli.js start
 ```
 
-O escritório abre em `http://localhost:4600`. Na primeira execução, o console mostra um link de convite de admin (válido por 24 h): abra-o no navegador para criar a primeira conta.
+Em outro terminal, abra o app com `pnpm app`. Na primeira execução, o console do servidor mostra um link de convite de admin (válido por 24 h). No app, cole o link em "Entrar com convite" e crie a primeira conta. O escritório fica salvo, e nas próximas vezes o app já abre nele.
+
+O app é o único jeito de entrar. O servidor não serve mais páginas para o navegador, só a API, o mapa e a página do link de convite, que abre o app.
 
 ### No escritório
 
-- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo navegador ou pela ponte): a primeira livre, na ordem do mapa.
+- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo app ou pela ponte): a primeira livre, na ordem do mapa.
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
 - Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha.
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
@@ -66,7 +68,6 @@ Configuração por variáveis de ambiente:
 | `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede; defina também `WF_PUBLIC_URL` com o endereço que as pessoas abrem) |
 | `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço que o navegador usa (links de convite e origem aceita) |
 | `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
-| `WF_CLIENT_DIR` | `packages/client/dist` | build do cliente web |
 | `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled, tiles de 32 px); a imagem do tileset fica na mesma pasta |
 | `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost |
 | `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
@@ -113,7 +114,7 @@ WF_DOMAIN=escritorio.exemplo.com.br docker compose up -d --build
 docker compose logs workforces   # o primeiro convite de admin aparece aqui
 ```
 
-- As contas ficam no volume `workforces-data`. Para atualizar: `git pull` e o mesmo `docker compose up -d --build`; depois, peça para todo mundo recarregar a página do escritório.
+- As contas ficam no volume `workforces-data`. Para atualizar: `git pull` e o mesmo `docker compose up -d --build`; depois, quem estiver no escritório clica em "Escritórios" e entra de novo.
 - Na primeira subida, o Caddy espera o servidor ficar saudável (uns 30 s) antes de responder.
 - Use um domínio (ou subdomínio) só para o escritório: um site num domínio pai pode criar cookies que atrapalham o de sessão.
 - Não publique a porta 4600 do servidor: só o Caddy fala com ele.
@@ -139,18 +140,6 @@ docker run -p 127.0.0.1:4600:4600 -e WF_PUBLIC_URL=http://localhost:4600 workfor
 
 O log avisa que está sem HTTPS (dentro do container o servidor escuta na rede); publicar a porta só em `127.0.0.1` deixa o acesso restrito a este computador.
 
-### Cliente web com recarga automática
+### O app em desenvolvimento
 
-Rode o servidor com `WF_PUBLIC_URL=http://localhost:5173` e, em outro terminal, `pnpm --filter @workforces/client dev`; abra `http://localhost:5173`.
-
-Bash:
-
-```bash
-WF_PUBLIC_URL=http://localhost:5173 node packages/server/dist/cli.js start
-```
-
-PowerShell:
-
-```powershell
-$env:WF_PUBLIC_URL = "http://localhost:5173"; node packages/server/dist/cli.js start
-```
+`pnpm app` abre o app a partir do build (`packages/app/dist` e `packages/client/dist`). Depois de mudar o cliente, rode `pnpm --filter @workforces/client build` (ou deixe `pnpm --filter @workforces/client dev` rodando) e aperte F5 na janela do app. Ao abrir, o app registra o link `workforces://` neste Windows para esta cópia; é assim que o link de convite do navegador chega a ele.

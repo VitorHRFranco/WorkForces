@@ -9,12 +9,12 @@ test.afterAll(async () => {
   await office?.stop();
 });
 
-test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no chat, respeita a mesa fechada e sai da zona", async ({ browser }) => {
+test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no chat, respeita a mesa fechada e sai da zona", async () => {
   const ana = await office.account("ana");
   const bia = await office.account("bia");
   // Quem aparece primeiro fica com a primeira mesa livre: ana na mesa-1, bia na mesa-2.
-  const anaPage = await office.login(browser, ana);
-  const biaPage = await office.login(browser, bia);
+  const anaPage = await office.login(ana);
+  const biaPage = await office.login(bia);
   await office.startAgent(bia);
 
   const panel = anaPage.getByRole("region", { name: "Terminal da mesa" });
@@ -25,10 +25,10 @@ test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no ch
   await expect(screen).toContainText("token de teste: ••••");
   await expect(screen).not.toContainText("E2Etokendebrinquedo");
   expect(await screen.textContent()).not.toContain(FAKE_TOKEN);
-  // Nem pela rede: o que chega ao navegador já vem mascarado da ponte.
-  const toAna = () => office.messagesFor(anaPage);
-  expect(toAna().some((message) => message.includes("token de teste"))).toBe(true);
-  expect(toAna().some((message) => message.includes("E2Etokendebrinquedo"))).toBe(false);
+  // Nem pela rede: o que chega ao app já vem mascarado da ponte.
+  const toAna = async () => office.messagesFor(anaPage);
+  expect((await toAna()).some((message) => message.includes("token de teste"))).toBe(true);
+  expect((await toAna()).some((message) => message.includes("E2Etokendebrinquedo"))).toBe(false);
 
   const anaChat = anaPage.getByRole("region", { name: "Chat" });
   const biaChat = biaPage.getByRole("region", { name: "Chat" });
@@ -42,7 +42,7 @@ test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no ch
   // Mesa fechada: o painel some para quem visita, e volta quando a dona abre.
   await biaPage.getByRole("button", { name: "Mesa: aberta" }).click();
   await expect(panel).toBeHidden();
-  await expect.poll(() => toAna().some((message) => message.includes('"desk-closed"'))).toBe(true);
+  await expect.poll(async () => (await toAna()).some((message) => message.includes('"desk-closed"'))).toBe(true);
   await expect(biaPage.getByRole("button", { name: "Mesa: fechada" })).toBeVisible();
   await biaPage.getByRole("button", { name: "Mesa: fechada" }).click();
   await expect(panel).toBeVisible();
