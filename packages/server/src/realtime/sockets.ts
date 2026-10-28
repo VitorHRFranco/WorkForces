@@ -14,7 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AccountServices } from "../accounts/index.js";
 import type { AppContext } from "../context.js";
-import { bearerToken, sessionIdOf } from "../http/cookies.js";
+import { bearerToken, originAllowed, sessionIdOf } from "../http/cookies.js";
 import { toMe } from "../http/routes.js";
 import type { BridgeLink, ClientLink, Hub, WatchResult } from "./hub.js";
 import type { ListenerLink, Listeners, SpawnRequester } from "./listeners.js";
@@ -224,7 +224,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
   function onClient(ws: WebSocket, request: IncomingMessage): void {
     ws.on("error", () => {});
     trackAlive(ws);
-    if (request.headers.cookie !== undefined && request.headers.origin !== origin) return ws.close(CLOSE_CODES.originNotAllowed, "origem não permitida");
+    if (!originAllowed(request.headers, origin)) return ws.close(CLOSE_CODES.originNotAllowed, "origem não permitida");
     const sessionId = sessionIdOf(request.headers);
     // Abrir a página já renova a sessão via /api/me, que também reenvia o cookie; renovar aqui só faria o banco durar mais que o cookie.
     const user = accounts.sessions.lookup(sessionId, { renew: false });

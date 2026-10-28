@@ -77,6 +77,16 @@ describe("proteção contra requisição forjada", () => {
     expect(form.statusCode).toBe(415);
     for (const response of [foreign, noOrigin, plain, form]) expect(response.headers["set-cookie"]).toBeUndefined();
   });
+
+  it("sem cookie, Origin de outro endereço também é recusada (DNS rebinding)", async () => {
+    const { app, accounts } = await setupApi();
+    await createUser(accounts, "ana");
+    const rebound = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json", origin: "http://malicioso.exemplo:4600" }, payload: { name: "ana", password: "senha-forte-123" } });
+    expect(rebound.statusCode).toBe(403);
+    expect(rebound.headers["set-cookie"]).toBeUndefined();
+    const own = await app.inject({ method: "POST", url: "/api/login", headers: { "content-type": "application/json", origin: ORIGIN }, payload: { name: "ana", password: "senha-forte-123" } });
+    expect(own.statusCode).toBe(200);
+  });
 });
 
 describe("proteção contra requisição forjada (caminho codificado)", () => {

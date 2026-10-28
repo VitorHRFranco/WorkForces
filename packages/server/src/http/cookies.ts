@@ -32,3 +32,13 @@ export function bearerToken(header: string | undefined): string | null {
 export function sessionIdOf(headers: { authorization?: string; cookie?: string }): string | null {
   return bearerToken(headers.authorization) ?? readCookie(headers.cookie, SESSION_COOKIE);
 }
+
+/**
+ * A origem do pedido confere com a do escritório? Origin presente tem de ser a do escritório, com cookie ou sem: um
+ * navegador num nome que aponta para este servidor (DNS rebinding) manda a origem dele. Cookie sem Origin também é
+ * recusado. O app (fetch e ws do Node) não manda nenhum dos dois.
+ */
+export function originAllowed(headers: { origin?: string; cookie?: string }, origin: string): boolean {
+  if (headers.origin === undefined && headers.cookie === undefined) return true;
+  return headers.origin === origin;
+}

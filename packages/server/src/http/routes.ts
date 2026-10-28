@@ -4,7 +4,7 @@ import type { AccountServices } from "../accounts/index.js";
 import { INVITE_TTL_MS } from "../accounts/invites.js";
 import { nameKeyOf, type User } from "../accounts/users.js";
 import type { AppContext } from "../context.js";
-import { bearerToken, clearedSessionCookie, sessionCookie, sessionIdOf } from "./cookies.js";
+import { bearerToken, clearedSessionCookie, originAllowed, sessionCookie, sessionIdOf } from "./cookies.js";
 import { AttemptLimiter } from "./limiter.js";
 
 export interface ApiDeps {
@@ -29,10 +29,11 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   const byName = new AttemptLimiter(10, LOGIN_WINDOW_MS, ctx.now);
   const currentUser = (request: FastifyRequest) => accounts.sessions.lookup(sessionIdOf(request.headers));
 
-  // Contra requisição forjada: origem exata quando o pedido leva cookie (é com ele que o navegador entra sozinho) e JSON sempre (application/json força a pré-checagem do navegador, que este servidor não aprova).
+  // Contra requisição forjada: origem exata quando o pedido diz de onde vem ou leva cookie (`originAllowed`), e JSON sempre
+  // (application/json força a pré-checagem do navegador, que este servidor não aprova).
   app.addHook("onRequest", async (request, reply) => {
     if (!STATE_CHANGING.has(request.method)) return;
-    if (request.headers.cookie !== undefined && request.headers.origin !== origin) return reply.code(403).send({ error: `origem não permitida; abra o escritório em ${origin}` });
+    if (!originAllowed(request.headers, origin)) return reply.code(403).send({ error: `origem não permitida; abra o escritório em ${origin}` });
     if (!String(request.headers["content-type"] ?? "").startsWith("application/json")) {
       return reply.code(415).send({ error: "use application/json" });
     }

@@ -128,6 +128,13 @@ describe("conexão do navegador", () => {
     expect(await mixed.closed).toBe(4003);
   });
 
+  it("sem cookie, Origin de outro endereço é recusada mesmo com Bearer (DNS rebinding)", async () => {
+    const server = await live();
+    const { session } = await person(server, "ana");
+    const rebound = new TestSocket(`${server.wsBase}/ws/client`, { headers: { authorization: `Bearer ${session}` }, origin: "http://malicioso.exemplo" });
+    expect(await rebound.closed).toBe(4003);
+  });
+
   it("exige a origem do escritório e uma sessão válida", async () => {
     const server = await live();
     const { session } = await person(server, "ana");
