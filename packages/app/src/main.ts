@@ -26,25 +26,32 @@ const PAGE_PREFIX = `app://${PAGE_HOST}/`;
 const MAX_TEXT = 2048;
 const MAX_SOCKET_TEXT = 64 * 1024;
 
-// A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
-if (process.env.WF_APP_DATA_DIR) app.setPath("userData", resolve(process.env.WF_APP_DATA_DIR));
-
-protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
-
-if (!app.requestSingleInstanceLock()) app.quit();
-else void start();
-
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 const isSocketId = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
 
 /** Só a página empacotada fala com o processo principal. */
 const fromPage = (event: IpcMainEvent | IpcMainInvokeEvent): boolean => event.senderFrame?.url.startsWith(PAGE_PREFIX) === true;
 
+let tray: Tray | null = null; // no módulo: sem referência o coletor de lixo remove o ícone da bandeja
+
+// Falha ao iniciar não pode deixar um processo sem janela segurando o bloqueio de instância única.
+const fail = (error: unknown): void => {
+  console.error(error);
+  app.exit(1);
+};
+
+// A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
+if (process.env.WF_APP_DATA_DIR) app.setPath("userData", resolve(process.env.WF_APP_DATA_DIR));
+
+protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+
+if (!app.requestSingleInstanceLock()) app.quit();
+else start().catch(fail);
+
 async function start(): Promise<void> {
   let initialLink = findInviteArg(process.argv);
   let quitting = false;
   let window: BrowserWindow | null = null;
-  let tray: Tray | null = null; // fica numa variável: sem referência o coletor de lixo remove o ícone
   let state: AppState | null = null;
   let relay: SocketRelay | null = null;
 
@@ -52,6 +59,11 @@ async function start(): Promise<void> {
     if (process.defaultApp) app.setAsDefaultProtocolClient("workforces", process.execPath, [resolve(process.argv[1]!)]);
     else app.setAsDefaultProtocolClient("workforces");
   }
+
+  /** Manda para a página, a menos que a janela já tenha sido destruída. */
+  const sendToPage = (channel: string, ...args: unknown[]): void => {
+    if (window && !window.isDestroyed()) window.webContents.send(channel, ...args);
+  };
 
   const showWindow = (): void => {
     if (!window) return;
@@ -64,9 +76,8 @@ async function start(): Promise<void> {
     showWindow();
     const link = findInviteArg(argv);
     if (link === null || !state || !relay) return;
-    const route: AppRoute = state.openLink(link);
     relay.closeAll();
-    window?.webContents.send("app:route", route);
+    sendToPage("app:route", state.openLink(link));
   });
 
   app.on("before-quit", () => {
@@ -80,10 +91,10 @@ async function start(): Promise<void> {
       if (/^https?:\/\//.test(url)) void shell.openExternal(url);
       return { action: "deny" };
     });
-    contents.on("will-navigate", (event, url) => {
-      if (url.startsWith(PAGE_PREFIX)) return;
+    contents.on("will-navigate", (event) => {
+      if (event.url.startsWith(PAGE_PREFIX)) return;
       event.preventDefault();
-      if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+      if (/^https?:\/\//.test(event.url)) void shell.openExternal(event.url);
     });
   });
 
@@ -110,7 +121,7 @@ async function start(): Promise<void> {
   const preload = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 
   const socketRelay = new SocketRelay(
-    (id, event) => window?.webContents.send("socket:event", id, event),
+    (id, event) => sendToPage("socket:event", id, event),
     () => appState.unauthorized(),
   );
   relay = socketRelay;
@@ -142,12 +153,14 @@ async function start(): Promise<void> {
     return value;
   };
   // Mudar o escritório aberto derruba o socket do anterior.
-  const switching = (route: () => AppRoute): AppRoute => {
+  const switching = (arg: unknown, action: (value: string) => AppRoute): AppRoute => {
+    const value = text(arg);
     socketRelay.closeAll();
-    return route();
+    return action(value);
   };
 
   handle("app:startup", () => {
+    socketRelay.closeAll();
     const link = initialLink;
     initialLink = null;
     return appState.startup(link);
@@ -159,14 +172,14 @@ async function start(): Promise<void> {
     const entry = appState.list().find((office) => office.id === wanted);
     return entry ? checkReachable(entry.url) : false;
   });
-  handle("offices:open", (id) => switching(() => appState.open(text(id))));
-  handle("offices:add", (address) => switching(() => appState.add(text(address))));
+  handle("offices:open", (id) => switching(id, (value) => appState.open(value)));
+  handle("offices:add", (address) => switching(address, (value) => appState.add(value)));
   handle("offices:forget", (id) => {
     const wanted = text(id);
     socketRelay.closeAll();
     appState.forget(wanted);
   });
-  handle("invites:open", (link) => switching(() => appState.openLink(text(link))));
+  handle("invites:open", (link) => switching(link, (value) => appState.openLink(value)));
 
   on("socket:open", (id) => {
     if (isSocketId(id)) socketRelay.open(id, appState.target());
@@ -190,7 +203,7 @@ async function start(): Promise<void> {
     webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   window = win;
-  void win.loadURL(PAGE_PREFIX);
+  win.loadURL(PAGE_PREFIX).catch(fail);
   win.once("ready-to-show", () => win.show());
   win.on("close", (event) => {
     if (quitting) return;

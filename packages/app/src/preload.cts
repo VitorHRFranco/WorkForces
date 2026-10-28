@@ -1,4 +1,5 @@
-const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
+import electron = require("electron");
+const { contextBridge, ipcRenderer } = electron;
 import type { AppBridge, AppRoute, SocketEvent } from "@workforces/protocol";
 
 // Preload com sandbox: só "electron" pode ser importado; os canais repetem os literais do main.ts.
