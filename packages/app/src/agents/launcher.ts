@@ -75,7 +75,7 @@ export class AgentLauncher {
       deps.log(`não consegui abrir a janela: ${(error as Error).message}`);
       return { ok: false, error: error instanceof SpawnFailure ? error.reason : "spawn-failed" };
     }
-    void deps.minimize(title);
+    void deps.minimize(title).catch(() => {});
     const answered = await deps.deliver(channelId, {
       type: "start",
       server: office.url,

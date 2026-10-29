@@ -27,25 +27,64 @@ describe("janela do agente", () => {
       "ab".repeat(16),
     ]);
     expect(() => windowCommand(agentWindow("C:\\proj\\a;b"), CLI)).toThrow(SpawnFailure);
+    expect(() => windowCommand(agentWindow("C:\\proj\\a;b"), CLI)).toThrow(expect.objectContaining({ reason: "spawn-failed" }));
   });
 });
 
 describe("findNode", () => {
-  const run = (version: string) => async (file: string) => (file === "where.exe" ? "C:\\node\\node.exe\r\nC:\\outro\\node.exe\r\n" : `${version}\n`);
+  const PROBE = "process.stdout.write(process.execPath + '\\n' + process.versions.node)";
+  const NODE = "C:\\Users\\João\\node\\node.exe";
+  const REAL = "C:\\real\\node.exe";
+  const env = { Path: "C:\\Users\\João\\node;D:\\outro" };
+  const exists = (path: string) => path === NODE || path === "D:\\outro\\node.exe";
+  /** Um `run` que confere os argumentos e responde como o probe: o executável real e a versão. */
+  const run = (version: string) => async (file: string, args: string[]) => {
+    expect(args).toEqual(["-e", PROBE]);
+    expect(file).toBe(NODE);
+    return `${REAL}\r\n${version}`;
+  };
 
-  it("Node antigo ou ausente dá null", async () => {
-    expect(await findNode({}, run("20.11.0"))).toBeNull();
-    expect(await findNode({}, run("22.12.0"))).toBe("C:\\node\\node.exe");
-    expect(await findNode({}, run("22.11.9"))).toBeNull();
-    expect(await findNode({}, async () => Promise.reject(new Error("não achei")))).toBeNull();
+  it("22.12 ou mais novo dá o executável real do probe; mais velho dá null", async () => {
+    expect(await findNode(env, run("22.12.0"), exists)).toBe(REAL);
+    expect(await findNode(env, run("24.0.0"), exists)).toBe(REAL);
+    expect(await findNode(env, run("22.9.0"), exists)).toBeNull();
+    expect(await findNode(env, run("20.11.0"), exists)).toBeNull();
+  });
+
+  it("probe malformado, falha ou sem node no PATH dá null", async () => {
+    expect(await findNode(env, async () => "22.12.0", exists)).toBeNull();
+    expect(await findNode(env, async () => "relativo\\node.exe\n22.12.0", exists)).toBeNull();
+    expect(await findNode(env, async () => "C:\\x\\node.exe\n22.12.0\nextra", exists)).toBeNull();
+    expect(await findNode(env, async () => Promise.reject(new Error("falhou")), exists)).toBeNull();
+    expect(await findNode(env, run("22.12.0"), () => false)).toBeNull();
+    expect(await findNode({}, run("22.12.0"), exists)).toBeNull();
+  });
+
+  it("entrada relativa ou vazia do PATH é ignorada, mesmo com node.exe", async () => {
+    const calls: string[] = [];
+    const found = await findNode(
+      { PATH: ";.;bin;C:\\Users\\João\\node" },
+      async (file) => {
+        calls.push(file);
+        return `${REAL}\n22.12.0`;
+      },
+      (path) => path === "node.exe" || path === "bin\\node.exe" || path === ".\\node.exe" || path === NODE,
+    );
+    expect(found).toBe(REAL);
+    expect(calls).toEqual([NODE]);
   });
 
   it("WF_NODE tem prioridade", async () => {
     const seen: string[] = [];
-    const found = await findNode({ WF_NODE: "D:\\meu\\node.exe" }, async (file) => {
-      seen.push(file);
-      return "24.1.0";
-    });
+    const found = await findNode(
+      { ...env, WF_NODE: "D:\\meu\\node.exe" },
+      async (file, args) => {
+        seen.push(file);
+        expect(args).toEqual(["-e", PROBE]);
+        return "D:\\meu\\node.exe\n24.1.0";
+      },
+      exists,
+    );
     expect(found).toBe("D:\\meu\\node.exe");
     expect(seen).toEqual(["D:\\meu\\node.exe"]);
   });

@@ -98,13 +98,16 @@ describe("AgentLauncher", () => {
     let release: (count: number) => void = () => {};
     const slow = setup({ countOpenAgents: () => new Promise<number>((resolve) => (release = resolve)) });
     const launcher = new AgentLauncher(slow.deps);
-    slow.clock.now = SPAWN_INTERVAL_MS;
+    slow.clock.now = 10_000;
     const first = launcher.spawn("loja", OFFICE);
-    slow.clock.now += SPAWN_INTERVAL_MS + 1;
+    slow.clock.now = 10_001;
     expect(await launcher.spawn("loja", OFFICE)).toEqual({ ok: false, error: "rate-limited" });
     release(4);
     expect(await first).toEqual({ ok: true });
-    slow.clock.now += SPAWN_INTERVAL_MS;
+    // 10002 ms: passou menos de 5 s desde a primeira (10000), mas só ela gastou a vez; a recusada não.
+    slow.clock.now = 10_002;
+    expect(await launcher.spawn("loja", OFFICE)).toEqual({ ok: false, error: "rate-limited" });
+    slow.clock.now = 10_000 + SPAWN_INTERVAL_MS;
     const third = launcher.spawn("loja", OFFICE);
     release(0);
     expect(await third).toEqual({ ok: true });

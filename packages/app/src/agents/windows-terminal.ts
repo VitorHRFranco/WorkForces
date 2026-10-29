@@ -1,4 +1,8 @@
 import { execFile, spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { win32 } from "node:path";
+
+const { delimiter, isAbsolute, join } = win32; // só o Windows abre agentes; assim os testes valem também no Linux do CI
 
 /** Tudo o que a janela de um agente precisa; as credenciais não entram aqui (vão pelo canal local). */
 export interface AgentWindow {
@@ -79,11 +83,21 @@ export function windowsTerminalSpawner(cliPath: string): Spawner {
 
 const RUN_TIMEOUT_MS = 5_000;
 const MIN_NODE = [22, 12];
+/** Imprime o executável real e a versão: um atalho `node.exe` (Scoop, Volta) abre o Node de verdade como filho, e cada agente seria contado duas vezes. */
+const PROBE = "process.stdout.write(process.execPath + '\\n' + process.versions.node)";
 
 function runDefault(file: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(file, args, { windowsHide: true, timeout: RUN_TIMEOUT_MS }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
   });
+}
+
+function isFileDefault(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function versionAtLeast(version: string, min: number[]): boolean {
@@ -93,23 +107,34 @@ function versionAtLeast(version: string, min: number[]): boolean {
   return major > min[0]! || (major === min[0] && minor >= min[1]!);
 }
 
+/** O primeiro `node.exe` do PATH. A busca é feita aqui: o `where.exe` lista a pasta atual antes do PATH e escreve na página de código OEM (acento quebra). */
+function nodeOnPath(env: NodeJS.ProcessEnv, exists: (path: string) => boolean): string | null {
+  const key = Object.keys(env).find((name) => name.toLowerCase() === "path");
+  const value = key === undefined ? undefined : env[key];
+  if (!value) return null;
+  for (const dir of value.split(delimiter)) {
+    if (dir === "" || !isAbsolute(dir)) continue;
+    const candidate = join(dir, "node.exe");
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
 /**
- * O Node do sistema que roda o invólucro: `WF_NODE`, ou o primeiro `node` do PATH. Precisa ser 22.12 ou mais novo.
- * Qualquer falha dá null (o app explica o que instalar).
+ * O Node do sistema que roda o invólucro: `WF_NODE`, ou o primeiro `node.exe` do PATH. Precisa ser 22.12 ou mais novo.
+ * Devolve o executável real, informado pelo próprio Node. Qualquer falha dá null (o app explica o que instalar).
  */
 export async function findNode(
   env: NodeJS.ProcessEnv = process.env,
   run: (file: string, args: string[]) => Promise<string> = runDefault,
+  exists: (path: string) => boolean = isFileDefault,
 ): Promise<string | null> {
   try {
-    let node = env.WF_NODE;
-    if (!node) {
-      const found = (await run("where.exe", ["node"])).split(/\r?\n/).find((line) => line.trim() !== "");
-      if (!found) return null;
-      node = found.trim();
-    }
-    const version = await run(node, ["-p", "process.versions.node"]);
-    return versionAtLeast(version, MIN_NODE) ? node : null;
+    const candidate = env.WF_NODE || nodeOnPath(env, exists);
+    if (!candidate) return null;
+    const lines = (await run(candidate, ["-e", PROBE])).split(/\r?\n/).map((line) => line.trim());
+    if (lines.length !== 2 || lines[0] === "" || !isAbsolute(lines[0]!)) return null;
+    return versionAtLeast(lines[1]!, MIN_NODE) ? lines[0]! : null;
   } catch {
     return null;
   }
