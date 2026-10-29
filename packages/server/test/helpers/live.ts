@@ -57,4 +57,4 @@ export const bridgeSocket = (server: LiveServer, token: string) =>
 export const clientSocket = (server: LiveServer, sessionId: string, origin = ORIGIN) =>
   new TestSocket(`${server.wsBase}/ws/client`, { headers: { cookie: `wf_session=${sessionId}` }, origin });
 
-export const hello = (agentId: string, label = "loja") => ({ type: "hello", protocol: 1, kind: "agent", agentId, label, cols: 20, rows: 2 });
+export const hello = (agentId: string, label = "loja") => ({ type: "hello", protocol: 2, kind: "agent", agentId, label, cols: 20, rows: 2 });

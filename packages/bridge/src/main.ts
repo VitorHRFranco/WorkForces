@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { runFolders } from "./commands/folders.js";
-import { runListener } from "./commands/listen.js";
 import { runLogin, runLogout } from "./commands/login.js";
 import { resolveClaude } from "./claude/resolve.js";
 import { withSessionGuard } from "./guard.js";
@@ -18,7 +17,6 @@ comandos:
   logout                     esquece o login desta máquina
   claude [args…]             roda o Claude Code espelhando o terminal no escritório
   pastas add|list|rm         pastas que o escritório pode abrir em "Chamar agente"
-  ponte                      fica ligada e abre agentes quando você pede no escritório (Windows)
 
 --home <pasta> usa outra pasta de config (o padrão é ~/.workforces).
 `;
@@ -32,7 +30,7 @@ export interface MainContext {
 }
 
 export async function main(ctx: MainContext): Promise<number> {
-  // --home troca a pasta do config só nesta execução (a `ponte` passa a dela aos agentes que abre).
+  // --home troca a pasta do config só nesta execução.
   if (ctx.argv[0] === "--home") {
     const home = ctx.argv[1];
     if (!home) {
@@ -46,7 +44,6 @@ export async function main(ctx: MainContext): Promise<number> {
   if (command === "login") return runLogin(rest, ctx);
   if (command === "logout") return runLogout(ctx);
   if (command === "pastas") return runFolders(rest, ctx);
-  if (command === "ponte" && rest.length === 0) return runListener(ctx);
   if (command === undefined || command === "--help" || command === "-h") {
     ctx.io.stdout.write(USAGE);
     return 0;

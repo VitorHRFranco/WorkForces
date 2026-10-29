@@ -15,11 +15,6 @@ export const SOCKET_OPEN = 1;
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting";
 
-/** Um pedido de agente a cada 5 s no servidor (spec 6.7); o navegador espera um pouco mais para nunca passar do limite. */
-export const SPAWN_COOLDOWN_MS = 5_500;
-
-export type SpawnRequest = { ok: true; reqId: string } | { ok: false; reason: "cooldown" | "offline" };
-
 export interface OfficeConnectionHandlers {
   onMessage(message: ServerToClient): void;
   onStatus(status: ConnectionStatus): void;
@@ -34,8 +29,6 @@ export class OfficeConnection {
   private stopped = false;
   /** Tentativa marcada de refazer um watch que o limite por segundo descartou. */
   private pendingWatch: number | undefined;
-  private lastSpawnAt = Number.NEGATIVE_INFINITY;
-  private spawnCount = 0;
   private readonly budget = new SendBudget();
 
   constructor(
@@ -74,16 +67,6 @@ export class OfficeConnection {
     return this.send({ type: "setDeskClosed", closed });
   }
 
-  /** Pede à ponte da própria pessoa para abrir um agente; a resposta chega depois, como `spawnResult` com o mesmo reqId. */
-  spawnAgent(alias: string): SpawnRequest {
-    const now = Date.now();
-    if (now - this.lastSpawnAt < SPAWN_COOLDOWN_MS) return { ok: false, reason: "cooldown" };
-    const reqId = `s${now.toString(36)}-${++this.spawnCount}`;
-    if (!this.send({ type: "spawnAgent", reqId, alias })) return { ok: false, reason: "offline" };
-    this.lastSpawnAt = now;
-    return { ok: true, reqId };
-  }
-
   move(x: number, y: number, dir: Direction, moving: boolean): boolean {
     return this.send({ type: "move", x, y, dir, moving });
   }
@@ -96,9 +79,8 @@ export class OfficeConnection {
   private send(message: ClientToServer): boolean {
     if (this.socket?.readyState !== SOCKET_OPEN) return false;
     // Um watch descartado aqui é refeito pelo próprio watch(), quando abre vaga.
-    // spawnAgent tem a própria espera (SPAWN_COOLDOWN_MS) e não gasta vaga de watch.
-    const kind: SendKind | null = message.type === "move" ? "move" : message.type === "chat" ? "chat" : message.type === "spawnAgent" ? null : "watch";
-    if (kind !== null && !this.budget.allow(kind, Date.now())) return false;
+    const kind: SendKind = message.type === "move" ? "move" : message.type === "chat" ? "chat" : "watch";
+    if (!this.budget.allow(kind, Date.now())) return false;
     this.socket.send(JSON.stringify(message));
     return true;
   }

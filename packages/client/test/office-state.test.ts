@@ -17,7 +17,7 @@ const A3 = "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a";
 
 const welcome = (): ServerToClient => ({
   type: "welcome",
-  protocol: 1,
+  protocol: 2,
   me: { id: 1, name: "ana", isAdmin: true, deskId: "mesa-1" },
   players: [{ id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false }],
   agents: [agent(A1, 1, "loja"), agent(A2, 1, "api"), agent(A3, 2, "site")],
@@ -84,19 +84,5 @@ describe("OfficeState", () => {
     expect(state.agentsAtDesk("mesa-2").map((a) => a.label)).toEqual(["site"]);
     expect(state.agentsAtDesk("mesa-3")).toEqual([]);
     expect(state.agentsAtDesk("mesa-9")).toEqual([]);
-  });
-});
-
-describe("OfficeState: Chamar agente", () => {
-  it("guarda as pastas e se a ponte está ligada, a cada aviso do servidor", () => {
-    const state = new OfficeState();
-    state.apply(welcome());
-    expect(state.aliases).toEqual([]);
-    expect(state.listenerOnline).toBe(false);
-    state.apply({ type: "aliases", aliases: ["api", "loja"], listenerOnline: true });
-    expect(state.aliases).toEqual(["api", "loja"]);
-    expect(state.listenerOnline).toBe(true);
-    state.apply({ type: "aliases", aliases: [], listenerOnline: false });
-    expect(state.listenerOnline).toBe(false);
   });
 });

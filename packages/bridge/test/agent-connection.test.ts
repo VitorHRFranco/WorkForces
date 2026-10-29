@@ -54,7 +54,7 @@ describe("AgentConnection", () => {
     connection.start();
     const { socket, auth, first } = await pending;
     expect(auth).toBe("Bearer wf_teste");
-    expect(await first).toEqual({ type: "hello", protocol: 1, kind: "agent", agentId, label: "loja", cols: 500, rows: 40 });
+    expect(await first).toEqual({ type: "hello", protocol: 2, kind: "agent", agentId, label: "loja", cols: 500, rows: 40 });
     await waitUntil(() => events.open === 1, 5000, "onOpen");
     socket.send(JSON.stringify({ type: "viewers", n: 2 }));
     await waitUntil(() => events.viewers.includes(2), 5000, "viewers");

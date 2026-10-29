@@ -2,7 +2,6 @@ import { z } from "zod";
 import { AgentState } from "./bridge.js";
 import { LIMITS } from "./constants.js";
 import { frameBoundsError, frameShape } from "./frame.js";
-import { Alias, AliasList, ReqId, SpawnResult } from "./listener.js";
 import { DESK_ID_PATTERN } from "./map.js";
 
 export const AgentInfo = z.object({
@@ -75,11 +74,9 @@ export const ChatPosted = ChatEntry.extend({ type: z.literal("chat") });
 /** Cliente → servidor. Não existe mensagem que leve entrada a um agente. */
 export const Watch = z.object({ type: z.literal("watch"), agentId: z.uuid() });
 export const Unwatch = z.object({ type: z.literal("unwatch") });
-/** Pede à ponte do próprio dono para abrir um agente na pasta com esse apelido. */
-export const SpawnAgent = z.object({ type: z.literal("spawnAgent"), reqId: ReqId, alias: Alias });
 /** Abre ou fecha a própria mesa (vale para a pessoa, não para a mesa: segue com ela se a mesa mudar). */
 export const SetDeskClosed = z.object({ type: z.literal("setDeskClosed"), closed: z.boolean() });
-export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend, SpawnAgent, SetDeskClosed]);
+export const ClientToServer = z.discriminatedUnion("type", [Watch, Unwatch, Move, ChatSend, SetDeskClosed]);
 export type ClientToServer = z.infer<typeof ClientToServer>;
 
 export const Welcome = z.object({
@@ -105,8 +102,6 @@ export const DeskUpdated = z.object({ type: z.literal("deskUpdated"), desk: Desk
 export const PlayerJoined = z.object({ type: z.literal("playerJoined"), player: PlayerInfo });
 export const PlayerLeft = z.object({ type: z.literal("playerLeft"), playerId: z.number().int().min(1) });
 export const PlayerMoved = z.object({ type: z.literal("playerMoved"), playerId: z.number().int().min(1), ...position });
-/** Só para o dono: as pastas que as pontes dele anunciam e se alguma ponte está ligada. */
-export const AliasesUpdate = z.object({ type: z.literal("aliases"), aliases: AliasList, listenerOnline: z.boolean() });
 
-export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved, ChatPosted, AliasesUpdate, SpawnResult]);
+export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved, ChatPosted]);
 export type ServerToClient = z.infer<typeof ServerToClient>;

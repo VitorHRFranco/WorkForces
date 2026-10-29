@@ -40,7 +40,7 @@ class FakeClient implements ClientLink {
   }
 }
 
-const hello = (label = "loja"): AgentHello => ({ type: "hello", protocol: 1, kind: "agent", agentId: AGENT, label, cols: 10, rows: 2 });
+const hello = (label = "loja"): AgentHello => ({ type: "hello", protocol: 2, kind: "agent", agentId: AGENT, label, cols: 10, rows: 2 });
 const frame = (seq: number, key: boolean, lines: [number, string][]): FrameBody => ({
   seq,
   key,

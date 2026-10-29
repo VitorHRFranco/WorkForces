@@ -13,9 +13,6 @@ export class OfficeState {
   readonly agents = new Map<string, AgentInfo>();
   readonly desks = new Map<string, DeskInfo>();
   chat: ChatEntry[] = [];
-  /** "Chamar agente": as pastas que as pontes da pessoa anunciam, e se alguma ponte está ligada. */
-  aliases: string[] = [];
-  listenerOnline = false;
   /** Muda a cada atualização (a interface usa para saber que precisa redesenhar). */
   version = 0;
   private readonly listeners = new Set<() => void>();
@@ -63,10 +60,6 @@ export class OfficeState {
         else if (this.me && this.me.deskId === desk.id) this.me = { ...this.me, deskId: null };
         break;
       }
-      case "aliases":
-        this.aliases = message.aliases;
-        this.listenerOnline = message.listenerOnline;
-        break;
       case "chat": {
         const { type: _type, ...entry } = message;
         this.chat = [...this.chat, entry].slice(-LIMITS.chatHistory);

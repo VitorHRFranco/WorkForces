@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { LIMITS } from "./constants.js";
 import { frameBoundsError, frameShape } from "./frame.js";
-import { ListenerHello } from "./listener.js";
 
 export const AgentState = z.enum(["working", "idle"]);
 export type AgentState = z.infer<typeof AgentState>;
@@ -26,9 +25,9 @@ export type AgentFrame = z.infer<typeof AgentFrame>;
 export const AgentStatus = z.object({ type: z.literal("status"), state: AgentState });
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
-/** Primeira mensagem de qualquer conexão da ponte: o `kind` diz se é um agente ou o ouvinte (`workforces ponte`). */
-export const BridgeHello = z.discriminatedUnion("kind", [AgentHello, ListenerHello]);
-export type BridgeHello = z.infer<typeof BridgeHello>;
+/** Primeira mensagem de qualquer conexão da ponte: só existe o hello de agente. */
+export const BridgeHello = AgentHello;
+export type BridgeHello = AgentHello;
 
 /** Tudo o que a conexão de um agente pode mandar ao servidor. */
 export const AgentToServer = z.discriminatedUnion("type", [AgentHello, AgentFrame, AgentStatus]);

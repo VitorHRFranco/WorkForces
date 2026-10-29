@@ -5,6 +5,6 @@ export * from "./client.js";
 export * from "./http.js";
 export * from "./parse.js";
 export * from "./map.js";
-export * from "./listener.js";
+export * from "./folders.js";
 export * from "./invite.js";
 export * from "./app-bridge.js";

@@ -15,6 +15,10 @@ describe("ClientToServer", () => {
     expect(ClientToServer.safeParse({ type: "move", x: "10", y: 20, dir: "up", moving: false }).success).toBe(false);
   });
 
+  it("recusa spawnAgent: o servidor não abre agente (protocolo 2)", () => {
+    expect(ClientToServer.safeParse({ type: "spawnAgent", reqId: "a", alias: "loja" }).success).toBe(false);
+  });
+
   it("chat: 1 a 1000 caracteres, sem espaços nas pontas nem controle", () => {
     const chat = (text: string) => ClientToServer.safeParse({ type: "chat", text }).success;
     expect(chat("oi, tudo bem?")).toBe(true);
@@ -59,8 +63,8 @@ describe("ServerToClient", () => {
     const desk = { id: "mesa-1", ownerId: 1, ownerName: "ana", closed: false };
     const player = { id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false };
     const entry = { id: 1, fromId: 1, name: "ana", text: "oi", at: 1_700_000_000_000 };
-    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: "mesa-1" }, agents: [agent], players: [player], desks: [desk], chat: [entry] }).success).toBe(true);
-    expect(ServerToClient.safeParse({ type: "welcome", protocol: 1, me: { ...me, deskId: null }, agents: [], players: [], desks: [], chat: [] }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 2, me: { ...me, deskId: "mesa-1" }, agents: [agent], players: [player], desks: [desk], chat: [entry] }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "welcome", protocol: 2, me: { ...me, deskId: null }, agents: [], players: [], desks: [], chat: [] }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "chat", ...entry }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "mesa-2", ownerId: null, ownerName: null, closed: false } }).success).toBe(true);
     expect(ServerToClient.safeParse({ type: "deskUpdated", desk: { id: "Mesa 2", ownerId: null, ownerName: null, closed: false } }).success).toBe(false);

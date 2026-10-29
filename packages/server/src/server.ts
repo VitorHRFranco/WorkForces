@@ -12,7 +12,6 @@ import { registerMapRoutes } from "./http/map-routes.js";
 import { registerApi } from "./http/routes.js";
 import { loadMap, type LoadedMap } from "./map/load-map.js";
 import { Hub } from "./realtime/hub.js";
-import { Listeners } from "./realtime/listeners.js";
 import { World } from "./realtime/world.js";
 import { registerSockets, type SocketOptions } from "./realtime/sockets.js";
 
@@ -29,7 +28,6 @@ export interface WorkforcesServer {
   ctx: AppContext;
   accounts: AccountServices;
   hub: Hub;
-  listeners: Listeners;
   office: LoadedMap;
   world: World;
 }
@@ -56,18 +54,14 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
     (viewerId, ownerId) => world.canWatch(viewerId, ownerId),
     (ownerId) => world.isClosed(ownerId),
   );
-  const listeners = new Listeners();
   const app = buildApp(ctx);
-  const onTokenRevoked = (tokenId: number) => {
-    hub.closeBridgesForToken(tokenId);
-    listeners.closeForToken(tokenId);
-  };
+  const onTokenRevoked = (tokenId: number) => hub.closeBridgesForToken(tokenId);
   registerApi(app, { ctx, accounts, onTokenRevoked });
-  registerSockets(app, { ctx, accounts, hub, world, listeners }, options.sockets);
+  registerSockets(app, { ctx, accounts, hub, world }, options.sockets);
   registerMapRoutes(app, office);
   registerInvitePage(app, ctx);
   app.addHook("onClose", async () => db.close());
-  return { app, ctx, accounts, hub, listeners, office, world };
+  return { app, ctx, accounts, hub, office, world };
 }
 
 /** Sobe o servidor; sem nenhuma conta, imprime um convite de admin (única vez em que um código vai para o log). */

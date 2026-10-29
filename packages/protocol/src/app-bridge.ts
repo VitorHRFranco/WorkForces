@@ -22,6 +22,20 @@ export interface CurrentOffice {
 /** Para onde a página vai. */
 export type AppRoute = { page: "launcher"; notice?: string } | { page: "login" } | { page: "invite"; code: string } | { page: "office" };
 
+/** Por que o app não abriu o agente (a página mostra o texto em português). */
+export type SpawnError =
+  | "no-office"
+  | "office-down"
+  | "unknown-alias"
+  | "folder-missing"
+  | "rate-limited"
+  | "too-many-agents"
+  | "no-terminal"
+  | "no-node"
+  | "spawn-failed"
+  | "no-answer"
+  | "unsupported";
+
 export type SocketEvent = { type: "open" } | { type: "message"; data: string } | { type: "close"; code: number };
 
 /** O `window.workforces` do preload: tudo o que a página pede ao processo principal. */

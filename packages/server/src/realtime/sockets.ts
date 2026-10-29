@@ -5,7 +5,6 @@ import {
   CLOSE_CODES,
   ClientToServer,
   LIMITS,
-  ListenerToServer,
   PROTOCOL_VERSION,
   parseJson,
   type ServerToClient,
@@ -17,7 +16,6 @@ import type { AppContext } from "../context.js";
 import { bearerToken, originAllowed, sessionIdOf } from "../http/cookies.js";
 import { toMe } from "../http/routes.js";
 import type { BridgeLink, ClientLink, Hub, WatchResult } from "./hub.js";
-import type { ListenerLink, Listeners, SpawnRequester } from "./listeners.js";
 import { MessageRate } from "./rate.js";
 import type { Person, World } from "./world.js";
 
@@ -26,7 +24,6 @@ export interface SocketDeps {
   accounts: AccountServices;
   hub: Hub;
   world: World;
-  listeners: Listeners;
 }
 
 export interface SocketOptions {
@@ -44,8 +41,6 @@ const MOVES_PER_SECOND = 20;
 const WATCHES_PER_SECOND = 20;
 const CHATS_PER_SECOND = 5;
 const CONNECTIONS_PER_MINUTE = 20;
-/** "Chamar agente": um pedido a cada 5 s por pessoa (spec 6.7); o navegador espera um pouco mais que isso. */
-const SPAWN_WINDOW_MS = 5_000;
 /** Por que o `watch` foi recusado, do jeito que o navegador entende. */
 const WATCH_END_REASON = { gone: "agent-gone", denied: "left-zone", closed: "desk-closed" } as const satisfies Record<Exclude<WatchResult, "ok">, string>;
 
@@ -57,12 +52,10 @@ interface BridgeConnection {
 interface ClientConnection {
   ws: WebSocket;
   sessionId: string;
-  /** Existe depois do welcome; é por ela que chegam as mudanças em "Chamar agente". */
-  link?: ClientLink;
 }
 
 export function registerSockets(app: FastifyInstance, deps: SocketDeps, options: SocketOptions = {}): void {
-  const { ctx, accounts, hub, world, listeners } = deps;
+  const { ctx, accounts, hub, world } = deps;
   const origin = ctx.config.publicUrl.origin;
   const helloTimeoutMs = options.helloTimeoutMs ?? 10_000;
   const bridgeServer = new WebSocketServer({ noServer: true, maxPayload: BRIDGE_MAX_PAYLOAD });
@@ -77,9 +70,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     ws.on("message", () => alive.set(ws, true));
   };
   const clients = new Map<number, ClientConnection>();
-  listeners.onChange((userId) => clients.get(userId)?.link?.send({ type: "aliases", ...listeners.summary(userId) }));
   /** Cotas por pessoa (não por conexão): reconectar não zera nada. */
-  const ratesByUser = new Map<number, { total: MessageRate; move: MessageRate; watch: MessageRate; chat: MessageRate; connect: MessageRate; spawn: MessageRate }>();
+  const ratesByUser = new Map<number, { total: MessageRate; move: MessageRate; watch: MessageRate; chat: MessageRate; connect: MessageRate }>();
   const ratesFor = (userId: number) => {
     let rates = ratesByUser.get(userId);
     if (!rates) {
@@ -89,7 +81,6 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         watch: new MessageRate(WATCHES_PER_SECOND, 1000, ctx.now),
         chat: new MessageRate(CHATS_PER_SECOND, 1000, ctx.now),
         connect: new MessageRate(CONNECTIONS_PER_MINUTE, 60_000, ctx.now),
-        spawn: new MessageRate(1, SPAWN_WINDOW_MS, ctx.now),
       };
       ratesByUser.set(userId, rates);
     }
@@ -157,50 +148,27 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       },
       close: (code, reason) => ws.close(code, reason),
     };
-    const listenerLink: ListenerLink = {
-      userId: auth.user.id,
-      tokenId: auth.tokenId,
-      sendSpawn: (reqId, alias) => {
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "spawn", reqId, alias }));
-      },
-      close: (code, reason) => ws.close(code, reason),
-    };
     const rate = new MessageRate(BRIDGE_MESSAGES_PER_SECOND, 1000, ctx.now);
     let agentId: string | null = null;
-    let listening = false;
     const helloTimer = setTimeout(() => {
-      if (agentId === null && !listening) ws.close(CLOSE_CODES.invalidMessage, "hello não recebido");
+      if (agentId === null) ws.close(CLOSE_CODES.invalidMessage, "hello não recebido");
     }, helloTimeoutMs);
 
     ws.on("message", (data, isBinary) => {
       if (ws.readyState !== ws.OPEN) return;
       if (!rate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       const text = isBinary ? null : data.toString();
-      if (agentId === null && !listening) {
+      if (agentId === null) {
         const hello = text === null ? null : parseJson(BridgeHello, text);
         if (!hello) return ws.close(CLOSE_CODES.invalidMessage, "esperava hello");
         if (hello.protocol !== PROTOCOL_VERSION) return ws.close(CLOSE_CODES.protocolMismatch, "versão do protocolo incompatível");
         // Token revogado entre o upgrade e o hello: o hub ainda não conhece esta ponte.
         if (!accounts.tokens.isValid(auth.tokenId)) return ws.close(CLOSE_CODES.unauthorized, "token revogado");
-        if (hello.kind === "listener") {
-          clearTimeout(helloTimer);
-          listening = true;
-          listeners.connect(listenerLink, hello.aliases);
-          return;
-        }
         ensureDesk(auth.user);
         const result = hub.registerAgent({ id: auth.user.id, name: auth.user.name }, hello, link);
         if (!result.ok) return ws.close(CLOSE_CODES.invalidMessage, "agentId em uso");
         agentId = hello.agentId;
         clearTimeout(helloTimer);
-        return;
-      }
-      if (listening) {
-        // O ouvinte só anuncia pastas e responde pedidos: quadro, status ou hello repetido derrubam a conexão.
-        const message = text === null ? null : parseJson(ListenerToServer, text);
-        if (!message || message.type === "hello") return ws.close(CLOSE_CODES.invalidMessage, "mensagem inválida");
-        if (message.type === "aliases") listeners.update(listenerLink, message.aliases);
-        else listeners.result(listenerLink, message.reqId, message.ok, message.error);
         return;
       }
       const message = text === null ? null : parseJson(AgentToServer, text);
@@ -213,7 +181,6 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     ws.on("close", (code) => {
       clearTimeout(helloTimer);
       bridges.delete(connection);
-      if (listening) listeners.disconnect(listenerLink);
       if (agentId === null) return;
       // 1000: a ponte fechou de propósito (o claude terminou); queda de rede chega como 1006.
       if (code === 1000) hub.agentEnded(link, agentId);
@@ -247,10 +214,6 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       bufferedAmount: () => ws.bufferedAmount,
       close: (code, reason) => ws.close(code, reason),
     };
-    const requester: SpawnRequester = {
-      userId: user.id,
-      sendResult: (reqId, ok, error) => link.send({ type: "spawnResult", reqId, ok, ...(error ? { error } : {}) }),
-    };
     link.send({
       type: "welcome",
       protocol: PROTOCOL_VERSION,
@@ -260,10 +223,8 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
       desks: world.desks(),
       chat: world.chat(),
     });
-    link.send({ type: "aliases", ...listeners.summary(user.id) });
-    connection.link = link;
     if (firstTab) hub.broadcast({ type: "playerJoined", player }, link);
-    const { total: rate, move: moveRate, watch: watchRate, chat: chatRate, spawn: spawnRate } = rates;
+    const { total: rate, move: moveRate, watch: watchRate, chat: chatRate } = rates;
 
     ws.on("message", (data, isBinary) => {
       if (ws.readyState !== ws.OPEN) return;
@@ -282,12 +243,6 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
         hub.broadcast({ type: "chat", ...world.addChat(user, message.text, ctx.now()) });
         return;
       }
-      if (message.type === "spawnAgent") {
-        if (!spawnRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "pedidos de agente demais");
-        const error = listeners.request(requester, message.reqId, message.alias);
-        if (error) requester.sendResult(message.reqId, false, error);
-        return;
-      }
       if (!watchRate.allow()) return ws.close(CLOSE_CODES.rateLimited, "mensagens demais");
       if (message.type === "setDeskClosed") return setDeskClosed(user, message.closed);
       if (message.type === "unwatch") return hub.unwatch(link);
@@ -297,7 +252,6 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
 
     ws.on("close", () => {
       hub.removeClient(link);
-      listeners.forget(requester);
       if (clients.get(user.id) !== connection) return; // trocado por outra aba: a pessoa continua no mapa
       clients.delete(user.id);
       world.leave(user.id);
