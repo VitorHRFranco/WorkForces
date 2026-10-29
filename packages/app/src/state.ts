@@ -19,6 +19,7 @@ interface OpenOffice {
   officeId: string | null;
   userName: string | null;
   session: string | null;
+  bridgeToken: string | null;
   sessionExpired: boolean;
 }
 
@@ -33,7 +34,7 @@ export class AppState {
     if (link !== null) return this.openLink(link);
     const last = this.store.lastUsed();
     if (last && last.session !== null) {
-      this.open_ = { url: last.url, officeId: last.id, userName: last.userName, session: last.session, sessionExpired: false };
+      this.open_ = { url: last.url, officeId: last.id, userName: last.userName, session: last.session, bridgeToken: last.bridgeToken, sessionExpired: false };
       return { page: "office" };
     }
     const problem = this.store.problem;
@@ -43,7 +44,7 @@ export class AppState {
   openLink(link: string): AppRoute {
     const parsed = parseInviteLink(link);
     if ("error" in parsed) return { page: "launcher", notice: parsed.error };
-    this.open_ = { url: parsed.server, officeId: null, userName: null, session: null, sessionExpired: false };
+    this.open_ = { url: parsed.server, officeId: null, userName: null, session: null, bridgeToken: null, sessionExpired: false };
     return { page: "invite", code: parsed.code };
   }
 
@@ -51,14 +52,14 @@ export class AppState {
   add(address: string): AppRoute {
     const parsed = parseOfficeAddress(address);
     if ("error" in parsed) return { page: "launcher", notice: parsed.error };
-    this.open_ = { url: parsed.url, officeId: null, userName: null, session: null, sessionExpired: false };
+    this.open_ = { url: parsed.url, officeId: null, userName: null, session: null, bridgeToken: null, sessionExpired: false };
     return { page: "login" };
   }
 
   open(id: string): AppRoute {
     const entry = this.store.get(id);
     if (!entry) return { page: "launcher", notice: "esse escritório não está mais na lista" };
-    this.open_ = { url: entry.url, officeId: entry.id, userName: entry.userName, session: entry.session, sessionExpired: false };
+    this.open_ = { url: entry.url, officeId: entry.id, userName: entry.userName, session: entry.session, bridgeToken: entry.bridgeToken, sessionExpired: false };
     this.store.markUsed(id);
     return entry.session !== null ? { page: "office" } : { page: "login" };
   }
@@ -97,6 +98,21 @@ export class AppState {
     return this.open_ ? { url: this.open_.url, session: this.open_.session } : null;
   }
 
+  /** O escritório aberto e já salvo, com a conta e o token da ponte; é por onde o app abre agentes. */
+  agentOffice(): { id: string; url: string; session: string | null; bridgeToken: string | null } | null {
+    const open = this.open_;
+    if (!open || open.officeId === null) return null;
+    return { id: open.officeId, url: open.url, session: open.session, bridgeToken: open.bridgeToken };
+  }
+
+  /** O token da ponte do escritório aberto: fica na memória e, com cofre, no perfil. */
+  saveBridgeToken(token: string): void {
+    const open = this.open_;
+    if (!open || open.officeId === null) return;
+    open.bridgeToken = token;
+    this.store.setBridgeToken(open.officeId, token);
+  }
+
   /** Uma resposta do escritório trouxe ou apagou a sessão (login, cadastro, logout). */
   applyAuth(change: AuthChange): void {
     const open = this.open_;
@@ -112,7 +128,7 @@ export class AppState {
       open.session = change.session;
       open.sessionExpired = false;
       const saved = this.store.saveLogin(open.url, userName, change.session);
-      this.open_ = { url: saved.url, officeId: saved.id, userName: saved.userName, session: change.session, sessionExpired: false };
+      this.open_ = { url: saved.url, officeId: saved.id, userName: saved.userName, session: change.session, bridgeToken: saved.bridgeToken, sessionExpired: false };
       return;
     }
     open.session = null;

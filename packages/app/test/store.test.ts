@@ -117,4 +117,15 @@ describe("OfficeStore", () => {
     expect(statSync(file).isDirectory()).toBe(true);
     expect(existsSync(file + ".tmp")).toBe(false);
   });
+
+  it("o token da ponte é guardado cifrado e volta ao reabrir", () => {
+    const store = OfficeStore.load(file, box());
+    const saved = store.saveLogin("https://e.exemplo", "ana", "sessao-1");
+    store.setBridgeToken(saved.id, "ponte-secreta");
+    expect(readFileSync(file, "utf8")).not.toContain("ponte-secreta");
+    expect(OfficeStore.load(file, box()).get(saved.id)).toMatchObject({ bridgeToken: "ponte-secreta" });
+    // Perfil do plano 1, sem o campo, ainda abre.
+    writeFileSync(file, JSON.stringify({ version: 1, lastUsed: null, offices: [{ id: "a", url: "https://e.exemplo", userName: "ana", session: null }] }));
+    expect(OfficeStore.load(file, box()).get("a")).toMatchObject({ bridgeToken: null });
+  });
 });

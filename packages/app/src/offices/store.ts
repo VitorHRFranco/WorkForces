@@ -19,6 +19,8 @@ export interface StoredOffice {
   url: string;
   userName: string | null;
   session: string | null;
+  /** O token da ponte (agentes) deste escritório, cifrado como a sessão. */
+  bridgeToken: string | null;
 }
 
 /** Avisos da tela inicial quando o perfil não pôde ser lido. */
@@ -45,7 +47,7 @@ function pause(ms: number): void {
   }
 }
 
-function renameWithRetry(from: string, to: string): void {
+export function renameWithRetry(from: string, to: string): void {
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(from, to);
@@ -61,7 +63,7 @@ function renameWithRetry(from: string, to: string): void {
 const OfficesFile = z.object({
   version: z.literal(1),
   lastUsed: z.string().nullable(),
-  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable() })),
+  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable(), bridgeToken: z.string().nullable().default(null) })),
 });
 
 /** Os escritórios do perfil local: quem o app já abriu e a sessão de cada um. */
@@ -103,7 +105,7 @@ export class OfficeStore {
     }
     try {
       const data = OfficesFile.parse(JSON.parse(raw));
-      const offices = data.offices.map((entry) => ({ ...entry, session: OfficeStore.unseal(entry.session, box) }));
+      const offices = data.offices.map((entry) => ({ ...entry, session: OfficeStore.unseal(entry.session, box), bridgeToken: OfficeStore.unseal(entry.bridgeToken, box) }));
       const last = offices.some((entry) => entry.id === data.lastUsed) ? data.lastUsed : null;
       return new OfficeStore(file, box, offices, last);
     } catch (err) {
@@ -154,7 +156,7 @@ export class OfficeStore {
     if (entry) {
       entry.session = session;
     } else {
-      entry = { id: randomUUID(), url, userName, session };
+      entry = { id: randomUUID(), url, userName, session, bridgeToken: null };
       this.offices.push(entry);
     }
     this.last = entry.id;
@@ -166,6 +168,13 @@ export class OfficeStore {
     const entry = this.offices.find((e) => e.id === id);
     if (!entry) return;
     entry.session = session;
+    this.persist();
+  }
+
+  setBridgeToken(id: string, token: string | null): void {
+    const entry = this.offices.find((e) => e.id === id);
+    if (!entry) return;
+    entry.bridgeToken = token;
     this.persist();
   }
 
@@ -194,8 +203,8 @@ export class OfficeStore {
     const data = {
       version: 1,
       lastUsed: this.last,
-      // Sem cofre, a sessão não vai para o disco: fica só na memória.
-      offices: this.offices.map((e) => ({ ...e, session: canSeal && e.session !== null ? this.box.seal(e.session) : null })),
+      // Sem cofre, a sessão e o token da ponte não vão para o disco: fica só na memória.
+      offices: this.offices.map((e) => ({ ...e, session: canSeal && e.session !== null ? this.box.seal(e.session) : null, bridgeToken: canSeal && e.bridgeToken !== null ? this.box.seal(e.bridgeToken) : null })),
     };
     mkdirSync(dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;

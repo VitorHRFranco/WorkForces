@@ -36,6 +36,15 @@ export type SpawnError =
   | "no-answer"
   | "unsupported";
 
+/** Uma pasta liberada para "Chamar agente" (o `path` fica no computador; a página só vê o que o app mostra). */
+export interface FolderInfo {
+  alias: string;
+  path: string;
+  exists: boolean;
+}
+
+export type FolderChange = { ok: true; folders: FolderInfo[] } | { ok: false; error: string };
+
 export type SocketEvent = { type: "open" } | { type: "message"; data: string } | { type: "close"; code: number };
 
 /** O `window.workforces` do preload: tudo o que a página pede ao processo principal. */

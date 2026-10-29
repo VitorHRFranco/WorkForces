@@ -113,4 +113,19 @@ describe("AppState", () => {
     state.add("terceiro.exemplo");
     expect(state.target()).toEqual({ url: "https://terceiro.exemplo", session: null });
   });
+
+  it("agentOffice só existe com escritório aberto e conta salva; saveBridgeToken grava na conta aberta", () => {
+    const state = fresh();
+    expect(state.agentOffice()).toBeNull();
+    state.openLink(LINK);
+    expect(state.agentOffice()).toBeNull();
+    state.applyAuth({ session: "s1", userName: "ana" });
+    const office = state.agentOffice()!;
+    expect(office).toMatchObject({ url: "http://localhost:4600", session: "s1", bridgeToken: null });
+    state.saveBridgeToken("ponte");
+    expect(state.agentOffice()).toMatchObject({ id: office.id, bridgeToken: "ponte" });
+    const next = fresh();
+    next.startup(null);
+    expect(next.agentOffice()).toMatchObject({ bridgeToken: "ponte" });
+  });
 });
