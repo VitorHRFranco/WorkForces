@@ -1,3 +1,6 @@
+import type { AgentState } from "./bridge.js";
+import type { FrameBody } from "./frame.js";
+
 /** Um escritório salvo no app. */
 export interface OfficeSummary {
   id: string;
@@ -67,3 +70,18 @@ export interface AppBridge {
     onEvent(listener: (id: number, event: SocketEvent) => void): () => void;
   };
 }
+
+/** Um agente deste computador, como o app o enxerga pelo canal local. */
+export interface LocalAgentInfo {
+  agentId: string;
+  label: string;
+  office: string;
+  state: AgentState;
+  cols: number;
+  rows: number;
+}
+
+export type LocalAgentEvent =
+  | { type: "changed" }
+  | { type: "frame"; agentId: string; frame: FrameBody }
+  | { type: "status"; agentId: string; state: AgentState };

@@ -178,6 +178,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@workforces/bridge':
+        specifier: workspace:*
+        version: link:../bridge
       '@workforces/protocol':
         specifier: workspace:*
         version: link:../protocol
