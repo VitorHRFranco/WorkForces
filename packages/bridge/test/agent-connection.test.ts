@@ -104,7 +104,7 @@ describe("AgentConnection", () => {
     });
     await sleep(1200);
     expect(reconnected).toBe(false);
-    expect(events.fatal[0]).toContain("workforces login");
+    expect(events.fatal[0]).toContain("chame o agente de novo pelo app do WorkForces");
   });
 
   const delays = (logs: string[]) =>
@@ -138,7 +138,7 @@ describe("AgentConnection", () => {
     const { connection, events } = makeConnection(`ws://127.0.0.1:${port}/ws/bridge`, { random: () => 0 });
     connection.start();
     await waitUntil(() => events.fatal.length === 1, 5000, "onFatal");
-    expect(events.fatal[0]).toContain("workforces login");
+    expect(events.fatal[0]).toContain("chame o agente de novo pelo app do WorkForces");
     await sleep(1200);
     expect(delays(events.logs)).toEqual([]);
     http.close();

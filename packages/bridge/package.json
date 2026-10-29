@@ -6,6 +6,13 @@
   "bin": {
     "workforces": "./dist/cli.js"
   },
+  "exports": {
+    "./channel": {
+      "source": "./src/channel/index.ts",
+      "types": "./dist/channel/index.d.ts",
+      "default": "./dist/channel/index.js"
+    }
+  },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json"

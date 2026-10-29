@@ -8,3 +8,4 @@ export * from "./map.js";
 export * from "./folders.js";
 export * from "./invite.js";
 export * from "./app-bridge.js";
+export * from "./local.js";

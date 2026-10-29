@@ -15,7 +15,12 @@ export const STABLE_CONNECTION_MS = 10_000;
  * Sem isso, depois de o computador dormir ou a rede trocar, o FIN nunca chega e a ponte não reconecta.
  */
 export const LIVENESS_TIMEOUT_MS = 75_000;
-/** As mensagens do servidor para a ponte são minúsculas (`viewers`, `spawn`). */
+/**
+ * Sem resposta ao upgrade neste tempo (proxy travado), a tentativa é abandonada e cai no backoff normal.
+ * Sem isso, o socket fica em CONNECTING para sempre: a vigia de vida só começa no `open`.
+ */
+export const HANDSHAKE_TIMEOUT_MS = 10_000;
+/** A única mensagem do servidor para a ponte (`viewers`) é minúscula. */
 const SERVER_MAX_PAYLOAD = 64 * 1024;
 
 export class ServerUrlError extends Error {}
@@ -34,7 +39,7 @@ export function bridgeSocketUrl(server: string, insecure: boolean): string {
     throw new ServerUrlError(`URL de servidor inválida: ${server}`);
   }
   if (url.protocol === "http:" && !LOCAL_HOSTS.has(url.hostname) && !insecure) {
-    throw new ServerUrlError(`${server} usa HTTP sem TLS; use https ou faça login com --insecure`);
+    throw new ServerUrlError(`${server} usa HTTP sem TLS; use https`);
   }
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/ws/bridge";
@@ -57,10 +62,11 @@ export interface BridgeSocketOptions {
   random?: () => number;
   stableMs?: number;
   livenessMs?: number;
+  handshakeTimeoutMs?: number;
 }
 
 /**
- * Conexão autenticada com `/ws/bridge`, usada pelo agente e pelo ouvinte: reconecta sozinha com espera crescente
+ * Conexão autenticada do agente com `/ws/bridge`: reconecta sozinha com espera crescente
  * e para de tentar nos erros fatais (token recusado, versão incompatível).
  */
 export class BridgeSocket {
@@ -102,6 +108,7 @@ export class BridgeSocket {
     const socket = new WebSocket(this.options.url, {
       headers: { authorization: `Bearer ${this.options.token}` },
       maxPayload: SERVER_MAX_PAYLOAD,
+      handshakeTimeout: this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS,
     });
     this.socket = socket;
 
@@ -147,7 +154,7 @@ export class BridgeSocket {
       if (this.closed) return;
       if (code === CLOSE_CODES.unauthorized || this.rejected) {
         this.closed = true;
-        this.options.onFatal("token revogado ou inválido: rode `workforces login`");
+        this.options.onFatal("o escritório recusou o token da ponte: chame o agente de novo pelo app do WorkForces");
         return;
       }
       if (code === CLOSE_CODES.protocolMismatch) {

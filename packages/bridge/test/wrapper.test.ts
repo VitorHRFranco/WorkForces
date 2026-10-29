@@ -9,7 +9,7 @@ import type { AgentFrame, AgentToServer } from "@workforces/protocol";
 import { describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { resolveClaude, type ResolvedCommand } from "../src/claude/resolve.js";
-import { runDirect, runInPty, shouldUsePty, type Connector } from "../src/claude/wrapper.js";
+import { runDirect, shouldUsePty, startPty, type Connector } from "../src/claude/wrapper.js";
 import { BUILTIN_PATTERNS } from "../src/masking/patterns.js";
 import { AgentConnection, type AgentLink } from "../src/net/agent-connection.js";
 import { stripAnsi } from "./helpers/ansi.js";
@@ -21,8 +21,9 @@ const fakeCommand = (...args: string[]): ResolvedCommand => ({ file: process.exe
 
 function run(command: ResolvedCommand, connect: Connector | null, agentId = randomUUID(), log?: (message: string) => void) {
   const fake = fakeIO();
-  const done = runInPty({ command, cwd: process.cwd(), env: process.env, io: fake.io, agentId, patterns: BUILTIN_PATTERNS, connect, log });
-  return { fake, done, agentId };
+  const session = startPty({ command, cwd: process.cwd(), env: process.env, io: fake.io, agentId, patterns: BUILTIN_PATTERNS, local: () => false, log });
+  if (connect) session.connect(connect, []);
+  return { fake, done: session.exit, agentId, session };
 }
 
 function realConnector(url: string, logs: string[] = []): Connector {
@@ -39,7 +40,7 @@ function realConnector(url: string, logs: string[] = []): Connector {
   };
 }
 
-describe("runInPty", () => {
+describe("startPty", () => {
   it("repassa saída, entrada e código de saída, e expõe WORKFORCES_AGENT_ID", async () => {
     const { fake, done, agentId } = run(fakeCommand("um arg", "dois"), null);
     await fake.waitFor("OLÁ_DO_FALSO");
@@ -50,6 +51,15 @@ describe("runInPty", () => {
     fake.type("sair\r");
     expect(await done).toBe(7);
     expect(fake.errors()).toBe("");
+  });
+
+  it("input do painel chega ao PTY", async () => {
+    const { fake, done, session } = run(fakeCommand(), null);
+    await fake.waitFor("OLÁ_DO_FALSO");
+    session.input("do-painel\r");
+    await fake.waitFor("eco:do-painel");
+    session.input("sair\r");
+    expect(await done).toBe(7);
   });
 
   it("espelha a tela mascarada quando há visitante", async () => {

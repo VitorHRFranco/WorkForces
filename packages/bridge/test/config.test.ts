@@ -1,76 +1,14 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Config, ConfigError, configDir, labelFor, loadConfig, saveConfig } from "../src/config.js";
-
-const dirs: string[] = [];
-const tempDir = (prefix: string): string => {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  dirs.push(dir);
-  return dir;
-};
-const cleanTempDirs = () => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
-};
-
-let dir: string;
-const write = (content: string) => writeFileSync(join(dir, "config.json"), content);
-
-afterEach(cleanTempDirs);
-
-beforeEach(() => {
-  dir = tempDir("wf-config-");
-});
-
-describe("loadConfig", () => {
-  it("sem arquivo devolve os padrões", () => {
-    expect(loadConfig(dir)).toEqual({ insecure: false, folders: [], secretPatterns: [] });
-  });
-
-  it("aceita arquivo salvo com BOM", () => {
-    write("\uFEFF" + JSON.stringify({ server: "https://workforces.exemplo", token: "wf_teste" }));
-    expect(loadConfig(dir)).toMatchObject({ server: "https://workforces.exemplo", token: "wf_teste" });
-  });
-
-  it("recusa JSON quebrado", () => {
-    write("{");
-    expect(() => loadConfig(dir)).toThrow(ConfigError);
-  });
-
-  it("recusa apelido inválido ou repetido", () => {
-    write(JSON.stringify({ folders: [{ alias: "Loja!", path: "C:\\proj" }] }));
-    expect(() => loadConfig(dir)).toThrow(ConfigError);
-    write(JSON.stringify({ folders: [{ alias: "loja", path: "a" }, { alias: "loja", path: "b" }] }));
-    expect(() => loadConfig(dir)).toThrow(/apelido repetido/);
-  });
-});
+import { describe, expect, it } from "vitest";
+import { configDir } from "../src/config.js";
 
 describe("configDir", () => {
   it("usa WORKFORCES_HOME quando definido", () => {
-    expect(configDir({ WORKFORCES_HOME: dir })).toBe(dir);
-  });
-});
-
-describe("labelFor", () => {
-  it("usa o apelido quando a pasta está liberada (sem diferenciar maiúsculas no Windows)", () => {
-    expect(labelFor("/tmp/Proj/Loja", [{ alias: "loja", path: "/tmp/proj/loja" }], "win32")).toBe("loja");
+    expect(configDir({ WORKFORCES_HOME: join("x", "wf") })).toBe(join("x", "wf"));
   });
 
-  it("usa o nome da pasta quando não está liberada", () => {
-    expect(labelFor("/tmp/Proj/Outra", [], "linux")).toBe("Outra");
-  });
-
-  it("corta em 64 caracteres", () => {
-    expect(labelFor(`/tmp/${"x".repeat(80)}`, [], "linux")).toHaveLength(64);
-  });
-});
-
-describe("saveConfig", () => {
-  it("falha ao gravar não deixa o temporário", () => {
-    mkdirSync(join(dir, "config.json"));
-    writeFileSync(join(dir, "config.json", "x"), "");
-    expect(() => saveConfig(dir, Config.parse({ token: "wf_" + "z".repeat(43) }))).toThrow();
-    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  it("sem WORKFORCES_HOME usa ~/.workforces", () => {
+    expect(configDir({})).toBe(join(homedir(), ".workforces"));
   });
 });

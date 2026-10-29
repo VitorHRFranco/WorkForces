@@ -166,6 +166,49 @@ describe("Mirror", () => {
     expect((errors[0] as Error).message).toBe("falhou");
   });
 
+  it("o painel do app recebe quadro-chave sem visitantes no servidor", async () => {
+    const local: MirrorMessage[] = [];
+    const t = setup({
+      local: (message) => {
+        local.push(message);
+        return true;
+      },
+    });
+    t.mirror.write("oi");
+    t.mirror.setLocalWatching(true);
+    await t.mirror.tick();
+    const frames = local.filter((m): m is AgentFrame => m.type === "frame");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.key).toBe(true);
+    expect(stripAnsi(frames[0]!.lines[0]![1])).toBe("oi");
+    expect(t.frames()).toHaveLength(0);
+  });
+
+  it("status vai para as duas saídas", async () => {
+    const local: MirrorMessage[] = [];
+    const t = setup({
+      local: (message) => {
+        local.push(message);
+        return true;
+      },
+    });
+    t.mirror.write("oi");
+    await t.mirror.tick();
+    expect(t.statuses()).toEqual([{ type: "status", state: "working" }]);
+    expect(local).toEqual([{ type: "status", state: "working" }]);
+  });
+
+  it("padrões extras passam a mascarar na foto seguinte", async () => {
+    const t = setup();
+    t.mirror.setViewers(1);
+    t.mirror.write("segredo-abc\r\n");
+    await t.mirror.tick();
+    expect(stripAnsi(t.frames().at(-1)!.lines[0]![1])).toBe("segredo-abc");
+    t.mirror.addPatterns([{ name: "teste", regex: /segredo-\w+/dg }]);
+    await t.mirror.tick();
+    expect(stripAnsi(t.frames().at(-1)!.lines[0]![1])).toBe("•".repeat(11));
+  });
+
   it("stop durante um tick em andamento não envia nada nem lança", async () => {
     const errors: unknown[] = [];
     const t = setup({ onError: (error) => errors.push(error) });
