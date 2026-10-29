@@ -39,6 +39,8 @@ export type SpawnError =
   | "no-answer"
   | "unsupported";
 
+export type SpawnOutcome = { ok: true } | { ok: false; error: SpawnError };
+
 /** Uma pasta liberada para "Chamar agente" (o `path` fica no computador; a página só vê o que o app mostra). */
 export interface FolderInfo {
   alias: string;
