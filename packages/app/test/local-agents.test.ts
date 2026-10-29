@@ -1,14 +1,18 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { createServer } from "node:net";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CHANNEL_PREFIX, LocalChannel, channelDir, type LocalChannelHandlers } from "@workforces/bridge/channel";
+import { LocalChannel, channelDir, type LocalChannelHandlers } from "@workforces/bridge/channel";
 import type { LocalAgentEvent, LocalStart } from "@workforces/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AgentChannelClient, MAX_AGENT_LINE_BYTES } from "../src/agents/channel-client.js";
 import { LocalAgents } from "../src/agents/local-agents.js";
 
 const windows = process.platform === "win32";
-const OFFICE = "https://escritorio.exemplo";
+// Prefixo e escritório próprios: o teste nunca toca em pipes de outros processos.
+const PREFIX = `wf-test-${randomBytes(6).toString("hex")}-`;
+const OFFICE = `https://escritorio-${randomBytes(6).toString("hex")}.exemplo`;
 
 let dir: string;
 let tempDir: string | null;
@@ -55,16 +59,17 @@ async function openChannel(id = newId()) {
     onWatch: (on) => calls.watch.push(on),
     info: () => ({ agentId, label, office, cols: 80, rows: 24, state: "idle" }),
   };
-  const channel = new LocalChannel(join(dir, CHANNEL_PREFIX + id), handlers, () => {});
+  const channel = new LocalChannel(join(dir, PREFIX + id), handlers, () => {});
   channels.push(channel);
   await channel.listen();
   return { channel, id, calls, agentId };
 }
 
+
 function newApp() {
   const events: LocalAgentEvent[] = [];
   const logs: string[] = [];
-  const app = new LocalAgents({ dir, emit: (event) => events.push(event), log: (message) => logs.push(message) });
+  const app = new LocalAgents({ dir, prefix: PREFIX, emit: (event) => events.push(event), log: (message) => logs.push(message) });
   apps.push(app);
   return { app, events, logs };
 }
@@ -144,6 +149,74 @@ describe("LocalAgents", () => {
     expect(calls.inputs).toEqual([]);
   });
 
+  it("frame de agente que ninguém assiste não é repassado", async () => {
+    const { id, channel, agentId } = await openChannel();
+    const { app, events } = newApp();
+    await app.deliver(id, START);
+    const frame = { seq: 1, key: true, cols: 80, rows: 24, cursor: { x: 0, y: 0, visible: true }, lines: [] as [number, string][] };
+    channel.send({ type: "frame", ...frame });
+    channel.send({ type: "status", state: "working" });
+    await waitUntil(() => events.some((event) => event.type === "status"), "status");
+    expect(events.some((event) => event.type === "frame")).toBe(false);
+    expect(app.list(OFFICE)[0]?.state).toBe("working");
+    expect(agentId).toBeTruthy();
+  });
+
+  it("input para agente desconhecido dá false", async () => {
+    const { app } = newApp();
+    expect(app.input(randomUUID(), "oi")).toBe(false);
+  });
+
+  it("um scan concorrente não atrapalha a entrega do start", async () => {
+    const { id, calls, agentId } = await openChannel();
+    const first = newApp();
+    const other = newApp();
+    let done = false;
+    const scanning = (async () => {
+      while (!done) {
+        await other.app.scan();
+        await sleep(1);
+      }
+    })();
+    const delivered = await first.app.deliver(id, START, 5000);
+    done = true;
+    // Confere antes de o scan que ainda corre terminar: depois da entrega, um segundo app assume o canal, como previsto.
+    const listed = first.app.list(OFFICE).map((agent) => agent.agentId);
+    await scanning;
+
+    expect(delivered).toBe(true);
+    expect(calls.starts).toHaveLength(1);
+    expect(listed).toEqual([agentId]);
+  });
+
+  it.skipIf(windows)("pasta de canais criada depois do deliver começar é esperada", async () => {
+    const late = join(tempDir!, "tarde");
+    const app = new LocalAgents({ dir: late, prefix: PREFIX, emit: () => {}, log: () => {} });
+    apps.push(app);
+    const id = newId();
+    const delivering = app.deliver(id, START, 5000);
+    await sleep(300);
+    mkdirSync(late, { mode: 0o700 });
+    const channel = new LocalChannel(join(late, PREFIX + id), {
+      onStart: () => {},
+      onInput: () => {},
+      onWatch: () => {},
+      info: () => ({ agentId: randomUUID(), label: "x", office: OFFICE, cols: 80, rows: 24, state: "idle" }),
+    }, () => {});
+    channels.push(channel);
+    await channel.listen();
+    expect(await delivering).toBe(true);
+  });
+
+  it.skipIf(windows)("pasta de canais que outros escrevem não serve", async () => {
+    const open = join(tempDir!, "aberta");
+    mkdirSync(open, { mode: 0o777 });
+    chmodSync(open, 0o777);
+    const app = new LocalAgents({ dir: open, prefix: PREFIX, emit: () => {}, log: () => {} });
+    apps.push(app);
+    expect(await app.deliver(newId(), START, 300)).toBe(false);
+  });
+
   it.skipIf(windows)("pasta de canais que é link simbólico: deliver dá false", async () => {
     const real = join(tempDir!, "real");
     mkdirSync(real, { mode: 0o700 });
@@ -151,7 +224,7 @@ describe("LocalAgents", () => {
     symlinkSync(real, link);
     const id = newId();
     const calls = { starts: 0 };
-    const channel = new LocalChannel(join(real, CHANNEL_PREFIX + id), {
+    const channel = new LocalChannel(join(real, PREFIX + id), {
       onStart: () => calls.starts++,
       onInput: () => {},
       onWatch: () => {},
@@ -161,12 +234,46 @@ describe("LocalAgents", () => {
     await channel.listen();
 
     const events: LocalAgentEvent[] = [];
-    const app = new LocalAgents({ dir: link, emit: (event) => events.push(event), log: () => {} });
+    const app = new LocalAgents({ dir: link, prefix: PREFIX, emit: (event) => events.push(event), log: () => {} });
     apps.push(app);
 
     expect(await app.deliver(id, START, 300)).toBe(false);
     await app.scan();
     expect(calls.starts).toBe(0);
     expect(app.list(OFFICE)).toEqual([]);
+  });
+});
+
+describe("AgentChannelClient", () => {
+  const INFO = { type: "info", agentId: randomUUID(), label: null, office: null, cols: 80, rows: 24, state: "idle" };
+
+  async function junkServer(junk: string | Buffer) {
+    const path = windows ? `\\\\.\\pipe\\${PREFIX}${newId()}` : join(tempDir!, `junk-${newId()}`);
+    const server = createServer((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", () => {
+        socket.write(`${JSON.stringify(INFO)}\n`);
+        setTimeout(() => socket.write(junk), 20);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(path, resolve));
+    return { path, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  }
+
+  it.each([
+    ["linha inválida", "isto não é json\n"],
+    ["linha acima do limite", Buffer.alloc(MAX_AGENT_LINE_BYTES + 10, 0x61)],
+  ])("%s fecha a conexão", async (_name, junk) => {
+    const server = await junkServer(junk);
+    try {
+      const client = await AgentChannelClient.connect(server.path);
+      let closed = false;
+      client.onClose = () => {
+        closed = true;
+      };
+      await waitUntil(() => closed, "fechamento");
+    } finally {
+      await server.close();
+    }
   });
 });

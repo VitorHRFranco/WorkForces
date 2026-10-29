@@ -14,6 +14,8 @@ import { AgentChannelClient } from "./channel-client.js";
 export interface LocalAgentsDeps {
   /** Onde ficam os canais (`\\.\pipe\` no Windows). */
   dir: string;
+  /** Começo do nome dos canais; o padrão é o do invólucro (os testes usam um próprio). */
+  prefix?: string;
   emit(event: LocalAgentEvent): void;
   log(message: string): void;
 }
@@ -43,7 +45,7 @@ export class LocalAgents {
 
   /** Lista a pasta dos canais e conecta aos agentes que ainda não temos. Recusa ou demora: ignora. */
   async scan(): Promise<void> {
-    if (!(await this.dirIsSafe())) return;
+    if ((await this.dirState()) !== "ok") return;
     let names: string[];
     try {
       names = await readdir(this.deps.dir);
@@ -53,8 +55,8 @@ export class LocalAgents {
     }
     const before = this.snapshot();
     const ids = names
-      .filter((name) => name.startsWith(CHANNEL_PREFIX))
-      .map((name) => name.slice(CHANNEL_PREFIX.length))
+      .filter((name) => name.startsWith(this.prefix))
+      .map((name) => name.slice(this.prefix.length))
       .filter(isChannelId);
     await Promise.all(ids.map((id) => this.adopt(id)));
     if (this.snapshot() !== before) this.deps.emit({ type: "changed" });
@@ -62,28 +64,42 @@ export class LocalAgents {
 
   /** Manda o `start` a um agente recém-aberto; true quando ele confirma o escritório. */
   async deliver(channelId: string, start: LocalStart, timeoutMs = DELIVER_TIMEOUT_MS): Promise<boolean> {
-    if (!isChannelId(channelId) || !(await this.dirIsSafe())) return false;
+    if (!isChannelId(channelId)) return false;
     const deadline = Date.now() + timeoutMs;
-    let client: AgentChannelClient | null = null;
-    while (!client && !this.closedAll && deadline - Date.now() > 0) {
-      try {
-        client = await AgentChannelClient.connect(this.pathOf(channelId), Math.min(CONNECT_TRY_MS, deadline - Date.now()));
-      } catch {
-        await sleep(Math.min(RETRY_MS, Math.max(0, deadline - Date.now())));
+    const left = () => deadline - Date.now();
+    // Enquanto entregamos, o `scan` não pode conectar a este canal: um `hello` novo derruba o nosso.
+    this.connecting.add(channelId);
+    try {
+      while (!this.closedAll && left() > 0) {
+        const dir = await this.dirState();
+        if (dir === "unsafe") return false;
+        if (dir === "ok") {
+          let client: AgentChannelClient | null = null;
+          try {
+            client = await AgentChannelClient.connect(this.pathOf(channelId), Math.max(1, Math.min(CONNECT_TRY_MS, left())));
+          } catch {
+            // O invólucro ainda não abriu o canal: tenta de novo.
+          }
+          if (client) {
+            // O `start` vale uma vez no invólucro, e `sendStart` não o repete se o escritório já confere.
+            if (!this.closedAll && (await this.sendStart(client, start, Math.max(1, left())))) {
+              if (this.closedAll) {
+                client.close();
+                return false;
+              }
+              this.register(channelId, client);
+              this.deps.emit({ type: "changed" });
+              return true;
+            }
+            client.close();
+          }
+        }
+        await sleep(Math.max(0, Math.min(RETRY_MS, left())));
       }
-    }
-    if (!client) return false;
-    if (!(await this.sendStart(client, start, Math.max(deadline - Date.now(), 1_000)))) {
-      client.close();
       return false;
+    } finally {
+      this.connecting.delete(channelId);
     }
-    if (this.closedAll) {
-      client.close();
-      return false;
-    }
-    this.register(channelId, client);
-    this.deps.emit({ type: "changed" });
-    return true;
   }
 
   list(office: string): LocalAgentInfo[] {
@@ -127,22 +143,28 @@ export class LocalAgents {
     this.entries.clear();
   }
 
+  private get prefix(): string {
+    return this.deps.prefix ?? CHANNEL_PREFIX;
+  }
+
   private pathOf(channelId: string): string {
-    const name = CHANNEL_PREFIX + channelId;
+    const name = this.prefix + channelId;
     return isWindows() ? this.deps.dir + name : join(this.deps.dir, name);
   }
 
-  /** Fora do Windows, o `start` só vai se a pasta dos canais for deste usuário (o /proc é legível por todos). */
-  private async dirIsSafe(): Promise<boolean> {
-    if (isWindows()) return true;
+  /** Fora do Windows, só vale a pasta que é deste usuário e que ninguém mais escreve (o /proc é legível por todos). */
+  private async dirState(): Promise<"ok" | "missing" | "unsafe"> {
+    if (isWindows()) return "ok";
     try {
       const stat = await lstat(this.deps.dir);
-      if (stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.()) return true;
-      this.deps.log(`a pasta de canais ${this.deps.dir} não é deste usuário; não vou conectar aos agentes`);
+      if (stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o022) === 0) return "ok";
+      this.deps.log(`a pasta de canais ${this.deps.dir} não é só deste usuário; não vou conectar aos agentes`);
+      return "unsafe";
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
       this.deps.log(`não consegui conferir a pasta de canais: ${errorMessage(error)}`);
+      return "unsafe";
     }
-    return false;
   }
 
   private async adopt(channelId: string): Promise<void> {

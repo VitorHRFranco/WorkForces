@@ -10,7 +10,9 @@ const CONNECT_TIMEOUT_MS = 3_000;
 export class AgentChannelClient {
   /** Atualizado a cada `info` que o invólucro manda. */
   info!: LocalInfo;
-  onMessage: ((message: AgentToApp) => void) | null = null;
+  private handler: ((message: AgentToApp) => void) | null = null;
+  /** Mensagens que chegaram sem ninguém ouvindo (logo depois do primeiro `info`); saem quando `onMessage` é posto. */
+  private queued: AgentToApp[] = [];
   onClose: (() => void) | null = null;
   private buffer: Buffer = Buffer.alloc(0);
   private closed = false;
@@ -51,6 +53,15 @@ export class AgentChannelClient {
     });
   }
 
+  get onMessage(): ((message: AgentToApp) => void) | null {
+    return this.handler;
+  }
+
+  set onMessage(handler: ((message: AgentToApp) => void) | null) {
+    this.handler = handler;
+    while (handler && this.handler === handler && this.queued.length > 0) handler(this.queued.shift()!);
+  }
+
   send(message: AppToAgent): boolean {
     if (this.closed || this.socket.destroyed) return false;
     this.socket.write(`${JSON.stringify(message)}\n`);
@@ -84,7 +95,8 @@ export class AgentChannelClient {
         this.socket.destroy();
         return;
       }
-      this.onMessage?.(message);
+      if (this.handler) this.handler(message);
+      else if (this.queued.length < 100) this.queued.push(message);
       if (this.socket.destroyed) return;
     }
     if (this.buffer.length > MAX_AGENT_LINE_BYTES) this.socket.destroy();
