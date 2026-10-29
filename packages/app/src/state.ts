@@ -105,12 +105,11 @@ export class AppState {
     return { id: open.officeId, url: open.url, session: open.session, bridgeToken: open.bridgeToken };
   }
 
-  /** O token da ponte do escritório aberto: fica na memória e, com cofre, no perfil. */
-  saveBridgeToken(token: string): void {
+  /** Guarda o token da ponte de um escritório, pelo id: o aberto pode ter mudado enquanto o token era criado. */
+  saveBridgeToken(officeId: string, token: string): void {
     const open = this.open_;
-    if (!open || open.officeId === null) return;
-    open.bridgeToken = token;
-    this.store.setBridgeToken(open.officeId, token);
+    if (open?.officeId === officeId) open.bridgeToken = token;
+    this.store.setBridgeToken(officeId, token);
   }
 
   /** Uma resposta do escritório trouxe ou apagou a sessão (login, cadastro, logout). */

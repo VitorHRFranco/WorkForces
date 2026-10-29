@@ -30,6 +30,7 @@ export async function ensureBridgeToken(office: TokenOffice, name: string, fetch
   if (office.bridgeToken !== null) {
     const check = await ask(fetchImpl, `${base}/api/bridge/whoami`, { headers: { authorization: `Bearer ${office.bridgeToken}` } });
     if (check === null) return { ok: false, error: "office-down" };
+    await check.body?.cancel();
     if (check.status === 200) return { ok: true, token: office.bridgeToken, created: false };
     if (check.status !== 401) return { ok: false, error: "spawn-failed" };
   }
@@ -39,8 +40,10 @@ export async function ensureBridgeToken(office: TokenOffice, name: string, fetch
     body: JSON.stringify({ name }),
   });
   if (made === null) return { ok: false, error: "office-down" };
-  if (made.status === 401) return { ok: false, error: "no-office" };
-  if (made.status !== 201) return { ok: false, error: "spawn-failed" };
+  if (made.status !== 201) {
+    await made.body?.cancel();
+    return { ok: false, error: made.status === 401 ? "no-office" : "spawn-failed" };
+  }
   try {
     const body = (await made.json()) as { token?: unknown };
     if (typeof body.token !== "string" || body.token === "") return { ok: false, error: "spawn-failed" };

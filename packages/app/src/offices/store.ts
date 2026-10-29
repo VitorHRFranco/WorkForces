@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { copyFileSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { z } from "zod";
+import { writeFileAtomic } from "../atomic-write.js";
 import { parseOfficeAddress } from "../links.js";
 
 /** Onde as sessões ficam cifradas (no Electron, o `safeStorage`; no Windows, o DPAPI). */
@@ -29,35 +30,6 @@ const profileReset = (copied: string | null): string =>
   copied === null
     ? "não consegui ler os escritórios salvos; entre de novo pelo convite ou por \"Já tenho conta\""
     : `não consegui ler os escritórios salvos; guardei uma cópia em ${copied}`;
-
-/** No Windows, antivírus e indexador seguram o arquivo por instantes: a troca tenta de novo antes de desistir. */
-const RENAME_RETRIES = 5;
-const RENAME_WAIT_MS = 30;
-const RENAME_BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
-
-/** Espera curta e síncrona (a gravação é síncrona); sem `Atomics.wait` permitido, espera ocupada. */
-function pause(ms: number): void {
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  } catch {
-    const until = Date.now() + ms;
-    while (Date.now() < until) {
-      // espera
-    }
-  }
-}
-
-export function renameWithRetry(from: string, to: string): void {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      renameSync(from, to);
-      return;
-    } catch (err) {
-      if (attempt >= RENAME_RETRIES || !RENAME_BUSY.has((err as NodeJS.ErrnoException).code ?? "")) throw err;
-      pause(RENAME_WAIT_MS);
-    }
-  }
-}
 
 /** O `offices.json`: a `session` vai cifrada pelo `SecretBox`. */
 const OfficesFile = z.object({
@@ -206,15 +178,7 @@ export class OfficeStore {
       // Sem cofre, a sessão e o token da ponte não vão para o disco: fica só na memória.
       offices: this.offices.map((e) => ({ ...e, session: canSeal && e.session !== null ? this.box.seal(e.session) : null, bridgeToken: canSeal && e.bridgeToken !== null ? this.box.seal(e.bridgeToken) : null })),
     };
-    mkdirSync(dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(data));
-    try {
-      renameWithRetry(tmp, this.file);
-    } catch (err) {
-      rmSync(tmp, { force: true });
-      throw err;
-    }
+    writeFileAtomic(this.file, JSON.stringify(data));
     this.written = snapshot;
   }
 }

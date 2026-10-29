@@ -1,8 +1,8 @@
-import { copyFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { copyFileSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { ALIAS_PATTERN, MAX_ALIASES, type FolderChange, type FolderInfo } from "@workforces/protocol";
-import { renameWithRetry } from "../offices/store.js";
+import { writeFileAtomic } from "../atomic-write.js";
 
 export interface FolderEntry {
   alias: string;
@@ -12,9 +12,15 @@ export interface FolderEntry {
 /** O `agents.json`: as pastas liberadas para "Chamar agente" e os padrões extras de máscara (editados à mão). */
 const AgentsFile = z.object({
   version: z.literal(1),
-  folders: z.array(z.object({ alias: z.string().regex(ALIAS_PATTERN), path: z.string() })),
+  folders: z.array(z.object({ alias: z.string(), path: z.string() })),
   secretPatterns: z.array(z.string()).default([]),
 });
+
+/** Limites do `LocalStart` do canal local: acima disso todo `start` falharia. */
+const MAX_PATTERNS = 50;
+const MAX_PATTERN_LENGTH = 500;
+
+const SAVE_FAILED = "não consegui salvar a lista de pastas; tente de novo";
 
 /** Caminho comparável: absoluto e, no Windows, sem diferenciar maiúsculas. */
 function folderKey(path: string, platform: NodeJS.Platform): string {
@@ -29,12 +35,32 @@ function isDirectory(path: string): boolean {
   }
 }
 
+/** Mantém só as entradas que cumprem as regras do `add` (o arquivo é editável à mão); registra as que saíram. */
+function validEntries(entries: FolderEntry[], log: (message: string) => void): FolderEntry[] {
+  const kept: FolderEntry[] = [];
+  for (const entry of entries) {
+    let why: string | null = null;
+    if (!ALIAS_PATTERN.test(entry.alias)) why = "apelido inválido";
+    else if (!isAbsolute(entry.path)) why = "caminho não é absoluto";
+    else if (entry.path.includes(";")) why = "caminho com ;";
+    else if (kept.some((other) => other.alias === entry.alias)) why = "apelido repetido";
+    else if (kept.some((other) => folderKey(other.path, process.platform) === folderKey(entry.path, process.platform))) why = "pasta repetida";
+    else if (kept.length >= MAX_ALIASES) why = `passa de ${MAX_ALIASES} pastas`;
+    if (why === null) kept.push(entry);
+    else log(`agents.json: pasta ${JSON.stringify(entry.alias)} ignorada (${why})`);
+  }
+  return kept;
+}
+
 /** As pastas que o app pode abrir para um agente. Valem para o computador inteiro, não por escritório. */
 export class FolderStore {
   private constructor(
     private readonly file: string,
     private folders: FolderEntry[],
     private readonly patterns: string[],
+    private readonly log: (message: string) => void,
+    /** O arquivo existe mas não pôde ser lido: nesta execução nada é gravado por cima dele. */
+    private readonly readOnly = false,
   ) {}
 
   static load(file: string, log: (message: string) => void = () => {}): FolderStore {
@@ -42,23 +68,33 @@ export class FolderStore {
     try {
       raw = readFileSync(file, "utf8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") log(`não consegui ler o agents.json (${err instanceof Error ? err.message : String(err)}); recomeçando vazio`);
-      return new FolderStore(file, [], []);
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return new FolderStore(file, [], [], log);
+      FolderStore.keepBadCopy(file, `não consegui ler o agents.json (${err instanceof Error ? err.message : String(err)})`, log, "a lista fica só na memória até fechar o app");
+      return new FolderStore(file, [], [], log, true);
     }
     try {
       const data = AgentsFile.parse(JSON.parse(raw));
-      return new FolderStore(file, data.folders, data.secretPatterns);
-    } catch (err) {
-      const reason = `agents.json ilegível (${err instanceof Error ? err.message : String(err)})`;
-      const copy = `${file}.bad`;
-      try {
-        copyFileSync(file, copy);
-        log(`${reason}; copiado para ${copy} e recomeçando vazio`);
-      } catch {
-        log(`${reason}; recomeçando vazio`);
+      const folders = validEntries(data.folders, log);
+      const patterns = data.secretPatterns.filter((pattern) => pattern.length <= MAX_PATTERN_LENGTH).slice(0, MAX_PATTERNS);
+      if (patterns.length < data.secretPatterns.length) {
+        log(`agents.json: ${data.secretPatterns.length - patterns.length} padrões de máscara ignorados (no máximo ${MAX_PATTERNS}, de até ${MAX_PATTERN_LENGTH} caracteres)`);
       }
-      return new FolderStore(file, [], []);
+      return new FolderStore(file, folders, patterns, log);
+    } catch (err) {
+      FolderStore.keepBadCopy(file, `agents.json ilegível (${err instanceof Error ? err.message : String(err)})`, log, "recomeçando vazio");
+      return new FolderStore(file, [], [], log);
     }
+  }
+
+  private static keepBadCopy(file: string, reason: string, log: (message: string) => void, outcome: string): void {
+    const copy = `${file}.bad`;
+    try {
+      copyFileSync(file, copy);
+    } catch {
+      log(`${reason}; ${outcome}`);
+      return;
+    }
+    log(`${reason}; copiado para ${copy} e ${outcome}`);
   }
 
   list(): FolderInfo[] {
@@ -80,14 +116,20 @@ export class FolderStore {
     const same = this.folders.find((folder) => folderKey(folder.path, platform) === folderKey(full, platform));
     if (same) return { ok: false, error: `essa pasta já está liberada como ${same.alias}` };
     if (this.folders.length >= MAX_ALIASES) return { ok: false, error: `no máximo ${MAX_ALIASES} pastas` };
-    this.folders = [...this.folders, { alias, path: full }];
-    this.persist();
+    const before = this.folders;
+    this.folders = [...before, { alias, path: full }];
+    if (!this.persist()) {
+      this.folders = before;
+      return { ok: false, error: SAVE_FAILED };
+    }
     return { ok: true, folders: this.list() };
   }
 
   remove(alias: string): FolderInfo[] {
-    this.folders = this.folders.filter((folder) => folder.alias !== alias);
-    this.persist();
+    if (!this.folders.some((folder) => folder.alias === alias)) return this.list();
+    const before = this.folders;
+    this.folders = before.filter((folder) => folder.alias !== alias);
+    if (!this.persist()) this.folders = before;
     return this.list();
   }
 
@@ -96,16 +138,15 @@ export class FolderStore {
     return [...this.patterns];
   }
 
-  /** Grava `<arquivo>.tmp` e renomeia, para um corte no meio não deixar o arquivo pela metade. */
-  private persist(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ version: 1, folders: this.folders, secretPatterns: this.patterns }, null, 2));
+  /** false se não gravou (o erro vai para o registro). */
+  private persist(): boolean {
+    if (this.readOnly) return true;
     try {
-      renameWithRetry(tmp, this.file);
+      writeFileAtomic(this.file, JSON.stringify({ version: 1, folders: this.folders, secretPatterns: this.patterns }, null, 2));
+      return true;
     } catch (err) {
-      rmSync(tmp, { force: true });
-      throw err;
+      this.log(`não consegui gravar o agents.json (${err instanceof Error ? err.message : String(err)})`);
+      return false;
     }
   }
 }

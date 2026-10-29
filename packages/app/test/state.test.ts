@@ -122,10 +122,24 @@ describe("AppState", () => {
     state.applyAuth({ session: "s1", userName: "ana" });
     const office = state.agentOffice()!;
     expect(office).toMatchObject({ url: "http://localhost:4600", session: "s1", bridgeToken: null });
-    state.saveBridgeToken("ponte");
+    state.saveBridgeToken(office.id, "ponte");
     expect(state.agentOffice()).toMatchObject({ id: office.id, bridgeToken: "ponte" });
     const next = fresh();
     next.startup(null);
     expect(next.agentOffice()).toMatchObject({ bridgeToken: "ponte" });
+  });
+
+  it("token criado para outro escritório vai para o id dele e não muda o aberto", () => {
+    const state = fresh();
+    state.openLink(LINK);
+    state.applyAuth({ session: "s1", userName: "ana" });
+    const a = state.agentOffice()!;
+    state.openLink("workforces://invite?server=http%3A%2F%2Flocalhost%3A4700&code=abc");
+    state.applyAuth({ session: "s2", userName: "bia" });
+    const b = state.agentOffice()!;
+    state.saveBridgeToken(a.id, "token-de-a");
+    expect(state.agentOffice()).toMatchObject({ id: b.id, bridgeToken: null });
+    expect(OfficeStore.load(file, box).get(a.id)).toMatchObject({ bridgeToken: "token-de-a" });
+    expect(OfficeStore.load(file, box).get(b.id)).toMatchObject({ bridgeToken: null });
   });
 });
