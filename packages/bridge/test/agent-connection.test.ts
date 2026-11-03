@@ -160,13 +160,13 @@ describe("AgentConnection", () => {
 
 describe("bridgeSocketUrl", () => {
   it("converte para ws/wss e fixa o caminho", () => {
-    expect(bridgeSocketUrl("https://workforces.exemplo", false)).toBe("wss://workforces.exemplo/ws/bridge");
-    expect(bridgeSocketUrl("http://localhost:4599", false)).toBe("ws://localhost:4599/ws/bridge");
-    expect(bridgeSocketUrl("http://10.0.0.5:8080", true)).toBe("ws://10.0.0.5:8080/ws/bridge");
+    expect(bridgeSocketUrl("https://workforces.exemplo")).toBe("wss://workforces.exemplo/ws/bridge");
+    expect(bridgeSocketUrl("http://localhost:4599")).toBe("ws://localhost:4599/ws/bridge");
+    expect(bridgeSocketUrl("http://127.0.0.1:4599/escritorio?x=1#y")).toBe("ws://127.0.0.1:4599/ws/bridge");
   });
 
-  it("recusa HTTP fora de localhost sem --insecure e esquemas estranhos", () => {
-    expect(() => bridgeSocketUrl("http://10.0.0.5:8080", false)).toThrow(ServerUrlError);
-    expect(() => bridgeSocketUrl("ftp://x", true)).toThrow(ServerUrlError);
+  it("recusa HTTP fora de localhost e esquemas estranhos", () => {
+    expect(() => bridgeSocketUrl("http://10.0.0.5:8080")).toThrow(ServerUrlError);
+    expect(() => bridgeSocketUrl("ftp://x")).toThrow(ServerUrlError);
   });
 });

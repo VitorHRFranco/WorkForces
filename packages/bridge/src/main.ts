@@ -111,7 +111,7 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
           office = start.server;
           let url: string;
           try {
-            url = bridgeSocketUrl(start.server, false);
+            url = bridgeSocketUrl(start.server);
           } catch (err) {
             if (!(err instanceof ServerUrlError)) throw err;
             warn(`${err.message}; rodando sem espelhar`);

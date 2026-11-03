@@ -1,5 +1,10 @@
 import type { AgentInfo } from "@workforces/protocol";
-import { TerminalPanel, statusText, type TerminalHandle } from "../terminal/terminal-panel";
+import { TerminalPanel, type TerminalHandle } from "../terminal/terminal-panel";
+
+function statusText(agent: AgentInfo): string {
+  if (!agent.connected) return "reconectando…";
+  return agent.status === "working" ? "trabalhando" : "parado";
+}
 
 export function DeskPanel({
   ownerName,

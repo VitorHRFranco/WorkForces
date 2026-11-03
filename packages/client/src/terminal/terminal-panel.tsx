@@ -1,4 +1,4 @@
-import type { AgentInfo, FrameBody } from "@workforces/protocol";
+import type { FrameBody } from "@workforces/protocol";
 import type { ComponentChildren } from "preact";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
@@ -16,11 +16,6 @@ const LINE_HEIGHT_RATIO = 1.2;
 
 function fontSizeFor(width: number, height: number, cols: number, rows: number): number {
   return Math.max(8, Math.min(16, Math.floor(width / (cols * CHAR_WIDTH_RATIO)), Math.floor(height / (rows * LINE_HEIGHT_RATIO))));
-}
-
-export function statusText(agent: AgentInfo): string {
-  if (!agent.connected) return "reconectando…";
-  return agent.status === "working" ? "trabalhando" : "parado";
 }
 
 export function TerminalPanel({

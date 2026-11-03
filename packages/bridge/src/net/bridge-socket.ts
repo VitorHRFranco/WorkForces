@@ -27,8 +27,8 @@ export class ServerUrlError extends Error {}
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** URL do WebSocket da ponte a partir da URL do escritório. */
-export function bridgeSocketUrl(server: string, insecure: boolean): string {
+/** URL do WebSocket da ponte a partir da URL do escritório. HTTP sem TLS só vale em localhost. */
+export function bridgeSocketUrl(server: string): string {
   let url: URL;
   try {
     url = new URL(server);
@@ -38,7 +38,7 @@ export function bridgeSocketUrl(server: string, insecure: boolean): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new ServerUrlError(`URL de servidor inválida: ${server}`);
   }
-  if (url.protocol === "http:" && !LOCAL_HOSTS.has(url.hostname) && !insecure) {
+  if (url.protocol === "http:" && !LOCAL_HOSTS.has(url.hostname)) {
     throw new ServerUrlError(`${server} usa HTTP sem TLS; use https`);
   }
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
