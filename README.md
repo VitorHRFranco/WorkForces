@@ -32,9 +32,9 @@ O app é o único jeito de entrar. O servidor não serve mais páginas para o na
 
 ### No escritório
 
-- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo app ou pela ponte): a primeira livre, na ordem do mapa.
+- Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo app): a primeira livre, na ordem do mapa.
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
-- Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha.
+- Chegue perto de uma mesa com agentes para ver o terminal ao vivo, só leitura, com uma aba por agente. Com o painel aberto, a câmera desloca o mapa para você continuar à vista; ao se afastar, o painel fecha. Para ver os seus, use "Meus agentes" (veja [Agentes](#agentes)).
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
 - **Mesa: aberta/fechada**, na barra de cima: com a mesa fechada, ninguém vê o terminal dos seus agentes (nem você, pelo mapa). Os robôs continuam na mesa, com a placa "fechada", e a escolha vale até você abrir de novo, mesmo que o servidor reinicie.
 
@@ -76,31 +76,17 @@ Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`
 
 Rode com as mesmas variáveis `WF_*` do servidor: o comando abre o banco em `WF_DATA_DIR` e valida `WF_PUBLIC_URL`.
 
-### Conectar a ponte
+### Agentes
 
-No escritório, abra "Tokens da ponte", crie um token e rode na sua máquina:
+Os agentes rodam no seu computador, e quem os abre é o app (por enquanto, só no Windows). O escritório não abre agentes nem conhece as suas pastas: ele vê só o robô e a tela já mascarada.
 
-```bash
-node packages/bridge/dist/cli.js login http://localhost:4600
-node packages/bridge/dist/cli.js claude
-```
-
-O escritório mostra os comandos como `workforces …`; sem instalar a ponte, use `node packages/bridge/dist/cli.js` no lugar de `workforces`.
-
-### Chamar agente pelo escritório (Windows)
-
-Libere as pastas que o escritório pode abrir e deixe a ponte ligada:
-
-```bash
-node packages/bridge/dist/cli.js pastas add ./meu-projeto --nome loja
-node packages/bridge/dist/cli.js ponte
-```
-
-No escritório, "Chamar agente" lista as pastas liberadas. Escolher uma abre uma janela nova do Windows Terminal com `workforces claude` naquela pasta, e o robô aparece na sua mesa.
-
-O servidor só conhece os apelidos, nunca os caminhos, e a ponte confere tudo de novo: no máximo um pedido a cada 5 s e 5 agentes abertos (contam os `workforces claude` desta instalação, incluindo os que a ponte abriu). É preciso ter o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
-
-`pastas list` mostra as pastas liberadas, e `pastas rm <apelido>` tira uma da lista. Com a ponte ligada, a lista do escritório muda na hora.
+- **Pastas:** em "Chamar agente" → "Pastas…", libere as pastas de projeto que o app pode abrir, escolhendo cada uma pelo seletor do Windows. "Chamar agente" mostra as IAs (só o Claude funciona por enquanto; as outras aparecem como "em breve") e as pastas liberadas. O agente abre na pasta escolhida, e o robô aparece na sua mesa.
+- **Requisitos:** cada agente abre numa janela do Windows Terminal, que o app minimiza logo em seguida. É preciso ter o Node.js 22.12 ou mais novo (o do `PATH`, ou o `node.exe` indicado em `WF_NODE`) e o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
+- **Limites:** no máximo um pedido a cada 5 s e 5 agentes abertos neste computador.
+- **Meus agentes:** o botão na barra de cima mostra o terminal dos seus agentes e deixa digitar neles. A digitação vai deste computador direto para o agente, sem passar pelo escritório; quem visita a sua mesa continua só olhando.
+- **Depois de fechar:** fechar o app não fecha os agentes: eles continuam na janela deles e no mapa. Ao reabrir o app, eles voltam ao "Meus agentes".
+- **Máscara:** a tela do agente sai deste computador com os tokens e as senhas conhecidos mascarados. Para mascarar outros padrões, acrescente expressões regulares à lista `secretPatterns` do `agents.json`, na pasta de dados do app (`%APPDATA%\@workforces\app` com `pnpm app`, ou a pasta de `WF_APP_DATA_DIR`). Edite com o app fechado: os padrões valem para os agentes chamados depois que ele abrir de novo.
+- **Acessos:** cada computador entra no escritório com um acesso próprio, que o app cria sozinho. "Computadores", na barra de cima, lista os acessos de cada computador e permite revogar; depois de revogar, o app cria outro na próxima vez que você chamar um agente.
 
 ### Servidor para um time (Docker + Caddy)
 
@@ -129,7 +115,7 @@ docker compose logs workforces   # o primeiro convite de admin aparece aqui
 }
 ```
 
-Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a no Windows de quem usa o escritório, em "Autoridades de Certificação Raiz Confiáveis": o app confia nos certificados instalados no Windows, além dos que vêm com ele. Na ponte, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo. Quando o convite levar o pino do certificado (num plano futuro do app), o app deixa de precisar desse passo.
+Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a no Windows de quem usa o escritório, em "Autoridades de Certificação Raiz Confiáveis": o app confia nos certificados instalados no Windows, além dos que vêm com ele. Os agentes rodam no Node do sistema, que não usa essa lista: nas variáveis de ambiente do seu usuário do Windows, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo. Quando o convite levar o pino do certificado (num plano futuro do app), o app deixa de precisar desse passo.
 
 Para testar só a imagem, sem o Caddy:
 

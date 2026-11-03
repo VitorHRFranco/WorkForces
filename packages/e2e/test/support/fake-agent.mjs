@@ -1,5 +1,6 @@
 // Agente de brinquedo dos testes E2E, no lugar do Claude Code: imprime uma sessão curta com um token falso, que a ponte
-// precisa mascarar antes de mandar a tela ao escritório, e fica rodando até a ponte fechar.
+// precisa mascarar antes de mandar a tela ao escritório, e fica rodando até a ponte fechar. Cada linha digitada volta
+// como "recebi: <linha>": é assim que o teste vê a digitação do painel do dono chegar ao agente.
 const ESC = String.fromCharCode(27);
 const NEWLINE = String.fromCharCode(13, 10);
 const paint = (code, text) => `${ESC}[${code}m${text}${ESC}[0m`;
@@ -10,4 +11,16 @@ process.stdout.write(paint("1;36", "● agente de brinquedo") + NEWLINE);
 process.stdout.write("lendo src/loja.ts" + NEWLINE);
 process.stdout.write(`token de teste: ${token}` + NEWLINE);
 process.stdout.write(paint("32", "pronto") + NEWLINE);
+
+// O Enter chega como \n no Linux (o PTY troca o \r) e como \r\n no Windows (o console em modo de linha): sai o fim.
+let pending = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  pending += chunk;
+  for (let end = pending.indexOf("\n"); end !== -1; end = pending.indexOf("\n")) {
+    const line = pending.slice(0, end).replace(/\r+$/, "");
+    pending = pending.slice(end + 1);
+    process.stdout.write(`recebi: ${line}` + NEWLINE);
+  }
+});
 setInterval(() => {}, 60_000);

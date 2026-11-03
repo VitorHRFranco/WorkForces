@@ -1,13 +1,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer as createProbe, type AddressInfo } from "node:net";
+import { connect, createServer as createProbe, type AddressInfo } from "node:net";
 import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawnPty, type IPty } from "@lydell/node-pty";
 import { _electron, errors, expect, type ElectronApplication, type Page } from "@playwright/test";
-import { parseOfficeMap, type AppBridge, type OfficeMap, type Point } from "@workforces/protocol";
+import { channelPath } from "@workforces/bridge/channel";
+import {
+  AgentToApp,
+  LOCAL_PROTOCOL_VERSION,
+  parseJson,
+  parseOfficeMap,
+  type AppBridge,
+  type LocalStart,
+  type OfficeMap,
+  type Point,
+} from "@workforces/protocol";
 import WebSocket from "ws";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -30,6 +41,11 @@ const TOLERANCE = 6;
 const APP_SIZE = { width: 960, height: 640 };
 /** Quanto o app tem para sair sozinho antes de ser morto. */
 const APP_CLOSE_MS = 10_000;
+/** De quanto em quanto o harness tenta o canal local do agente, e até quando (o invólucro o abre logo depois do PTY). */
+const CHANNEL_RETRY_MS = 200;
+const CHANNEL_TIMEOUT_MS = 15_000;
+/** Quanto do terminal do agente fica guardado para a mensagem de erro, se o canal não responder. */
+const AGENT_OUTPUT_KEEP = 4_000;
 
 export interface Account {
   name: string;
@@ -129,6 +145,8 @@ export async function startOffice(): Promise<Office> {
 
 export class Office {
   private readonly agents: IPty[] = [];
+  /** O canal local de cada agente (fora do Windows, um socket Unix que sobra no disco se o invólucro for morto). */
+  private readonly channels: string[] = [];
   private readonly apps: ElectronApplication[] = [];
   private readonly sockets: WebSocket[] = [];
   private admin: Account | null = null;
@@ -234,24 +252,44 @@ export class Office {
     return match[1]!.replace(/&amp;/g, "&");
   }
 
-  /** `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. */
+  /**
+   * `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. Como o
+   * app faz: o endereço e o token vão pelo canal local do agente, num `start`, e nunca pela linha de comando.
+   */
   async startAgent(account: Account, agentScript: string = FAKE_AGENT, options: AgentOptions = {}): Promise<void> {
     const created = await this.post("/api/tokens", { name: "e2e" }, account);
     expect(created.status).toBe(201);
     const { token } = (await created.json()) as { token: string };
-    const home = join(this.dir, `ponte-${account.name}`);
-    const project = join(this.dir, options.project ?? `projeto-${account.name}`);
-    mkdirSync(home, { recursive: true });
+    const label = options.project ?? `projeto-${account.name}`;
+    const project = join(this.dir, label);
     mkdirSync(project, { recursive: true });
-    writeFileSync(join(home, "config.json"), JSON.stringify({ server: this.url, token }));
-    const agent = spawnPty(process.execPath, [BRIDGE_CLI, "claude"], {
+    const agentId = randomUUID();
+    const channelId = randomBytes(16).toString("hex");
+    const channel = channelPath(channelId);
+    const agent = spawnPty(process.execPath, [BRIDGE_CLI, "claude", "--agent-id", agentId, "--channel", channelId], {
       name: "xterm-256color",
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
       cwd: project,
-      env: { ...process.env, WORKFORCES_HOME: home, WORKFORCES_CLAUDE_BIN: this.launcher(account.name, agentScript) },
+      env: { ...process.env, WORKFORCES_CLAUDE_BIN: this.launcher(account.name, agentScript) },
     });
     this.agents.push(agent);
+    this.channels.push(channel);
+    // O que o terminal mostrou e se o invólucro saiu: sem isso, um canal que não abre só daria "não respondeu".
+    let output = "";
+    let exitCode: number | null = null;
+    agent.onData((data) => {
+      output = (output + data).slice(-AGENT_OUTPUT_KEEP);
+    });
+    agent.onExit(({ exitCode: code }) => {
+      exitCode = code;
+    });
+    try {
+      await deliverStart(channel, { type: "start", server: this.url, token, label, secretPatterns: [] }, () => exitCode === null);
+    } catch (error) {
+      const status = exitCode === null ? "ainda rodando" : `saiu com ${exitCode}`;
+      throw new Error(`o agente ${label} não recebeu o start pelo canal local (${status}):${EOL}${output}`, { cause: error });
+    }
   }
 
   /** Entra no escritório só com a conexão do cliente, sem abrir o app (um app a menos desenhando o jogo). */
@@ -283,6 +321,8 @@ export class Office {
       });
       agent.kill();
     })));
+    // Os sockets que os invólucros mortos deixaram: o app dos próximos testes nem tenta conectar neles.
+    if (process.platform !== "win32") for (const channel of this.channels.splice(0)) rmSync(channel, { force: true });
     // Com prazo: esperar a saída sem limite já travou o afterAll por 90 s.
     this.server.kill();
     if (!(await waitExit(this.server, 10_000))) {
@@ -384,6 +424,72 @@ export async function walkTo(page: Page, target: Point, order: readonly ("x" | "
 
 function position(page: Page): Promise<Point> {
   return page.evaluate(() => (window as unknown as { __workforces: { position(): Point } }).__workforces.position());
+}
+
+/**
+ * Faz o papel do app no canal local do agente: tenta conectar a cada 200 ms (o invólucro abre o canal logo depois de
+ * subir) e, conectado, manda `hello` e `start` e espera o `info` com o escritório. Desiste se o agente sair.
+ */
+async function deliverStart(path: string, start: LocalStart, alive: () => boolean): Promise<void> {
+  const deadline = Date.now() + CHANNEL_TIMEOUT_MS;
+  let reason = "o canal não abriu";
+  while (Date.now() < deadline && alive()) {
+    try {
+      await sendStart(path, start, deadline - Date.now());
+      return;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, CHANNEL_RETRY_MS));
+  }
+  throw new Error(alive() ? `sem confirmação em ${CHANNEL_TIMEOUT_MS / 1000} s: ${reason}` : `o agente saiu: ${reason}`);
+}
+
+/**
+ * Uma conexão com o canal: uma mensagem JSON por linha. Fecha logo depois do `info` com o escritório, porque o canal
+ * atende um cliente por vez e o app do teste conecta nele depois. Se outro cliente derrubar esta conexão depois do
+ * `start`, a próxima tentativa recebe no primeiro `info` o escritório que já ficou valendo.
+ */
+function sendStart(path: string, start: LocalStart, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(path);
+    let pending = "";
+    let sent = false;
+    let done = false;
+    const finish = (error?: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (error) {
+        socket.destroy();
+        reject(error);
+      } else {
+        socket.end();
+        resolve();
+      }
+    };
+    const timer = setTimeout(() => finish(new Error("o agente não respondeu no prazo")), timeoutMs);
+    const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`);
+    socket.setEncoding("utf8");
+    socket.on("connect", () => send({ type: "hello", protocol: LOCAL_PROTOCOL_VERSION }));
+    socket.on("data", (chunk: string | Buffer) => {
+      pending += String(chunk);
+      for (let end = pending.indexOf("\n"); end !== -1 && !done; end = pending.indexOf("\n")) {
+        const message = parseJson(AgentToApp, pending.slice(0, end));
+        pending = pending.slice(end + 1);
+        // Até o `info` com o escritório, o resto (quadros, status) não interessa.
+        if (message?.type !== "info") continue;
+        if (message.office === start.server) finish();
+        else if (message.office !== null) finish(new Error(`o agente já está noutro escritório (${message.office})`));
+        else if (!sent) {
+          sent = true;
+          send(start);
+        }
+      }
+    });
+    socket.on("error", (error) => finish(error));
+    socket.on("close", () => finish(new Error("o canal fechou antes de confirmar o escritório")));
+  });
 }
 
 /** Resolve `true` quando o processo sai e `false` se o prazo acabar antes. */

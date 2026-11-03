@@ -271,6 +271,9 @@ importers:
       '@types/ws':
         specifier: 8.18.2
         version: 8.18.2
+      '@workforces/bridge':
+        specifier: workspace:*
+        version: link:../bridge
       '@workforces/protocol':
         specifier: workspace:*
         version: link:../protocol
