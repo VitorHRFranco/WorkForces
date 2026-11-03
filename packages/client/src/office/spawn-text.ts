@@ -8,9 +8,9 @@ const TEXT: Record<SpawnError, string> = {
   "rate-limited": "espere alguns segundos entre um pedido e outro",
   "too-many-agents": "já há 5 agentes abertos neste computador; feche um antes",
   "no-terminal": "instale o Windows Terminal (no Windows 10: winget install Microsoft.WindowsTerminal)",
-  "no-node": "instale o Node.js 22 ou mais novo (nodejs.org) e tente de novo",
+  "no-node": "instale o Node.js 22.12 ou mais novo (nodejs.org); depois saia pelo ícone da bandeja (Sair) e abra o app de novo",
   "spawn-failed": "não consegui abrir a janela do agente; tente de novo",
-  "no-answer": "a janela abriu, mas o agente não respondeu; feche a janela e tente de novo",
+  "no-answer": "o agente não respondeu; veja o motivo na janela dele, que acabou de abrir na tela",
   unsupported: "chamar agente só funciona no Windows por enquanto",
 };
 

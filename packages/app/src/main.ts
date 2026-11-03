@@ -234,6 +234,16 @@ async function start(): Promise<void> {
         })
         .catch((error: unknown) => console.warn("não consegui minimizar a janela do agente", error));
     },
+    // O agente não respondeu (no-answer): o motivo está escrito na janela dele, que volta à tela.
+    async onNoAnswer(title) {
+      if (process.platform !== "win32") return;
+      await import("./win/minimize.js")
+        .then(({ restoreWindow }) => restoreWindow(title))
+        .then((done) => {
+          if (!done) console.warn("não consegui restaurar a janela do agente", title);
+        })
+        .catch((error: unknown) => console.warn("não consegui restaurar a janela do agente", error));
+    },
     deliver: (channelId, start) => agents.deliver(channelId, start),
     now: () => Date.now(),
     log: console.warn,

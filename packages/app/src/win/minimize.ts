@@ -1,5 +1,7 @@
 /** SW_SHOWMINNOACTIVE: minimiza sem tirar o foco de quem está usando o computador. */
 const SW_SHOWMINNOACTIVE = 7;
+/** SW_RESTORE: desfaz o minimizar e mostra a janela no tamanho e lugar de antes. */
+const SW_RESTORE = 9;
 const POLL_MS = 200;
 /** Quanto do título é lido; o da janela do agente é bem mais curto. */
 const TITLE_CHARS = 512;
@@ -8,6 +10,7 @@ interface User32 {
   /** A primeira janela de primeiro nível cujo título contém `marker`, ou null. */
   find(marker: string): unknown;
   minimize(hwnd: unknown): void;
+  restore(hwnd: unknown): void;
 }
 
 let loaded: Promise<User32> | null = null;
@@ -28,6 +31,7 @@ async function load(): Promise<User32> {
   const GetWindowThreadProcessId = lib.func("uint32_t __stdcall GetWindowThreadProcessId(HWND hWnd, _Out_ uint32_t *lpdwProcessId)");
   const GetWindowTextW = lib.func("int __stdcall GetWindowTextW(HWND hWnd, _Out_ uint16_t *lpString, int nMaxCount)");
   const ShowWindow = lib.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
+  const SetForegroundWindow = lib.func("int __stdcall SetForegroundWindow(HWND hWnd)");
 
   return {
     find(marker) {
@@ -63,10 +67,31 @@ async function load(): Promise<User32> {
     minimize(hwnd) {
       ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
     },
+    restore(hwnd) {
+      ShowWindow(hwnd, SW_RESTORE);
+      // O Windows pode recusar trazer para a frente (outro programa com o foco): a janela já está restaurada, e basta.
+      try {
+        SetForegroundWindow(hwnd);
+      } catch {
+        // melhor esforço
+      }
+    },
   };
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Procura a janela pelo título a cada 200 ms até o prazo; null se não apareceu. */
+async function findWindow(api: User32, marker: string, timeoutMs: number): Promise<unknown> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const hwnd = api.find(marker);
+    if (hwnd !== null) return hwnd;
+    const left = deadline - Date.now();
+    if (left <= 0) return null;
+    await sleep(Math.min(POLL_MS, left));
+  }
+}
 
 /**
  * Minimiza a janela do agente pelo título único (só Windows: o Windows Terminal não tem opção para abrir minimizado).
@@ -77,19 +102,30 @@ export async function minimizeWindow(marker: string, timeoutMs = 5_000): Promise
     // Título vazio casaria com qualquer janela.
     if (marker === "") return false;
     const api = await user32();
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const hwnd = api.find(marker);
-      if (hwnd !== null) {
-        api.minimize(hwnd);
-        return true;
-      }
-      const left = deadline - Date.now();
-      if (left <= 0) return false;
-      await sleep(Math.min(POLL_MS, left));
-    }
+    const hwnd = await findWindow(api, marker, timeoutMs);
+    if (hwnd === null) return false;
+    api.minimize(hwnd);
+    return true;
   } catch (error) {
     console.warn("não consegui minimizar a janela do agente; ela fica aberta", error);
+    return false;
+  }
+}
+
+/**
+ * Restaura a janela do agente pelo título único e tenta trazê-la para a frente: quando o agente não responde, o motivo
+ * (Claude não instalado, erro do invólucro) está escrito nela. Melhor esforço: qualquer erro vira `false`; nunca lança.
+ */
+export async function restoreWindow(marker: string, timeoutMs = 2_000): Promise<boolean> {
+  try {
+    if (marker === "") return false;
+    const api = await user32();
+    const hwnd = await findWindow(api, marker, timeoutMs);
+    if (hwnd === null) return false;
+    api.restore(hwnd);
+    return true;
+  } catch (error) {
+    console.warn("não consegui restaurar a janela do agente", error);
     return false;
   }
 }

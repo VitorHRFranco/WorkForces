@@ -8,6 +8,7 @@ const OFFICE: SpawnOffice = { id: "of-1", url: "https://escritorio.exemplo", ses
 function setup(overrides: Partial<AgentLauncherDeps> = {}) {
   const opened: AgentWindow[] = [];
   const minimized: string[] = [];
+  const restored: string[] = [];
   const delivered: Array<{ channelId: string; start: LocalStart }> = [];
   const logs: string[] = [];
   const clock = { now: 0 };
@@ -23,6 +24,7 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
     ensureToken: async () => ({ ok: true, token: "tok", created: false }),
     spawner: { open: async (window) => void opened.push(window) },
     minimize: async (title) => void minimized.push(title),
+    onNoAnswer: async (title) => void restored.push(title),
     deliver: async (channelId, start) => {
       delivered.push({ channelId, start });
       return true;
@@ -30,12 +32,12 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
     now: () => clock.now,
     log: (message) => logs.push(message),
   };
-  return { deps: { ...base, ...overrides }, opened, minimized, delivered, logs, clock };
+  return { deps: { ...base, ...overrides }, opened, minimized, restored, delivered, logs, clock };
 }
 
 describe("AgentLauncher", () => {
   it("abre a pasta do apelido, minimiza pelo título e entrega o start", async () => {
-    const { deps, opened, minimized, delivered } = setup();
+    const { deps, opened, minimized, restored, delivered } = setup();
     expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
     expect(opened).toHaveLength(1);
     const window = opened[0]!;
@@ -44,6 +46,7 @@ describe("AgentLauncher", () => {
     expect(window.agentId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(window.channelId).toMatch(/^[0-9a-f]{32}$/);
     expect(minimized).toEqual([window.title]);
+    expect(restored).toEqual([]);
     expect(delivered).toEqual([
       { channelId: window.channelId, start: { type: "start", server: OFFICE.url, token: "tok", label: "loja", secretPatterns: ["segredo-\\d+"] } },
     ]);
@@ -92,6 +95,34 @@ describe("AgentLauncher", () => {
     const silent = setup({ deliver: async () => false });
     expect(await new AgentLauncher(silent.deps).spawn("loja", OFFICE)).toEqual({ ok: false, error: "no-answer" });
     expect(silent.opened).toHaveLength(1);
+  });
+
+  it("sem resposta, a janela do agente volta à tela pelo título, depois de a minimização terminar", async () => {
+    const steps: string[] = [];
+    let finishMinimize: () => void = () => {};
+    const silent = setup({
+      minimize: (title) =>
+        new Promise<void>((resolve) => {
+          finishMinimize = () => {
+            steps.push(`minimizou ${title}`);
+            resolve();
+          };
+        }),
+      deliver: async () => {
+        // O canal desiste antes de a minimização acabar: a restauração espera por ela.
+        setTimeout(() => finishMinimize(), 0);
+        return false;
+      },
+      onNoAnswer: async (title) => void steps.push(`restaurou ${title}`),
+    });
+    expect(await new AgentLauncher(silent.deps).spawn("loja", OFFICE)).toEqual({ ok: false, error: "no-answer" });
+    const { title } = silent.opened[0]!;
+    expect(steps).toEqual([`minimizou ${title}`, `restaurou ${title}`]);
+  });
+
+  it("uma restauração que falha não muda a resposta", async () => {
+    const silent = setup({ deliver: async () => false, onNoAnswer: async () => Promise.reject(new Error("koffi sumiu")) });
+    expect(await new AgentLauncher(silent.deps).spawn("loja", OFFICE)).toEqual({ ok: false, error: "no-answer" });
   });
 
   it("com um pedido em andamento, outro é recusado sem gastar a vez", async () => {

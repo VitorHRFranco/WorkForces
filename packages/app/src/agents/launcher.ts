@@ -28,6 +28,11 @@ export interface AgentLauncherDeps {
   spawner: Spawner;
   /** Melhor esforço: nunca rejeita. */
   minimize(title: string): Promise<void>;
+  /**
+   * O agente não respondeu no canal: o motivo (sem Claude instalado, erro do invólucro) está escrito na janela dele, que o
+   * Windows Terminal mantém aberta. O app a traz de volta à tela. Melhor esforço: nunca rejeita.
+   */
+  onNoAnswer(title: string): Promise<void>;
   deliver(channelId: string, start: LocalStart): Promise<boolean>;
   now(): number;
   log(message: string): void;
@@ -84,7 +89,7 @@ export class AgentLauncher {
       deps.log(`não consegui abrir a janela: ${(error as Error).message}`);
       return { ok: false, error: error instanceof SpawnFailure ? error.reason : "spawn-failed" };
     }
-    void deps.minimize(title).catch(() => {});
+    const minimizing = deps.minimize(title).catch(() => {});
     const answered = await deps.deliver(channelId, {
       type: "start",
       server: office.url,
@@ -92,6 +97,10 @@ export class AgentLauncher {
       label: alias,
       secretPatterns: deps.folders.secretPatterns(),
     });
-    return answered ? { ok: true } : { ok: false, error: "no-answer" };
+    if (answered) return { ok: true };
+    // Restaura só depois de a minimização terminar: senão a janela que voltou à tela poderia ser minimizada em seguida.
+    await minimizing;
+    await deps.onNoAnswer(title).catch(() => {});
+    return { ok: false, error: "no-answer" };
   }
 }
