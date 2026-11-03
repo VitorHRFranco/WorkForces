@@ -169,8 +169,10 @@ describe("main", () => {
     const server = `http://127.0.0.1:${(wss.address() as AddressInfo).port}`;
     const token = "wf_" + "t".repeat(43);
     app.send({ type: "start", server, token, label: "loja", secretPatterns: ["("] });
-    await waitUntil(() => app.messages().length >= 2, 5000, "info depois do start");
-    expect(app.messages()[1]).toMatchObject({ type: "info", label: "loja", office: server });
+    // O espelho também manda `status` pelo canal quando o Claude muda de estado, a qualquer momento: só os `info` contam.
+    const infos = () => app.messages().filter((message) => message.type === "info");
+    await waitUntil(() => infos().length >= 2, 5000, "info depois do start");
+    expect(infos()[1]).toMatchObject({ type: "info", label: "loja", office: server });
     await waitUntil(() => seen.hello !== undefined, 10_000, "hello no escritório");
     expect(seen.authorization).toBe(`Bearer ${token}`);
     expect(seen.hello).toMatchObject({ type: "hello", kind: "agent", agentId, label: "loja" });
