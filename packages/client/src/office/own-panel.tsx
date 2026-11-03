@@ -1,7 +1,8 @@
-import type { LocalAgentInfo } from "@workforces/protocol";
+import { LOCAL_INPUT_MAX, type LocalAgentInfo } from "@workforces/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import { TerminalPanel, type TerminalHandle } from "../terminal/terminal-panel";
+import { chunkInput } from "./chunk-input";
 
 /** Espera curta para juntar vários `changed` seguidos num só pedido de tela. */
 const REWATCH_MS = 300;
@@ -38,7 +39,10 @@ export function OwnPanel({ onClose, onFocusChange }: { onClose: () => void; onFo
     void reload(false);
     const off = bridge.agents.onEvent((event) => {
       if (event.type === "changed") void reload(true);
-      else if (event.type === "frame" && event.agentId === handle.current?.agentId) {
+      else if (event.type === "status") {
+        // O ponto da aba e o "trabalhando/parado" acompanham o agente, sem esperar outra lista.
+        setAgents((current) => current?.map((item) => (item.agentId === event.agentId ? { ...item, state: event.state } : item)) ?? null);
+      } else if (event.type === "frame" && event.agentId === handle.current?.agentId) {
         if (handle.current.apply(event.frame) === "gap") {
           // Quadro-chave novo: o apply já espaça os pedidos.
           bridge.agents.unwatch(event.agentId);
@@ -97,7 +101,10 @@ export function OwnPanel({ onClose, onFocusChange }: { onClose: () => void; onFo
           }
           handle={handle}
           onReady={() => bridge.agents.watch(agent.agentId)}
-          onInput={(data) => bridge.agents.input(agent.agentId, data)}
+          onInput={(data) => {
+            // Uma colagem chega inteira: em pedaços, na ordem, cada um cabe no limite do canal local.
+            for (const chunk of chunkInput(data, LOCAL_INPUT_MAX)) bridge.agents.input(agent.agentId, chunk);
+          }}
           onFocusChange={onFocusChange}
         />
       ) : (

@@ -12,8 +12,11 @@ interface SpawnStatus {
 
 const STATUS_MS = 8_000;
 
-/** "Chamar agente" na barra de cima: escolhe a IA e a pasta liberada neste computador. */
-export function AgentMenu() {
+/**
+ * "Chamar agente" na barra de cima: escolhe a IA e a pasta liberada neste computador. `onModalChange` avisa a página quando o
+ * modal das pastas abre e fecha, para as teclas não irem ao jogo enquanto ele está aberto.
+ */
+export function AgentMenu({ onModalChange }: { onModalChange: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [status, setStatus] = useState<SpawnStatus | null>(null);
@@ -27,6 +30,13 @@ export function AgentMenu() {
     },
     [],
   );
+
+  // Também avisa ao desmontar com o modal aberto: o teclado volta ao jogo.
+  useEffect(() => {
+    if (!foldersModal) return;
+    onModalChange(true);
+    return () => onModalChange(false);
+  }, [foldersModal]);
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +76,12 @@ export function AgentMenu() {
   const openFolders = () => {
     setOpen(false);
     setFoldersModal(true);
+  };
+
+  // Como os outros modais da página: o campo com foco sai antes, senão a página continua achando que alguém digita.
+  const closeFolders = () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setFoldersModal(false);
   };
 
   return (
@@ -109,7 +125,7 @@ export function AgentMenu() {
           {status.text}
         </span>
       )}
-      {foldersModal && <FoldersModal onClose={() => setFoldersModal(false)} />}
+      {foldersModal && <FoldersModal onClose={closeFolders} />}
     </div>
   );
 }

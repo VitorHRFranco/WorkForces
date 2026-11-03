@@ -32,6 +32,8 @@ export function OfficePage() {
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [modal, setModal] = useState<"computers" | "invite" | null>(null);
+  /** O modal das pastas, que fica dentro do "Chamar agente". */
+  const [agentModal, setAgentModal] = useState(false);
   /** O painel "Meus agentes" (com digitação) e se o terminal dele tem o foco. */
   const [ownOpen, setOwnOpen] = useState(false);
   const [ownFocused, setOwnFocused] = useState(false);
@@ -207,7 +209,7 @@ export function OfficePage() {
     <div class="office">
       <header class="topbar">
         <strong>WorkForces</strong>
-        <AgentMenu />
+        <AgentMenu onModalChange={setAgentModal} />
         <span class="who">{me.name}</span>
         <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>
         {myDesk && (
@@ -254,7 +256,7 @@ export function OfficePage() {
         </p>
       )}
       <main class="stage">
-        <GameView deps={sceneDeps} keyboardEnabled={!typing && !ownFocused && modal === null && !endedRef.current} panelOpen={ownOpen || deskAgents.length > 0} />
+        <GameView deps={sceneDeps} keyboardEnabled={!typing && !ownFocused && modal === null && !agentModal && !endedRef.current} panelOpen={ownOpen || deskAgents.length > 0} />
         {ownOpen && <OwnPanel onClose={() => setOwnOpen(false)} onFocusChange={setOwnFocused} />}
         {deskAgents.length > 0 && (
           <DeskPanel
