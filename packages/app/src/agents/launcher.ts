@@ -9,13 +9,22 @@ export const SPAWN_INTERVAL_MS = 5_000;
 /** No máximo 5 agentes abertos neste computador (spec 6.4). */
 export const MAX_OPEN_AGENTS = 5;
 
+/** A foto do escritório tirada no pedido: o endereço do `start` e o token saem dela, nunca de uma leitura posterior. */
+export interface SpawnOffice {
+  id: string;
+  url: string;
+  session: string | null;
+  bridgeToken: string | null;
+}
+
 export interface AgentLauncherDeps {
   platform: NodeJS.Platform;
   folders: Pick<FolderStore, "find" | "secretPatterns">;
   isDirectory(path: string): boolean;
   countOpenAgents(): Promise<number>;
   findNode(): Promise<string | null>;
-  ensureToken(): Promise<TokenResult>;
+  /** Recebe o mesmo escritório do pedido: o aberto pode mudar enquanto a contagem e a busca do Node rodam. */
+  ensureToken(office: SpawnOffice): Promise<TokenResult>;
   spawner: Spawner;
   /** Melhor esforço: nunca rejeita. */
   minimize(title: string): Promise<void>;
@@ -31,7 +40,7 @@ export class AgentLauncher {
 
   constructor(private readonly deps: AgentLauncherDeps) {}
 
-  async spawn(alias: string, office: { url: string } | null): Promise<SpawnOutcome> {
+  async spawn(alias: string, office: SpawnOffice | null): Promise<SpawnOutcome> {
     // A contagem pode demorar mais que o intervalo de 5 s: com um pedido em andamento, outro veria a mesma contagem e abriria também.
     if (this.busy) return { ok: false, error: "rate-limited" };
     this.busy = true;
@@ -42,7 +51,7 @@ export class AgentLauncher {
     }
   }
 
-  private async run(alias: string, office: { url: string } | null): Promise<SpawnOutcome> {
+  private async run(alias: string, office: SpawnOffice | null): Promise<SpawnOutcome> {
     const { deps } = this;
     if (deps.platform !== "win32") return { ok: false, error: "unsupported" };
     // Toda tentativa gasta a vez, dando certo ou não.
@@ -64,7 +73,7 @@ export class AgentLauncher {
     if (open >= MAX_OPEN_AGENTS) return { ok: false, error: "too-many-agents" };
     const node = await deps.findNode();
     if (node === null) return { ok: false, error: "no-node" };
-    const token = await deps.ensureToken();
+    const token = await deps.ensureToken(office);
     if (!token.ok) return { ok: false, error: token.error };
     const agentId = randomUUID();
     const channelId = randomBytes(16).toString("hex");

@@ -21,7 +21,7 @@ import {
 import { channelDir } from "@workforces/bridge/channel";
 import { ALIAS_PATTERN, LOCAL_INPUT_MAX, type AppRoute, type FolderChange } from "@workforces/protocol";
 import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
-import { FolderStore } from "./agents/folders.js";
+import { FolderStore, INVALID_ALIAS } from "./agents/folders.js";
 import { AgentLauncher } from "./agents/launcher.js";
 import { LocalAgents } from "./agents/local-agents.js";
 import { countOpenAgents } from "./agents/open-agents.js";
@@ -43,7 +43,6 @@ const isAlias = (value: unknown): value is string => isText(value, 32) && ALIAS_
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isAgentId = (value: unknown): value is string => isText(value, 36) && UUID.test(value);
 const isInput = (value: unknown): value is string => isText(value, LOCAL_INPUT_MAX) && value.length > 0;
-const INVALID_ALIAS = "apelido inválido: use até 32 letras minúsculas, números e hífen, começando por letra ou número";
 
 function isDirectory(path: string): boolean {
   try {
@@ -92,6 +91,12 @@ async function start(): Promise<void> {
   let state: AppState | null = null;
   let relay: SocketRelay | null = null;
   let localAgents: LocalAgents | null = null;
+  /** Os agentes que a página está assistindo: ao trocar de escritório, o app para de assistir todos (eles continuam rodando). */
+  const watched = new Set<string>();
+  const stopWatching = (): void => {
+    for (const agentId of watched) localAgents?.unwatch(agentId);
+    watched.clear();
+  };
 
   if (!process.env.WF_APP_NO_PROTOCOL) {
     if (process.defaultApp) app.setAsDefaultProtocolClient("workforces", process.execPath, [resolve(process.argv[1]!)]);
@@ -121,6 +126,7 @@ async function start(): Promise<void> {
       return;
     }
     relay.closeAll();
+    stopWatching();
     sendToPage("app:route", state.openLink(link));
   });
 
@@ -204,10 +210,8 @@ async function start(): Promise<void> {
     isDirectory,
     countOpenAgents: () => countOpenAgents(cliPath),
     findNode: () => findNode(),
-    async ensureToken() {
-      // O id vem da foto tirada antes de pedir o token: o escritório aberto pode mudar enquanto ele é criado.
-      const office = appState.agentOffice();
-      if (office === null) return { ok: false, error: "no-office" };
+    // O escritório é a foto tirada no pedido (agents:spawn): o token e o endereço do start saem do mesmo, mesmo que o aberto mude.
+    async ensureToken(office) {
       const result = await ensureBridgeToken(office, tokenName(hostname()));
       if (result.ok && result.created) {
         try {
@@ -224,6 +228,10 @@ async function start(): Promise<void> {
       if (process.platform !== "win32") return;
       await import("./win/minimize.js")
         .then(({ minimizeWindow }) => minimizeWindow(title))
+        .then((done) => {
+          // Sem a janela no prazo (ou com erro, já registrado): o roteiro manual separa isso do sucesso.
+          if (!done) console.warn("não consegui minimizar a janela do agente", title);
+        })
         .catch((error: unknown) => console.warn("não consegui minimizar a janela do agente", error));
     },
     deliver: (channelId, start) => agents.deliver(channelId, start),
@@ -247,15 +255,17 @@ async function start(): Promise<void> {
     if (!isText(value, MAX_TEXT)) throw new Error("argumento inválido");
     return value;
   };
-  // Mudar o escritório aberto derruba o socket do anterior.
+  // Mudar o escritório aberto derruba o socket do anterior e para de assistir os agentes dele.
   const switching = (arg: unknown, action: (value: string) => AppRoute): AppRoute => {
     const value = text(arg);
     socketRelay.closeAll();
+    stopWatching();
     return action(value);
   };
 
   handle("app:startup", () => {
     socketRelay.closeAll();
+    stopWatching();
     const link = initialLink;
     initialLink = null;
     return appState.startup(link);
@@ -272,6 +282,7 @@ async function start(): Promise<void> {
   handle("offices:forget", (id) => {
     const wanted = text(id);
     socketRelay.closeAll();
+    stopWatching();
     appState.forget(wanted);
   });
   handle("invites:open", (link) => switching(link, (value) => appState.openLink(value)));
@@ -312,8 +323,7 @@ async function start(): Promise<void> {
   };
   handle("agents:spawn", (alias) => {
     if (!isAlias(alias)) throw new Error("argumento inválido");
-    const office = appState.agentOffice();
-    return launcher.spawn(alias, office === null ? null : { url: office.url });
+    return launcher.spawn(alias, appState.agentOffice());
   });
   handle("agents:list", async () => {
     await agents.scan();
@@ -321,10 +331,15 @@ async function start(): Promise<void> {
     return url === null ? [] : agents.list(url);
   });
   on("agents:watch", (agentId) => {
-    if (knownAgent(agentId)) agents.watch(agentId);
+    if (!knownAgent(agentId)) return;
+    agents.watch(agentId);
+    watched.add(agentId);
   });
+  // Parar de assistir não faz mal: vale para qualquer agente, também de outro escritório.
   on("agents:unwatch", (agentId) => {
-    if (knownAgent(agentId)) agents.unwatch(agentId);
+    if (!isAgentId(agentId)) return;
+    agents.unwatch(agentId);
+    watched.delete(agentId);
   });
   on("agents:input", (agentId, data) => {
     if (knownAgent(agentId) && isInput(data)) agents.input(agentId, data);

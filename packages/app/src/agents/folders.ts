@@ -22,6 +22,9 @@ const MAX_PATTERN_LENGTH = 500;
 
 const SAVE_FAILED = "não consegui salvar a lista de pastas; tente de novo";
 
+/** A recusa de apelido fora do `ALIAS_PATTERN`, igual aqui e no seletor de pasta do processo principal. */
+export const INVALID_ALIAS = "apelido inválido: use até 32 letras minúsculas, números e hífen, começando por letra ou número";
+
 /** Caminho comparável: absoluto e, no Windows, sem diferenciar maiúsculas. */
 function folderKey(path: string, platform: NodeJS.Platform): string {
   return platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
@@ -108,7 +111,7 @@ export class FolderStore {
 
   add(alias: string, path: string, platform: NodeJS.Platform = process.platform): FolderChange {
     const full = resolve(path);
-    if (!ALIAS_PATTERN.test(alias)) return { ok: false, error: "apelido inválido: use até 32 letras minúsculas, números e hífen, começando por letra ou número" };
+    if (!ALIAS_PATTERN.test(alias)) return { ok: false, error: INVALID_ALIAS };
     if (!isDirectory(full)) return { ok: false, error: `não é uma pasta: ${full}` };
     // O Windows Terminal usa ";" para separar comandos: a janela não abriria nessa pasta.
     if (full.includes(";")) return { ok: false, error: "o caminho não pode ter ; (o Windows Terminal não abre a pasta)" };

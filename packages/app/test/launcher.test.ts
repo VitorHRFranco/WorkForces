@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { LocalStart } from "@workforces/protocol";
-import { AgentLauncher, MAX_OPEN_AGENTS, SPAWN_INTERVAL_MS, type AgentLauncherDeps } from "../src/agents/launcher.js";
+import { AgentLauncher, MAX_OPEN_AGENTS, SPAWN_INTERVAL_MS, type AgentLauncherDeps, type SpawnOffice } from "../src/agents/launcher.js";
 import { SpawnFailure, type AgentWindow } from "../src/agents/windows-terminal.js";
 
-const OFFICE = { url: "https://escritorio.exemplo" };
+const OFFICE: SpawnOffice = { id: "of-1", url: "https://escritorio.exemplo", session: "sessao", bridgeToken: null };
 
 function setup(overrides: Partial<AgentLauncherDeps> = {}) {
   const opened: AgentWindow[] = [];
@@ -111,6 +111,23 @@ describe("AgentLauncher", () => {
     const third = launcher.spawn("loja", OFFICE);
     release(0);
     expect(await third).toEqual({ ok: true });
+  });
+
+  it("o token vem do mesmo escritório do pedido", async () => {
+    const asked: SpawnOffice[] = [];
+    const office: SpawnOffice = { id: "of-a", url: "https://a.exemplo", session: "sessao-a", bridgeToken: "tok-a" };
+    const { deps, delivered } = setup({
+      ensureToken: async (received) => {
+        asked.push(received);
+        return { ok: true, token: "tok-a", created: false };
+      },
+    });
+    expect(await new AgentLauncher(deps).spawn("loja", office)).toEqual({ ok: true });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toBe(office);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.start.server).toBe(office.url);
+    expect(delivered[0]!.start.token).toBe("tok-a");
   });
 
   it("fora do Windows: unsupported", async () => {

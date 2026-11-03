@@ -2,4 +2,4 @@ packages:
   - packages/*
 allowBuilds:
   electron: true
-  koffi: true
+  koffi: false

@@ -25,17 +25,22 @@ async function load(): Promise<User32> {
   // BOOL do Win32 é int; o LPARAM tem a largura de um ponteiro.
   const EnumWindowsProc = koffi.proto("int __stdcall EnumWindowsProc(HWND hwnd, intptr_t lParam)");
   const EnumWindows = lib.func("int __stdcall EnumWindows(EnumWindowsProc *lpEnumFunc, intptr_t lParam)");
+  const GetWindowThreadProcessId = lib.func("uint32_t __stdcall GetWindowThreadProcessId(HWND hWnd, _Out_ uint32_t *lpdwProcessId)");
   const GetWindowTextW = lib.func("int __stdcall GetWindowTextW(HWND hWnd, _Out_ uint16_t *lpString, int nMaxCount)");
   const ShowWindow = lib.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
 
   return {
     find(marker) {
       const title = Buffer.alloc(TITLE_CHARS * 2);
+      const pid = new Uint32Array(1);
       let found: unknown = null;
       let failure: unknown = null;
       // O EnumWindows só chama de volta enquanto roda; o registro é desfeito logo depois.
       const callback = koffi.register((hwnd: unknown): number => {
         try {
+          // Nas janelas do próprio processo o GetWindowTextW manda WM_GETTEXT e pode travar o processo principal do Electron.
+          // As do agente são do Windows Terminal; para as de outro processo o título é lido sem mensagem.
+          if ((GetWindowThreadProcessId(hwnd, pid) as number) === 0 || pid[0] === process.pid) return 1;
           const length = GetWindowTextW(hwnd, title, TITLE_CHARS) as number;
           if (length > 0 && title.toString("utf16le", 0, length * 2).includes(marker)) {
             found = hwnd;
