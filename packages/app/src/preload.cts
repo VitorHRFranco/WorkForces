@@ -1,6 +1,6 @@
 import electron = require("electron");
 const { contextBridge, ipcRenderer } = electron;
-import type { AppBridge, AppRoute, SocketEvent } from "@workforces/protocol";
+import type { AppBridge, AppRoute, LocalAgentEvent, SocketEvent } from "@workforces/protocol";
 
 // Preload com sandbox: só "electron" pode ser importado; os canais repetem os literais do main.ts.
 const subscribe = <T extends unknown[]>(channel: string, listener: (...args: T) => void) => {
@@ -26,6 +26,19 @@ const bridge: AppBridge = {
     send: (id, text) => ipcRenderer.send("socket:send", id, text),
     close: (id, code) => ipcRenderer.send("socket:close", id, code),
     onEvent: (listener) => subscribe<[number, SocketEvent]>("socket:event", listener),
+  },
+  folders: {
+    list: () => ipcRenderer.invoke("folders:list"),
+    pickAndAdd: (alias) => ipcRenderer.invoke("folders:pickAndAdd", alias),
+    remove: (alias) => ipcRenderer.invoke("folders:remove", alias),
+  },
+  agents: {
+    spawn: (alias) => ipcRenderer.invoke("agents:spawn", alias),
+    list: () => ipcRenderer.invoke("agents:list"),
+    watch: (agentId) => ipcRenderer.send("agents:watch", agentId),
+    unwatch: (agentId) => ipcRenderer.send("agents:unwatch", agentId),
+    input: (agentId, data) => ipcRenderer.send("agents:input", agentId, data),
+    onEvent: (listener) => subscribe<[LocalAgentEvent]>("agents:event", listener),
   },
 };
 

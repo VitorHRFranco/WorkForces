@@ -1,9 +1,12 @@
+import { statSync } from "node:fs";
+import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import * as tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -15,7 +18,14 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import type { AppRoute } from "@workforces/protocol";
+import { channelDir } from "@workforces/bridge/channel";
+import { ALIAS_PATTERN, LOCAL_INPUT_MAX, type AppRoute, type FolderChange } from "@workforces/protocol";
+import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
+import { FolderStore } from "./agents/folders.js";
+import { AgentLauncher } from "./agents/launcher.js";
+import { LocalAgents } from "./agents/local-agents.js";
+import { countOpenAgents } from "./agents/open-agents.js";
+import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
 import { findInviteArg, parseInviteLink } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
@@ -29,6 +39,19 @@ const MAX_SOCKET_TEXT = 64 * 1024;
 
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 const isSocketId = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+const isAlias = (value: unknown): value is string => isText(value, 32) && ALIAS_PATTERN.test(value);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isAgentId = (value: unknown): value is string => isText(value, 36) && UUID.test(value);
+const isInput = (value: unknown): value is string => isText(value, LOCAL_INPUT_MAX) && value.length > 0;
+const INVALID_ALIAS = "apelido inválido: use até 32 letras minúsculas, números e hífen, começando por letra ou número";
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 /** Só a página empacotada fala com o processo principal. */
 const fromPage = (event: IpcMainEvent | IpcMainInvokeEvent): boolean => event.senderFrame?.url.startsWith(PAGE_PREFIX) === true;
@@ -68,6 +91,7 @@ async function start(): Promise<void> {
   let window: BrowserWindow | null = null;
   let state: AppState | null = null;
   let relay: SocketRelay | null = null;
+  let localAgents: LocalAgents | null = null;
 
   if (!process.env.WF_APP_NO_PROTOCOL) {
     if (process.defaultApp) app.setAsDefaultProtocolClient("workforces", process.execPath, [resolve(process.argv[1]!)]);
@@ -103,6 +127,8 @@ async function start(): Promise<void> {
   app.on("before-quit", () => {
     quitting = true;
     relay?.closeAll();
+    // Só solta os canais: os agentes continuam rodando nas janelas deles, e o app os acha de novo ao reabrir.
+    localAgents?.closeAll();
   });
 
   app.on("web-contents-created", (_e, contents) => {
@@ -164,6 +190,47 @@ async function start(): Promise<void> {
     }),
   );
 
+  // Agentes deste computador: as pastas liberadas, os canais locais e o "Chamar agente".
+  const folders = FolderStore.load(join(app.getPath("userData"), "agents.json"), console.warn);
+  const agents = new LocalAgents({ dir: channelDir(), emit: (event) => sendToPage("agents:event", event), log: console.warn });
+  localAgents = agents;
+  void agents.scan();
+
+  // O invólucro roda no Node do sistema; o mesmo caminho do cli.js identifica os agentes abertos na contagem.
+  const cliPath = fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
+  const launcher = new AgentLauncher({
+    platform: process.platform,
+    folders,
+    isDirectory,
+    countOpenAgents: () => countOpenAgents(cliPath),
+    findNode: () => findNode(),
+    async ensureToken() {
+      // O id vem da foto tirada antes de pedir o token: o escritório aberto pode mudar enquanto ele é criado.
+      const office = appState.agentOffice();
+      if (office === null) return { ok: false, error: "no-office" };
+      const result = await ensureBridgeToken(office, tokenName(hostname()));
+      if (result.ok && result.created) {
+        try {
+          appState.saveBridgeToken(office.id, result.token);
+        } catch (error) {
+          // O token vale nesta execução; sem gravar, o próximo início cria outro.
+          console.warn("não consegui guardar o token da ponte", error);
+        }
+      }
+      return result;
+    },
+    spawner: windowsTerminalSpawner(cliPath),
+    async minimize(title) {
+      if (process.platform !== "win32") return;
+      await import("./win/minimize.js")
+        .then(({ minimizeWindow }) => minimizeWindow(title))
+        .catch((error: unknown) => console.warn("não consegui minimizar a janela do agente", error));
+    },
+    deliver: (channelId, start) => agents.deliver(channelId, start),
+    now: () => Date.now(),
+    log: console.warn,
+  });
+
   // IPC: cada handler confere o remetente e os argumentos antes de tocar no estado.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown): void => {
     ipcMain.handle(channel, (event, ...args) => {
@@ -217,6 +284,50 @@ async function start(): Promise<void> {
   });
   on("socket:close", (id, code) => {
     if (isSocketId(id) && typeof code === "number" && Number.isInteger(code)) socketRelay.close(id, code);
+  });
+
+  // Pastas: a página manda só o apelido; o caminho vem do seletor nativo, aqui no processo principal.
+  handle("folders:list", () => folders.list());
+  handle("folders:pickAndAdd", async (alias): Promise<FolderChange | null> => {
+    if (typeof alias !== "string") throw new Error("argumento inválido");
+    // O apelido vem do formulário: a recusa volta como texto para a página mostrar, sem abrir o seletor.
+    if (!isAlias(alias)) return { ok: false, error: INVALID_ALIAS };
+    const options: Electron.OpenDialogOptions = { title: "Escolha a pasta do projeto", properties: ["openDirectory"] };
+    const picked = window && !window.isDestroyed() ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    const path = picked.filePaths[0];
+    if (picked.canceled || path === undefined) return null;
+    return folders.add(alias, path);
+  });
+  handle("folders:remove", (alias) => {
+    if (!isAlias(alias)) throw new Error("argumento inválido");
+    return folders.remove(alias);
+  });
+
+  // Agentes: só os deste computador, no escritório aberto, que o app já achou pelo canal local.
+  const currentUrl = (): string | null => appState.current()?.url ?? null;
+  const knownAgent = (agentId: unknown): agentId is string => {
+    if (!isAgentId(agentId)) return false;
+    const url = currentUrl();
+    return url !== null && agents.list(url).some((agent) => agent.agentId === agentId);
+  };
+  handle("agents:spawn", (alias) => {
+    if (!isAlias(alias)) throw new Error("argumento inválido");
+    const office = appState.agentOffice();
+    return launcher.spawn(alias, office === null ? null : { url: office.url });
+  });
+  handle("agents:list", async () => {
+    await agents.scan();
+    const url = currentUrl();
+    return url === null ? [] : agents.list(url);
+  });
+  on("agents:watch", (agentId) => {
+    if (knownAgent(agentId)) agents.watch(agentId);
+  });
+  on("agents:unwatch", (agentId) => {
+    if (knownAgent(agentId)) agents.unwatch(agentId);
+  });
+  on("agents:input", (agentId, data) => {
+    if (knownAgent(agentId) && isInput(data)) agents.input(agentId, data);
   });
 
   const icon = nativeImage.createFromPath(join(clientDir, "sprites", "robot.png")).crop({ x: 0, y: 0, width: 24, height: 28 });

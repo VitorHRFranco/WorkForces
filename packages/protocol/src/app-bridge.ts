@@ -71,6 +71,20 @@ export interface AppBridge {
     close(id: number, code: number): void;
     onEvent(listener: (id: number, event: SocketEvent) => void): () => void;
   };
+  folders: {
+    list(): Promise<FolderInfo[]>;
+    /** Abre o seletor de pasta do sistema e libera a escolhida com o apelido; null = cancelou. */
+    pickAndAdd(alias: string): Promise<FolderChange | null>;
+    remove(alias: string): Promise<FolderInfo[]>;
+  };
+  agents: {
+    spawn(alias: string): Promise<SpawnOutcome>;
+    list(): Promise<LocalAgentInfo[]>;
+    watch(agentId: string): void;
+    unwatch(agentId: string): void;
+    input(agentId: string, data: string): void;
+    onEvent(listener: (event: LocalAgentEvent) => void): () => void;
+  };
 }
 
 /** Um agente deste computador, como o app o enxerga pelo canal local. */
