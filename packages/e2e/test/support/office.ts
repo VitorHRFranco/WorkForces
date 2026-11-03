@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { connect, createServer as createProbe, type AddressInfo } from "node:net";
 import { EOL, tmpdir } from "node:os";
@@ -149,6 +149,8 @@ export class Office {
   private readonly channels: string[] = [];
   private readonly apps: ElectronApplication[] = [];
   private readonly sockets: WebSocket[] = [];
+  /** A pasta de dados do app aberto por `login`, por nome da conta: é onde fica o registro dos agentes dela. */
+  private readonly appData = new Map<string, string>();
   private admin: Account | null = null;
   /** `localhost:<porta>`, como o app mostra o escritório. */
   readonly host: string;
@@ -214,7 +216,7 @@ export class Office {
 
   /** Abre o app e entra por "Já tenho conta" (endereço do escritório e depois login), e espera o mapa carregar. */
   async login(account: Account, size?: Size): Promise<Page> {
-    const { page } = await this.launchApp({ size });
+    const { page, dataDir } = await this.launchApp({ size });
     const haveAccount = page.getByRole("button", { name: "Já tenho conta" });
     // A tela inicial na janela é a página do app já carregada: o gravador fica nela até o fim do teste.
     await haveAccount.waitFor();
@@ -233,6 +235,7 @@ export class Office {
     await page.getByRole("textbox", { name: "Senha" }).fill(PASSWORD);
     await page.getByRole("button", { name: "Entrar", exact: true }).click();
     await page.waitForFunction(() => "__workforces" in window);
+    this.appData.set(account.name, dataDir);
     return page;
   }
 
@@ -254,7 +257,8 @@ export class Office {
 
   /**
    * `workforces claude` de verdade, num PTY, rodando um agente de brinquedo (um .mjs) no lugar do Claude Code. Como o
-   * app faz: o endereço e o token vão pelo canal local do agente, num `start`, e nunca pela linha de comando.
+   * app faz: o endereço e o token vão pelo canal local do agente, num `start`, e nunca pela linha de comando. Com o app
+   * da conta aberto, o agente entra no registro dele, como se o próprio app o tivesse aberto ("Meus agentes" só mostra esses).
    */
   async startAgent(account: Account, agentScript: string = FAKE_AGENT, options: AgentOptions = {}): Promise<void> {
     const created = await this.post("/api/tokens", { name: "e2e" }, account);
@@ -290,6 +294,8 @@ export class Office {
       const status = exitCode === null ? "ainda rodando" : `saiu com ${exitCode}`;
       throw new Error(`o agente ${label} não recebeu o start pelo canal local (${status}):${EOL}${output}`, { cause: error });
     }
+    const dataDir = this.appData.get(account.name);
+    if (dataDir !== undefined) recordAgent(dataDir, { channelId, agentId, office: this.url, user: account.name, at: Date.now() });
   }
 
   /** Entra no escritório só com a conexão do cliente, sem abrir o app (um app a menos desenhando o jogo). */
@@ -490,6 +496,23 @@ function sendStart(path: string, start: LocalStart, timeoutMs: number): Promise<
     socket.on("error", (error) => finish(error));
     socket.on("close", () => finish(new Error("o canal fechou antes de confirmar o escritório")));
   });
+}
+
+/**
+ * Acrescenta o agente ao `local-agents.json` do app, como o app faz ao entregar o `start`. O app relê o arquivo a cada
+ * `scan`: a gravação passa por um temporário e um `rename`, e ele nunca lê um arquivo pela metade.
+ */
+function recordAgent(dataDir: string, record: { channelId: string; agentId: string; office: string; user: string; at: number }): void {
+  const file = join(dataDir, "local-agents.json");
+  let agents: unknown[] = [];
+  try {
+    agents = (JSON.parse(readFileSync(file, "utf8")) as { agents: unknown[] }).agents;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const tmp = `${file}.e2e.tmp`;
+  writeFileSync(tmp, JSON.stringify({ version: 1, agents: [...agents, record] }, null, 2));
+  renameSync(tmp, file);
 }
 
 /** Resolve `true` quando o processo sai e `false` se o prazo acabar antes. */

@@ -10,18 +10,23 @@ import {
   type LocalStart,
 } from "@workforces/protocol";
 import { AgentChannelClient } from "./channel-client.js";
+import type { AgentRecord, AgentRecordStore } from "./records.js";
 
 export interface LocalAgentsDeps {
   /** Onde ficam os canais (`\\.\pipe\` no Windows). */
   dir: string;
   /** Começo do nome dos canais; o padrão é o do invólucro (os testes usam um próprio). */
   prefix?: string;
+  /** Os agentes que este app abriu: o `scan` só conecta aos canais registrados. */
+  records: Pick<AgentRecordStore, "list" | "add" | "remove">;
   emit(event: LocalAgentEvent): void;
   log(message: string): void;
 }
 
 interface Entry {
   client: AgentChannelClient;
+  /** A conta que entregou o `start`: "Meus agentes" mostra o agente só a ela. */
+  record: AgentRecord;
   state: AgentState;
   watched: boolean;
 }
@@ -43,9 +48,14 @@ export class LocalAgents {
 
   constructor(private readonly deps: LocalAgentsDeps) {}
 
-  /** Lista a pasta dos canais e conecta aos agentes que ainda não temos. Recusa ou demora: ignora. */
+  /**
+   * Conecta aos agentes registrados que ainda não temos. Um canal sem registro nunca é tocado: pode ser de outro usuário
+   * do Windows com o nome certo. Registro sem canal na pasta é de agente que terminou, e sai. Recusa ou demora: ignora.
+   */
   async scan(): Promise<void> {
     if ((await this.dirState()) !== "ok") return;
+    // Os registros antes da pasta: um registro novo é de canal que já existia, e a listagem seguinte o encontra.
+    const records = this.deps.records.list();
     let names: string[];
     try {
       names = await readdir(this.deps.dir);
@@ -53,17 +63,16 @@ export class LocalAgents {
       this.deps.log(`não consegui listar os canais dos agentes: ${errorMessage(error)}`);
       return;
     }
+    const present = new Set(names.filter((name) => name.startsWith(this.prefix)).map((name) => name.slice(this.prefix.length)));
+    const gone = records.filter((record) => !present.has(record.channelId)).map((record) => record.channelId);
+    if (gone.length > 0) this.deps.records.remove(gone);
     const before = this.snapshot();
-    const ids = names
-      .filter((name) => name.startsWith(this.prefix))
-      .map((name) => name.slice(this.prefix.length))
-      .filter(isChannelId);
-    await Promise.all(ids.map((id) => this.adopt(id)));
+    await Promise.all(records.filter((record) => present.has(record.channelId)).map((record) => this.adopt(record)));
     if (this.snapshot() !== before) this.deps.emit({ type: "changed" });
   }
 
-  /** Manda o `start` a um agente recém-aberto; true quando ele confirma o escritório. */
-  async deliver(channelId: string, start: LocalStart, timeoutMs = DELIVER_TIMEOUT_MS): Promise<boolean> {
+  /** Manda o `start` a um agente recém-aberto; true quando ele confirma o escritório. Confirmado, o agente fica registrado em nome de `owner`. */
+  async deliver(channelId: string, start: LocalStart, owner: { user: string }, timeoutMs = DELIVER_TIMEOUT_MS): Promise<boolean> {
     if (!isChannelId(channelId)) return false;
     const deadline = Date.now() + timeoutMs;
     const left = () => deadline - Date.now();
@@ -83,11 +92,14 @@ export class LocalAgents {
           if (client) {
             // O `start` vale uma vez no invólucro, e `sendStart` não o repete se o escritório já confere.
             if (!this.closedAll && (await this.sendStart(client, start, Math.max(1, left())))) {
+              // Registra mesmo se o app estiver saindo: o agente segue rodando, e o próximo início o acha pelo registro.
+              const record: AgentRecord = { channelId, agentId: client.info.agentId, office: start.server, user: owner.user, at: Date.now() };
+              this.deps.records.add(record);
               if (this.closedAll) {
                 client.close();
                 return false;
               }
-              this.register(channelId, client);
+              this.register(channelId, client, record);
               this.deps.emit({ type: "changed" });
               return true;
             }
@@ -102,11 +114,12 @@ export class LocalAgents {
     }
   }
 
-  list(office: string): LocalAgentInfo[] {
+  /** Os agentes que este app abriu para a conta `user` do escritório `office`. */
+  list(office: string, user: string): LocalAgentInfo[] {
     const agents: LocalAgentInfo[] = [];
-    for (const { client, state } of this.entries.values()) {
+    for (const { client, record, state } of this.entries.values()) {
       const { info } = client;
-      if (info.office !== office) continue;
+      if (record.office !== office || record.user !== user || info.office !== office) continue;
       agents.push({ agentId: info.agentId, label: info.label ?? "", office, state, cols: info.cols, rows: info.rows });
     }
     return agents;
@@ -167,16 +180,27 @@ export class LocalAgents {
     }
   }
 
-  private async adopt(channelId: string): Promise<void> {
+  private async adopt(record: AgentRecord): Promise<void> {
+    const { channelId } = record;
     if (this.entries.has(channelId) || this.connecting.has(channelId)) return;
     this.connecting.add(channelId);
     try {
       const client = await AgentChannelClient.connect(this.pathOf(channelId));
-      // Agente que ainda não recebeu `start` não é nosso: soltamos o canal para o `deliver` usar.
-      if (client.info.office === null || this.closedAll || this.entries.has(channelId)) client.close();
-      else this.register(channelId, client);
+      if (this.closedAll || this.entries.has(channelId)) {
+        client.close();
+        return;
+      }
+      const { info } = client;
+      if (info.agentId !== record.agentId || info.office !== record.office) {
+        // Não é o agente que este app abriu (outro programa ocupou o nome depois que ele terminou): o registro sai.
+        client.close();
+        this.deps.records.remove([channelId]);
+        this.deps.log(`o canal ${channelId} não é do agente registrado (${record.agentId}); ignorado`);
+        return;
+      }
+      this.register(channelId, client, record);
     } catch {
-      // Recusou ou demorou: pode ser um pipe de outro programa. Ignora, sem apagar nada.
+      // Recusou ou demorou: o agente pode estar ocupado. Ignora; o próximo scan tenta de novo.
     } finally {
       this.connecting.delete(channelId);
     }
@@ -200,9 +224,9 @@ export class LocalAgents {
     });
   }
 
-  private register(channelId: string, client: AgentChannelClient): void {
+  private register(channelId: string, client: AgentChannelClient, record: AgentRecord): void {
     this.entries.get(channelId)?.client.close();
-    const entry: Entry = { client, state: client.info.state, watched: false };
+    const entry: Entry = { client, record, state: client.info.state, watched: false };
     this.entries.set(channelId, entry);
     client.onMessage = (message) => this.handle(entry, message);
     client.onClose = () => {

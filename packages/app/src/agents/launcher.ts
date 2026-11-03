@@ -13,6 +13,8 @@ export const MAX_OPEN_AGENTS = 5;
 export interface SpawnOffice {
   id: string;
   url: string;
+  /** A conta aberta: o agente fica registrado em nome dela, e só ela o vê em "Meus agentes". */
+  userName: string;
   session: string | null;
   bridgeToken: string | null;
 }
@@ -33,7 +35,7 @@ export interface AgentLauncherDeps {
    * Windows Terminal mantém aberta. O app a traz de volta à tela. Melhor esforço: nunca rejeita.
    */
   onNoAnswer(title: string): Promise<void>;
-  deliver(channelId: string, start: LocalStart): Promise<boolean>;
+  deliver(channelId: string, start: LocalStart, owner: { user: string }): Promise<boolean>;
   now(): number;
   log(message: string): void;
 }
@@ -90,13 +92,11 @@ export class AgentLauncher {
       return { ok: false, error: error instanceof SpawnFailure ? error.reason : "spawn-failed" };
     }
     const minimizing = deps.minimize(title).catch(() => {});
-    const answered = await deps.deliver(channelId, {
-      type: "start",
-      server: office.url,
-      token: token.token,
-      label: alias,
-      secretPatterns: deps.folders.secretPatterns(),
-    });
+    const answered = await deps.deliver(
+      channelId,
+      { type: "start", server: office.url, token: token.token, label: alias, secretPatterns: deps.folders.secretPatterns() },
+      { user: office.userName },
+    );
     if (answered) return { ok: true };
     // Restaura só depois de a minimização terminar: senão a janela que voltou à tela poderia ser minimizada em seguida.
     await minimizing;

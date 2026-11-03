@@ -98,11 +98,11 @@ export class AppState {
     return this.open_ ? { url: this.open_.url, session: this.open_.session } : null;
   }
 
-  /** O escritório aberto e já salvo, com a conta e o token da ponte; é por onde o app abre agentes. */
-  agentOffice(): { id: string; url: string; session: string | null; bridgeToken: string | null } | null {
+  /** O escritório aberto e já salvo, com a conta e o token da ponte; é por onde o app abre e lista os agentes. Sem nome de conta, null. */
+  agentOffice(): { id: string; url: string; userName: string; session: string | null; bridgeToken: string | null } | null {
     const open = this.open_;
-    if (!open || open.officeId === null) return null;
-    return { id: open.officeId, url: open.url, session: open.session, bridgeToken: open.bridgeToken };
+    if (!open || open.officeId === null || open.userName === null) return null;
+    return { id: open.officeId, url: open.url, userName: open.userName, session: open.session, bridgeToken: open.bridgeToken };
   }
 
   /** Guarda o token da ponte de um escritório, pelo id: o aberto pode ter mudado enquanto o token era criado. */

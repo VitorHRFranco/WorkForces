@@ -19,11 +19,12 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { channelDir } from "@workforces/bridge/channel";
-import { ALIAS_PATTERN, LOCAL_INPUT_MAX, type AppRoute, type FolderChange } from "@workforces/protocol";
+import { ALIAS_PATTERN, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type LocalAgentInfo } from "@workforces/protocol";
 import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
 import { FolderStore, INVALID_ALIAS } from "./agents/folders.js";
 import { AgentLauncher } from "./agents/launcher.js";
 import { LocalAgents } from "./agents/local-agents.js";
+import { AgentRecordStore } from "./agents/records.js";
 import { countOpenAgents } from "./agents/open-agents.js";
 import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
 import { findInviteArg, parseInviteLink } from "./links.js";
@@ -198,7 +199,9 @@ async function start(): Promise<void> {
 
   // Agentes deste computador: as pastas liberadas, os canais locais e o "Chamar agente".
   const folders = FolderStore.load(join(app.getPath("userData"), "agents.json"), console.warn);
-  const agents = new LocalAgents({ dir: channelDir(), emit: (event) => sendToPage("agents:event", event), log: console.warn });
+  // Os agentes que este app abriu: "Meus agentes" só conecta aos canais registrados aqui.
+  const records = new AgentRecordStore(join(app.getPath("userData"), "local-agents.json"), console.warn);
+  const agents = new LocalAgents({ dir: channelDir(), records, emit: (event) => sendToPage("agents:event", event), log: console.warn });
   localAgents = agents;
   void agents.scan();
 
@@ -244,7 +247,7 @@ async function start(): Promise<void> {
         })
         .catch((error: unknown) => console.warn("não consegui restaurar a janela do agente", error));
     },
-    deliver: (channelId, start) => agents.deliver(channelId, start),
+    deliver: (channelId, start, owner) => agents.deliver(channelId, start, owner),
     now: () => Date.now(),
     log: console.warn,
   });
@@ -324,21 +327,19 @@ async function start(): Promise<void> {
     return folders.remove(alias);
   });
 
-  // Agentes: só os deste computador, no escritório aberto, que o app já achou pelo canal local.
-  const currentUrl = (): string | null => appState.current()?.url ?? null;
-  const knownAgent = (agentId: unknown): agentId is string => {
-    if (!isAgentId(agentId)) return false;
-    const url = currentUrl();
-    return url !== null && agents.list(url).some((agent) => agent.agentId === agentId);
+  // Agentes: só os que este app abriu para a conta aberta (escritório salvo e nome), que ele já achou pelo canal local.
+  const myAgents = (): LocalAgentInfo[] => {
+    const office = appState.agentOffice();
+    return office === null ? [] : agents.list(office.url, office.userName);
   };
+  const knownAgent = (agentId: unknown): agentId is string => isAgentId(agentId) && myAgents().some((agent) => agent.agentId === agentId);
   handle("agents:spawn", (alias) => {
     if (!isAlias(alias)) throw new Error("argumento inválido");
     return launcher.spawn(alias, appState.agentOffice());
   });
   handle("agents:list", async () => {
     await agents.scan();
-    const url = currentUrl();
-    return url === null ? [] : agents.list(url);
+    return myAgents();
   });
   on("agents:watch", (agentId) => {
     if (!knownAgent(agentId)) return;

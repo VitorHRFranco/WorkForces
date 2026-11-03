@@ -121,12 +121,21 @@ describe("AppState", () => {
     expect(state.agentOffice()).toBeNull();
     state.applyAuth({ session: "s1", userName: "ana" });
     const office = state.agentOffice()!;
-    expect(office).toMatchObject({ url: "http://localhost:4600", session: "s1", bridgeToken: null });
+    expect(office).toMatchObject({ url: "http://localhost:4600", userName: "ana", session: "s1", bridgeToken: null });
     state.saveBridgeToken(office.id, "ponte");
     expect(state.agentOffice()).toMatchObject({ id: office.id, bridgeToken: "ponte" });
     const next = fresh();
     next.startup(null);
     expect(next.agentOffice()).toMatchObject({ bridgeToken: "ponte" });
+  });
+
+  it("escritório salvo sem nome de conta não abre agentes", () => {
+    const entry = { id: "sem-nome", url: "http://localhost:4600", userName: null, session: null, bridgeToken: null };
+    writeFileSync(file, JSON.stringify({ version: 1, lastUsed: null, offices: [entry] }));
+    const state = fresh();
+    state.open("sem-nome");
+    expect(state.current()).toMatchObject({ id: "sem-nome", userName: null });
+    expect(state.agentOffice()).toBeNull();
   });
 
   it("token criado para outro escritório vai para o id dele e não muda o aberto", () => {
