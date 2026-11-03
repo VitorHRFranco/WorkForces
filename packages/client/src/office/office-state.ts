@@ -66,7 +66,7 @@ export class OfficeState {
         break;
       }
       default:
-        return; // frame, watchEnded e spawnResult são tratados pela página
+        return; // frame e watchEnded são tratados pela página
     }
     this.version++;
     for (const listener of this.listeners) listener();

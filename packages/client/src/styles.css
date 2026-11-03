@@ -414,3 +414,26 @@ code {
   flex: 1;
   display: grid;
 }
+
+.ai-row {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+.ai-button {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  width: auto;
+}
+
+.ai-button.active {
+  border-color: var(--accent);
+}
+
+.agent-menu-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

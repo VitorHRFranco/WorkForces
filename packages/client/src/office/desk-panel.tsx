@@ -48,7 +48,20 @@ export function DeskPanel({
         ))}
       </nav>
       {agent && !blocked ? (
-        <TerminalPanel key={agent.id} agent={agent} handle={handle} onReady={() => onReady(agent.id)} />
+        <TerminalPanel
+          key={agent.id}
+          agentId={agent.id}
+          header={
+            <header>
+              <strong>{agent.label}</strong>
+              <span>{agent.ownerName}</span>
+              <span class="muted">{statusText(agent)}</span>
+              {agent.ownerAway && <span class="muted">dono fora</span>}
+            </header>
+          }
+          handle={handle}
+          onReady={() => onReady(agent.id)}
+        />
       ) : (
         <div class="desk-panel-message">
           <p>Chegue mais perto da mesa para ver o terminal.</p>

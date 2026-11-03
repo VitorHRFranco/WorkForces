@@ -9,10 +9,12 @@ import { useTyping } from "../game/typing";
 import { OfficeConnection } from "../office/connection";
 import { IpcSocket } from "../office/ipc-socket";
 import { ChatBox } from "../office/chat-box";
+import { AgentMenu } from "../office/agent-menu";
+import { ComputersModal } from "../office/computers-modal";
 import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
-import { TokensModal } from "../office/tokens-modal";
+import { OwnPanel } from "../office/own-panel";
 import { watchTarget } from "../office/watch-target";
 import type { TerminalHandle } from "../terminal/terminal-panel";
 import { navigate } from "../router";
@@ -29,8 +31,10 @@ export function OfficePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const [officeUrl, setOfficeUrl] = useState("");
-  const [modal, setModal] = useState<"tokens" | "invite" | null>(null);
+  const [modal, setModal] = useState<"computers" | "invite" | null>(null);
+  /** O painel "Meus agentes" (com digitação) e se o terminal dele tem o foco. */
+  const [ownOpen, setOwnOpen] = useState(false);
+  const [ownFocused, setOwnFocused] = useState(false);
   const state = useMemo(() => new OfficeState(), []);
   useOfficeVersion(state);
   const connection = useRef<OfficeConnection | null>(null);
@@ -43,13 +47,6 @@ export function OfficePage() {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const terminal = useRef<TerminalHandle | null>(null);
   const watchingRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    bridge.offices.current().then(
-      (current) => current && setOfficeUrl(current.url),
-      () => {},
-    );
-  }, []);
 
   useEffect(() => {
     setLoadError(null);
@@ -130,7 +127,9 @@ export function OfficePage() {
 
   // Mesa fechada não abre o painel (spec 9, regra 3); se fechar durante a visita, o painel some.
   const zoneClosed = zone !== null && state.desks.get(zone)?.closed === true;
-  const deskAgents = zone !== null && zone !== dismissed && !zoneClosed && !endedRef.current ? state.agentsAtDesk(zone) : [];
+  // A própria mesa não abre o painel de visitante (o dono usa "Meus agentes"), e os dois painéis não aparecem juntos.
+  const deskAgents =
+    zone !== null && zone !== dismissed && zone !== state.me?.deskId && !zoneClosed && !ownOpen && !endedRef.current ? state.agentsAtDesk(zone) : [];
   const watched = watchTarget(deskAgents, selected);
   const isBlocked = watched !== null && blocked === watched;
 
@@ -208,6 +207,7 @@ export function OfficePage() {
     <div class="office">
       <header class="topbar">
         <strong>WorkForces</strong>
+        <AgentMenu />
         <span class="who">{me.name}</span>
         <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>
         {myDesk && (
@@ -228,8 +228,11 @@ export function OfficePage() {
         <button type="button" onClick={() => navigate("/")}>
           Escritórios
         </button>
-        <button type="button" onClick={() => setModal("tokens")}>
-          Tokens da ponte
+        <button type="button" onClick={() => setOwnOpen(!ownOpen)}>
+          Meus agentes
+        </button>
+        <button type="button" onClick={() => setModal("computers")}>
+          Computadores
         </button>
         {me.isAdmin && (
           <button type="button" onClick={() => setModal("invite")}>
@@ -251,7 +254,8 @@ export function OfficePage() {
         </p>
       )}
       <main class="stage">
-        <GameView deps={sceneDeps} keyboardEnabled={!typing && modal === null && !endedRef.current} panelOpen={deskAgents.length > 0} />
+        <GameView deps={sceneDeps} keyboardEnabled={!typing && !ownFocused && modal === null && !endedRef.current} panelOpen={ownOpen || deskAgents.length > 0} />
+        {ownOpen && <OwnPanel onClose={() => setOwnOpen(false)} onFocusChange={setOwnFocused} />}
         {deskAgents.length > 0 && (
           <DeskPanel
             ownerName={state.desks.get(zone!)?.ownerName ?? null}
@@ -270,7 +274,7 @@ export function OfficePage() {
         )}
         <ChatBox messages={state.chat} onSend={(text) => connection.current?.chat(text) ?? false} />
       </main>
-      {modal === "tokens" && <TokensModal onClose={closeModal} officeUrl={officeUrl} />}
+      {modal === "computers" && <ComputersModal onClose={closeModal} />}
       {modal === "invite" && <InviteModal onClose={closeModal} />}
     </div>
   );
