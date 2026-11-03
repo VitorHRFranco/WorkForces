@@ -169,24 +169,24 @@ describe("LocalAgents", () => {
 
   it("um scan concorrente não atrapalha a entrega do start", async () => {
     const { id, calls, agentId } = await openChannel();
-    const first = newApp();
-    const other = newApp();
+    const { app } = newApp();
     let done = false;
+    // O próprio app busca sem parar enquanto entrega (o painel aberto pede a lista a cada mudança): o canal que recebe o
+    // start fica fora da busca. Um segundo app do mesmo usuário não tem essa garantia, e o app é de instância única;
+    // com um segundo app buscando a cada 1 ms, a entrega dependia da sorte e passava do prazo no Windows do CI.
     const scanning = (async () => {
       while (!done) {
-        await other.app.scan();
+        await app.scan();
         await sleep(1);
       }
     })();
-    const delivered = await first.app.deliver(id, START, 5000);
+    const delivered = await app.deliver(id, START, 5000);
     done = true;
-    // Confere antes de o scan que ainda corre terminar: depois da entrega, um segundo app assume o canal, como previsto.
-    const listed = first.app.list(OFFICE).map((agent) => agent.agentId);
     await scanning;
 
     expect(delivered).toBe(true);
     expect(calls.starts).toHaveLength(1);
-    expect(listed).toEqual([agentId]);
+    expect(app.list(OFFICE).map((agent) => agent.agentId)).toEqual([agentId]);
   });
 
   it.skipIf(windows)("pasta de canais criada depois do deliver começar é esperada", async () => {
