@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { PIN_PATTERN } from "@workforces/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "../src/server.js";
-import { loadOrCreateCertificate } from "../src/tls/certificate.js";
+import { loadOrCreateCertificate, serialHex } from "../src/tls/certificate.js";
 import { filePin, pinOfCertificate } from "../src/tls/pin.js";
 import { testConfig } from "./helpers/setup.js";
 
@@ -41,6 +41,14 @@ describe("loadOrCreateCertificate", () => {
     expect(x509.ca).toBe(true);
     expect(new Date(x509.validTo).getTime() - Date.now()).toBeGreaterThan(9 * 365 * 24 * 3600 * 1000);
     expect(x509.checkPrivateKey(createPrivateKey(key))).toBe(true);
+  });
+
+  it("o número de série nunca começa com 0x00 nem 0x80 (DER mínimo e positivo)", () => {
+    for (const first of [0x00, 0x80, 0x01, 0x7f, 0xff]) {
+      const byte = Number.parseInt(serialHex(Buffer.from([first, 0x10, 0x20, 0x30])).slice(0, 2), 16);
+      expect(byte).toBeGreaterThanOrEqual(0x01);
+      expect(byte).toBeLessThanOrEqual(0x7f);
+    }
   });
 
   it.skipIf(process.platform === "win32")("a chave fica só para o dono", () => {

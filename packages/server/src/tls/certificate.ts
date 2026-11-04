@@ -8,14 +8,19 @@ const VALID_YEARS = 10;
 /** Renova quando faltam menos de 30 dias, para o pino mudar antes de o certificado quebrar. */
 const RENEW_BEFORE_MS = 30 * DAY_MS;
 
+/** Primeiro byte em 0x01..0x7f: positivo e sem zero à esquerda, que o DER proíbe (parsers estritos, como o do Electron, recusam). */
+export function serialHex(bytes: Uint8Array): string {
+  const serial = Buffer.from(bytes);
+  serial[0] = (serial[0]! & 0x7f) | 0x01;
+  return serial.toString("hex");
+}
+
 function generate(now: Date): { cert: string; key: string } {
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const keyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   const cert = forge.pki.createCertificate();
   cert.publicKey = forge.pki.publicKeyFromPem(publicKey.export({ type: "spki", format: "pem" }).toString());
-  const serial = randomBytes(16);
-  serial[0] = serial[0]! & 0x7f; // positivo
-  cert.serialNumber = serial.toString("hex");
+  cert.serialNumber = serialHex(randomBytes(16));
   cert.validity.notBefore = new Date(now.getTime() - DAY_MS);
   const notAfter = new Date(now);
   notAfter.setFullYear(notAfter.getFullYear() + VALID_YEARS);
