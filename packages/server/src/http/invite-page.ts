@@ -7,8 +7,8 @@ export const APP_DOWNLOAD_URL = "https://github.com/VitorHRFranco/WorkForces/rel
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-function pageHtml(origin: string, host: string, code: string): string {
-  const link = escapeHtml(inviteAppLink(origin, code));
+function pageHtml(origin: string, host: string, code: string, pin: string | null): string {
+  const link = escapeHtml(inviteAppLink(origin, code, pin));
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -52,7 +52,7 @@ export function registerInvitePage(app: FastifyInstance, ctx: AppContext): void 
         "content-security-policy",
         "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
       )
-      .send(pageHtml(origin, host, code));
+      .send(pageHtml(origin, host, code, ctx.pin?.current()?.pin ?? null));
   });
   app.setNotFoundHandler((_request, reply) => reply.code(404).send(notFound));
 }

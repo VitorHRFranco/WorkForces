@@ -5,6 +5,7 @@ import { ADMIN_INVITE_TTL_MS, INVITE_TTL_MS } from "../../src/accounts/invites.j
 import type { User } from "../../src/accounts/users.js";
 import { buildApp } from "../../src/app.js";
 import type { ServerConfig } from "../../src/config.js";
+import type { PinSource } from "../../src/tls/pin.js";
 import type { AppContext } from "../../src/context.js";
 import { openDb } from "../../src/db.js";
 import { registerApi } from "../../src/http/routes.js";
@@ -26,14 +27,16 @@ export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     mapFile: REPO_MAP,
     insecure: false,
     trustProxy: false,
+    tls: "off",
+    pinFile: null,
     ...overrides,
   };
 }
 
-export async function setupApi(config: ServerConfig = testConfig()) {
+export async function setupApi(config: ServerConfig = testConfig(), pin: PinSource | null = null) {
   const clock = { now: 1_700_000_000_000 };
   const logs: string[] = [];
-  const ctx: AppContext = { config, now: () => clock.now, log: (message) => logs.push(message) };
+  const ctx: AppContext = { config, now: () => clock.now, log: (message) => logs.push(message), pin };
   const accounts = createAccountServices(openDb(":memory:"), ctx.now);
   const revoked: number[] = [];
   const app = buildApp(ctx);

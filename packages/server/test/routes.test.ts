@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { inviteAppLink } from "@workforces/protocol";
+import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { JSON_HEADERS, ORIGIN, cookieOf, createUser, sessionOf, setupApi, testConfig } from "./helpers/setup.js";
 
@@ -143,6 +144,57 @@ describe("convites", () => {
   });
 });
 
+describe("pino do certificado nos convites", () => {
+  const PIN = "A".repeat(43);
+  const fakePin = (value: { pin: string; anchor: string } | null) => ({ current: () => value });
+  const adminCookie = async (setup: Awaited<ReturnType<typeof setupApi>>) => {
+    await createUser(setup.accounts, "ana", { admin: true });
+    return cookieOf(await setup.app.inject({ method: "POST", url: "/api/login", headers: JSON_HEADERS, payload: { name: "ana", password: "senha-forte-123" } }));
+  };
+  const invite = (setup: Awaited<ReturnType<typeof setupApi>>, cookie: string) =>
+    setup.app.inject({ method: "POST", url: "/api/invites", headers: { ...JSON_HEADERS, cookie }, payload: {} });
+
+  it("com pino, o convite é o link do app com &pin=", async () => {
+    const setup = await setupApi(testConfig(), fakePin({ pin: PIN, anchor: "PEM" }));
+    const response = await invite(setup, await adminCookie(setup));
+    expect(response.statusCode).toBe(201);
+    const url = response.json().url as string;
+    const code = decodeURIComponent(/code=([^&]+)/.exec(url)![1]!);
+    expect(url).toBe(inviteAppLink(ORIGIN, code, PIN));
+    expect(url.startsWith("workforces://invite?server=")).toBe(true);
+    expect(url.endsWith(`&pin=${PIN}`)).toBe(true);
+  });
+
+  it("sem certificado ainda, recusa com 503 e não cria convite", async () => {
+    const setup = await setupApi(testConfig(), fakePin(null));
+    const cookie = await adminCookie(setup);
+    const create = vi.spyOn(setup.accounts.invites, "create");
+    const response = await invite(setup, cookie);
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "o certificado da rede interna ainda não está disponível; tente de novo em instantes" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("GET /api/tls/anchor entrega a âncora sem sessão", async () => {
+    const { app } = await setupApi(testConfig(), fakePin({ pin: PIN, anchor: "PEM" }));
+    const response = await app.inject({ method: "GET", url: "/api/tls/anchor" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ anchor: "PEM" });
+    expect(response.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("GET /api/tls/anchor: 404 sem pino configurado e 503 quando ainda não existe", async () => {
+    const none = await setupApi();
+    const missing = await none.app.inject({ method: "GET", url: "/api/tls/anchor" });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({ error: "não encontrado" });
+    const waiting = await setupApi(testConfig(), fakePin(null));
+    const response = await waiting.app.inject({ method: "GET", url: "/api/tls/anchor" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "o certificado da rede interna ainda não está disponível; tente de novo em instantes" });
+  });
+});
+
 describe("tokens da ponte", () => {
   it("cria, lista, valida no whoami e revoga avisando o tempo real", async () => {
     const { app, accounts, revoked, logs } = await setupApi();
@@ -191,7 +243,7 @@ describe("erros da API", () => {
 
   it("erro inesperado vira 500 em português e vai para o log com o padrão da rota, nunca com a URL", async () => {
     const logs: string[] = [];
-    const app = buildApp({ config: testConfig(), now: () => 0, log: (message) => logs.push(message) });
+    const app = buildApp({ config: testConfig(), now: () => 0, log: (message) => logs.push(message), pin: null });
     app.get("/api/quebra/:code", async () => {
       throw new Error("o banco caiu");
     });

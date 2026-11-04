@@ -42,6 +42,11 @@ export interface InviteStatus {
   valid: boolean;
 }
 
+/** Resposta de `GET /api/tls/anchor`: o certificado (PEM) em que o app confia para falar com este servidor. */
+export interface TlsAnchor {
+  anchor: string;
+}
+
 export interface WhoAmI {
   name: string;
 }

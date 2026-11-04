@@ -1,4 +1,4 @@
-import { CreateTokenRequest, Credentials, LoginRequest, type Me } from "@workforces/protocol";
+import { CreateTokenRequest, Credentials, LoginRequest, inviteAppLink, type Me, type TlsAnchor } from "@workforces/protocol";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccountServices } from "../accounts/index.js";
 import { INVITE_TTL_MS } from "../accounts/invites.js";
@@ -16,6 +16,8 @@ export interface ApiDeps {
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+const PIN_UNAVAILABLE = "o certificado da rede interna ainda não está disponível; tente de novo em instantes";
 
 export function toMe(user: User): Me {
   return { id: user.id, name: user.name, isAdmin: user.isAdmin };
@@ -90,8 +92,21 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const user = currentUser(request);
     if (!user) return reply.code(401).send({ error: "faça login" });
     if (!user.isAdmin) return reply.code(403).send({ error: "só admin gera convites" });
+    // Confere o pino antes de criar: sem certificado não há link que o app consiga usar, e o convite não deve ser gasto à toa.
+    const pin = ctx.pin ? ctx.pin.current() : undefined;
+    if (pin === null) return reply.code(503).send({ error: PIN_UNAVAILABLE });
     const invite = accounts.invites.create({ createdBy: user.id, isAdmin: false, ttlMs: INVITE_TTL_MS });
-    return reply.code(201).send({ url: `${origin}/invite/${invite.code}`, expiresAt: invite.expiresAt });
+    const url = pin ? inviteAppLink(origin, invite.code, pin.pin) : `${origin}/invite/${invite.code}`;
+    return reply.code(201).send({ url, expiresAt: invite.expiresAt });
+  });
+
+  // O app busca a âncora aqui (sem sessão) para confiar neste servidor; o pino do convite garante que é o certificado certo.
+  app.get("/api/tls/anchor", async (_request, reply) => {
+    if (!ctx.pin) return reply.code(404).send({ error: "não encontrado" });
+    const current = ctx.pin.current();
+    if (!current) return reply.code(503).send({ error: PIN_UNAVAILABLE });
+    const body: TlsAnchor = { anchor: current.anchor };
+    return reply.header("cache-control", "no-store").send(body);
   });
 
   app.get("/api/tokens", async (request, reply) => {

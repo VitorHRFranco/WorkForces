@@ -29,6 +29,22 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ WF_MAP: "mapas/outro.tmj" }).mapFile).toBe(resolve("mapas/outro.tmj"));
   });
 
+  it("liga o HTTPS próprio e o pino por arquivo", () => {
+    expect(loadServerConfig({}).tls).toBe("off");
+    expect(loadServerConfig({}).pinFile).toBeNull();
+    expect(loadServerConfig({ WF_TLS: "self-signed", WF_PUBLIC_URL: "https://192.168.0.10:4600" }).tls).toBe("self-signed");
+    expect(loadServerConfig({ WF_TLS_PIN_FILE: "ca/root.crt", WF_PUBLIC_URL: "https://escritorio.interno" }).pinFile).toBe(resolve("ca/root.crt"));
+  });
+
+  it("recusa combinações de TLS que não fazem sentido", () => {
+    expect(() => loadServerConfig({ WF_TLS: "sim" })).toThrow("WF_TLS inválida: sim (use self-signed)");
+    expect(() => loadServerConfig({ WF_TLS: "self-signed" })).toThrow("WF_TLS=self-signed pede WF_PUBLIC_URL com https");
+    expect(() => loadServerConfig({ WF_TLS_PIN_FILE: "x.crt" })).toThrow("WF_TLS_PIN_FILE pede WF_PUBLIC_URL com https");
+    expect(() =>
+      loadServerConfig({ WF_TLS: "self-signed", WF_TLS_PIN_FILE: "x.crt", WF_PUBLIC_URL: "https://a.b" }),
+    ).toThrow("use WF_TLS=self-signed ou WF_TLS_PIN_FILE, não os dois");
+  });
+
   it("recusa HTTP fora de localhost sem WF_INSECURE", () => {
     expect(() => loadServerConfig({ WF_PUBLIC_URL: "http://10.0.0.5:4600" })).toThrow(ServerConfigError);
     expect(loadServerConfig({ WF_PUBLIC_URL: "http://10.0.0.5:4600", WF_INSECURE: "1" }).insecure).toBe(true);

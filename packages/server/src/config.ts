@@ -12,6 +12,10 @@ export interface ServerConfig {
   mapFile: string;
   insecure: boolean;
   trustProxy: boolean;
+  /** `self-signed`: o servidor fala HTTPS com um certificado próprio (a rede interna), e o pino dele vai nos convites. */
+  tls: "off" | "self-signed";
+  /** Certificado (PEM) da CA da rede interna, cujo pino vai nos convites; o HTTPS em si fica com o proxy. */
+  pinFile: string | null;
 }
 
 export class ServerConfigError extends Error {}
@@ -51,6 +55,14 @@ export function loadServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
     throw new ServerConfigError(`${publicUrl.origin} usa HTTP sem TLS; use https (ex.: atrás do Caddy) ou WF_INSECURE=1`);
   }
 
+  const rawTls = env.WF_TLS?.trim();
+  if (rawTls && rawTls !== "self-signed") throw new ServerConfigError(`WF_TLS inválida: ${rawTls} (use self-signed)`);
+  const tls = rawTls ? "self-signed" : "off";
+  const rawPinFile = env.WF_TLS_PIN_FILE?.trim();
+  if (tls === "self-signed" && publicUrl.protocol !== "https:") throw new ServerConfigError("WF_TLS=self-signed pede WF_PUBLIC_URL com https");
+  if (rawPinFile && publicUrl.protocol !== "https:") throw new ServerConfigError("WF_TLS_PIN_FILE pede WF_PUBLIC_URL com https");
+  if (tls === "self-signed" && rawPinFile) throw new ServerConfigError("use WF_TLS=self-signed ou WF_TLS_PIN_FILE, não os dois");
+
   return {
     port,
     host: env.WF_HOST ?? "127.0.0.1",
@@ -60,5 +72,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
     mapFile: env.WF_MAP ? resolve(env.WF_MAP) : fileURLToPath(new URL("../../../assets/map/office.tmj", import.meta.url)),
     insecure,
     trustProxy: isOn(env.WF_TRUST_PROXY),
+    tls,
+    pinFile: rawPinFile ? resolve(rawPinFile) : null,
   };
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,6 +8,8 @@ import { createAccountServices } from "../src/accounts/index.js";
 import { openDb } from "../src/db.js";
 import { runServerCli } from "../src/server-cli.js";
 import { startServer } from "../src/server.js";
+import { loadOrCreateCertificate } from "../src/tls/certificate.js";
+import { waitUntil } from "./helpers/wait.js";
 import { createUser, testConfig } from "./helpers/setup.js";
 
 const dirs: string[] = [];
@@ -39,6 +41,34 @@ describe("startServer", () => {
     const second = await startServer(testConfig({ dataDir }), { log: (m) => logs.push(m) });
     expect(logs.join("\n")).not.toContain("convite");
     await second.app.close();
+  });
+
+  it("com onAdminInvite o código vai só para o callback, nunca para o log", async () => {
+    const logs: string[] = [];
+    const codes: string[] = [];
+    const server = await startServer(testConfig({ dataDir: tempDir("wf-data-") }), { log: (m) => logs.push(m), onAdminInvite: (code) => codes.push(code) });
+    try {
+      expect(codes).toHaveLength(1);
+      expect(logs.join("\n")).not.toContain(codes[0]!);
+    } finally {
+      await server.app.close();
+    }
+  });
+
+  it("com pinFile ainda sem certificado, espera e depois mostra o link com o pino", async () => {
+    const dir = tempDir("wf-data-");
+    const pinFile = join(dir, "root.crt");
+    const logs: string[] = [];
+    const config = testConfig({ dataDir: dir, pinFile, publicUrl: new URL("https://escritorio.interno") });
+    const server = await startServer(config, { log: (m) => logs.push(m) });
+    try {
+      expect(logs.join("\n")).toContain(`aguardando o certificado da rede interna em ${pinFile} para mostrar o convite de admin`);
+      expect(logs.join("\n")).not.toContain("workforces://");
+      writeFileSync(pinFile, loadOrCreateCertificate(join(dir, "ca")).cert);
+      await waitUntil(() => logs.some((m) => /workforces:\/\/invite\?.*&pin=[A-Za-z0-9_-]{43}/.test(m)), 5000, "o convite de admin com pino");
+    } finally {
+      await server.app.close();
+    }
   });
 
   it("a mesa fechada continua fechada depois de reiniciar o servidor", async () => {

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createServer } from "../src/server.js";
 import { ORIGIN, testConfig } from "./helpers/setup.js";
 
-const server = () => createServer(testConfig(), { dbFile: ":memory:", log: () => {} });
+const server = (pin?: { pin: string; anchor: string } | null) =>
+  createServer(testConfig(), { dbFile: ":memory:", log: () => {}, ...(pin === undefined ? {} : { pin: { current: () => pin } }) });
 
 describe("página do convite", () => {
   it("abre o app pelo link workforces:// e oferece o instalador, sem gastar o convite", async () => {
@@ -18,6 +19,19 @@ describe("página do convite", () => {
     expect(page.body).toContain("https://github.com/VitorHRFranco/WorkForces/releases/latest");
     expect(accounts.invites.isValid(code)).toBe(true);
     await app.close();
+  });
+
+  it("com pino, o link da página leva o pino; sem pino, fica como antes", async () => {
+    const pin = "B".repeat(43);
+    const withPin = server({ pin, anchor: "PEM" });
+    const { code } = withPin.accounts.invites.create({ createdBy: null, isAdmin: false, ttlMs: 60_000 });
+    const page = await withPin.app.inject({ method: "GET", url: `/invite/${code}` });
+    expect(page.body).toContain(`&amp;code=${code}&amp;pin=${pin}"`);
+    await withPin.app.close();
+    const plain = server();
+    const other = plain.accounts.invites.create({ createdBy: null, isAdmin: false, ttlMs: 60_000 });
+    expect((await plain.app.inject({ method: "GET", url: `/invite/${other.code}` })).body).not.toContain("pin=");
+    await plain.app.close();
   });
 
   it("código fora do formato dá 404 em JSON e não ecoa nada", async () => {
