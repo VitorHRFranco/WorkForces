@@ -115,9 +115,12 @@ describe("BridgeSocket: âncora do escritório", () => {
   it("com outra âncora não abre nem manda nada", async () => {
     const { received, url } = await startTlsServer();
     let opened = 0;
-    makeSocket(url, { anchor: fixture("b.crt"), onOpen: () => opened++ }).start();
+    const logs: string[] = [];
+    makeSocket(url, { anchor: fixture("b.crt"), onOpen: () => opened++, log: (message) => logs.push(message) }).start();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     expect(opened).toBe(0);
+    // A falha é a conferência do certificado, não outro erro qualquer.
+    expect(logs.join("\n")).toMatch(/self[- ]signed|certificate/i);
     expect(received).toEqual([]);
   });
 });
