@@ -184,6 +184,9 @@ importers:
       '@workforces/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@workforces/server':
+        specifier: workspace:*
+        version: link:../server
       koffi:
         specifier: 3.3.3
         version: 3.3.3
