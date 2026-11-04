@@ -83,10 +83,13 @@ export class EmbeddedServer {
       });
       child.on("error", (error) => {
         this.log(`[escritório] erro no processo: ${error.message}`);
+        // Sem processo (ex.: o Node não existe) não vem "exit": solta o filho aqui, ou o app nunca mais tenta.
+        if (child.pid === undefined && this.child === child) this.child = null;
         settle({ ok: false, error: "failed" });
       });
-      child.on("exit", () => {
+      child.on("exit", (code) => {
         if (this.child === child) this.child = null;
+        if (!settled) this.log(`[escritório] o servidor saiu antes de responder (código ${code})`);
         settle({ ok: false, error: "failed" });
         if (ready && !expected && !this.stopping.has(child)) for (const listener of this.exitListeners) listener();
       });
@@ -101,8 +104,18 @@ export class EmbeddedServer {
     const child = this.child;
     if (!child) return;
     this.stopping.add(child);
+    // Nunca subiu ou já saiu: não há "exit" a esperar.
+    if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+      if (this.child === child) this.child = null;
+      return;
+    }
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => child.kill(), timeoutMs);
+      // SIGKILL: um filho preso no fechamento ignoraria o SIGTERM; e o prazo vale mesmo que nenhum "exit" chegue.
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        if (this.child === child) this.child = null;
+        resolve();
+      }, timeoutMs);
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();
@@ -110,7 +123,7 @@ export class EmbeddedServer {
       try {
         child.send({ type: "stop" } satisfies HostToEmbedded);
       } catch {
-        child.kill();
+        child.kill("SIGKILL");
       }
     });
   }

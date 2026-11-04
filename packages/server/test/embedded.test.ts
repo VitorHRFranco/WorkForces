@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PIN_PATTERN, type EmbeddedToHost } from "@workforces/protocol";
 import { createAccountServices } from "../src/accounts/index.js";
 import { openDb } from "../src/db.js";
-import { runEmbedded, type EmbeddedChannel } from "../src/embedded.js";
+import { runEmbedded, type EmbeddedChannel } from "../src/embedded-run.js";
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {

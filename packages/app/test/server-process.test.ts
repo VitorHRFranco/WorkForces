@@ -129,10 +129,19 @@ describe("EmbeddedServer com o dublê", () => {
     expect(env).toMatchObject({ WF_PORT: "4701", WF_HOST: "127.0.0.1", WF_PUBLIC_URL: "https://127.0.0.1:4701", WF_DATA_DIR: dir, WF_TLS: "self-signed" });
   });
 
-  it("as linhas do filho vão para o log com o prefixo", async () => {
-    const { server, logs } = fakeServer("ready");
+  it("as linhas do filho (stdout e stderr) vão para o log com o prefixo", async () => {
+    const { server, logs } = fakeServer("output");
     await server.start(launchFor(fakeEntry, 4700));
-    expect(logs.every((line) => line.startsWith("[escritório] "))).toBe(true);
+    await expect.poll(() => logs).toEqual(expect.arrayContaining(["[escritório] linha-stdout", "[escritório] linha-stderr"]));
+  });
+
+  it("Node inexistente: failed, não trava e uma nova tentativa funciona", async () => {
+    const { server } = fakeServer("ready");
+    const result = await server.start({ ...launchFor(fakeEntry, 4700), node: join(dir, "nao-existe-node") });
+    expect(result).toEqual({ ok: false, error: "failed" });
+    expect(server.running()).toBe(false);
+    await server.stop(300);
+    expect((await server.start(launchFor(fakeEntry, 4700))).ok).toBe(true);
   });
 });
 

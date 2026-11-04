@@ -4,7 +4,11 @@ const ready = { type: "ready", pin: "p".repeat(43), anchor: "ANCHOR", adminInvit
 process.on("message", (message) => {
   if (message?.type === "stop" && mode !== "stubborn") process.exit(0);
 });
-if (mode === "ready" || mode === "stubborn") {
+if (mode === "output") {
+  console.log("linha-stdout");
+  console.error("linha-stderr");
+  process.send(ready);
+} else if (mode === "ready" || mode === "stubborn") {
   process.send(ready);
 } else if (mode === "port") {
   process.send({ type: "failed", reason: "port-in-use", message: "porta em uso" }, () => process.exit(0));
