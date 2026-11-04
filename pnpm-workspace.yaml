@@ -3,5 +3,3 @@ packages:
 allowBuilds:
   electron: true
   koffi: false
-minimumReleaseAgeExclude:
-  - node-forge@1.4.3

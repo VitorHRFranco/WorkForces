@@ -14,7 +14,7 @@
     "@workforces/protocol": "workspace:*",
     "better-sqlite3": "13.0.3",
     "fastify": "5.12.7",
-    "node-forge": "1.4.3",
+    "node-forge": "1.4.2",
     "ws": "8.22.0",
     "zod": "4.6.7"
   },

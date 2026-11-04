@@ -299,8 +299,8 @@ importers:
         specifier: 5.12.7
         version: 5.12.7
       node-forge:
-        specifier: 1.4.3
-        version: 1.4.3
+        specifier: 1.4.2
+        version: 1.4.2
       ws:
         specifier: 8.22.0
         version: 8.22.0
@@ -1215,8 +1215,8 @@ packages:
     resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
     engines: {node: ^18 || ^20 || >= 21}
 
-  node-forge@1.4.3:
-    resolution: {integrity: sha512-P6wzfh6t70avmV8FrVEAd/36sOPJQ+hkaJVX1Laap9J/77m7M0eyozDvc8SwnDf4P7MP94gwbAAo0rg3YVXT+g==}
+  node-forge@1.4.2:
+    resolution: {integrity: sha512-rRtAR5XLJ8gCKd9du4qrKAsgCG1ObGP4gLeNJMa4vYSeq4bmBMOJk5IHkrviBV0q7uoAJlVd8HEQYQSVUb4FGQ==}
     engines: {node: '>= 6.13.0'}
 
   node-html-parser@6.1.13:
@@ -2303,7 +2303,7 @@ snapshots:
 
   node-addon-api@8.9.2: {}
 
-  node-forge@1.4.3: {}
+  node-forge@1.4.2: {}
 
   node-html-parser@6.1.13:
     dependencies:
