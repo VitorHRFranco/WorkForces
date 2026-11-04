@@ -1,3 +1,4 @@
+import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer as createHttpsServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
@@ -8,7 +9,7 @@ import { fetchAnchor, officeFetch, pinOfCertificate, socketTls } from "../src/ne
 
 const fixture = (name: string): string => readFileSync(fileURLToPath(new URL(`./fixtures/tls/${name}`, import.meta.url)), "utf8");
 const [A, B] = [fixture("a.crt"), fixture("b.crt")];
-const [KEY_A] = [fixture("a.key")];
+const [KEY_A, KEY_B] = [fixture("a.key"), fixture("b.key")];
 
 const servers: Server[] = [];
 const sockets: WebSocketServer[] = [];
@@ -25,6 +26,14 @@ async function office(anchorBody: string = JSON.stringify({ anchor: A })): Promi
   return { url: `https://127.0.0.1:${(server.address() as AddressInfo).port}`, server };
 }
 
+/** Escritório de mentira com o certificado B. */
+async function bOffice(): Promise<string> {
+  const server = createHttpsServer({ key: KEY_B, cert: B }, (_req, res) => res.writeHead(200).end("ok"));
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
 afterEach(async () => {
   for (const wss of sockets.splice(0)) {
     for (const c of wss.clients) c.terminate();
@@ -37,7 +46,7 @@ describe("fetchAnchor", () => {
   it("com o pino certo devolve a âncora", async () => {
     const { url } = await office();
     const result = await fetchAnchor(url, pinOfCertificate(A));
-    expect(result).toEqual({ ok: true, anchor: A });
+    expect(result).toEqual({ ok: true, anchor: new X509Certificate(A).toString() });
     expect(pinOfCertificate((result as { anchor: string }).anchor)).toBe(pinOfCertificate(A));
   });
 
@@ -93,5 +102,25 @@ describe("socketTls", () => {
 
   it("sem âncora não muda as opções", () => {
     expect(socketTls(null)).toEqual({});
+  });
+});
+
+describe("fetchAnchor com âncora adulterada", () => {
+  it("certificados extras no PEM não viram confiança: recusa", async () => {
+    const { url } = await office(JSON.stringify({ anchor: A + B }));
+    expect(await fetchAnchor(url, pinOfCertificate(A))).toEqual({ ok: false, error: "unreachable" });
+  });
+
+  it("texto em volta do certificado é descartado: guarda só o certificado conferido", async () => {
+    const { url } = await office(JSON.stringify({ anchor: `${"x".repeat(21_000)}\n${A}` }));
+    const result = await fetchAnchor(url, pinOfCertificate(A));
+    expect(result.ok).toBe(true);
+    const anchor = (result as { anchor: string }).anchor;
+    expect(anchor.match(/-----BEGIN /g)).toHaveLength(1);
+    expect(anchor.length).toBeLessThan(2_000);
+    expect(pinOfCertificate(anchor)).toBe(pinOfCertificate(A));
+    // E a âncora guardada não confia em um servidor com outro certificado.
+    const bUrl = await bOffice();
+    await expect(officeFetch(anchor)(`${bUrl}/api/health`)).rejects.toThrow();
   });
 });

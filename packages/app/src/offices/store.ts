@@ -5,6 +5,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic-write.js";
 import { PIN_PATTERN } from "@workforces/protocol";
 import { parseOfficeAddress } from "../links.js";
+import { MAX_ANCHOR_LENGTH } from "../net/pinned.js";
 
 /** Onde as sessões ficam cifradas (no Electron, o `safeStorage`; no Windows, o DPAPI). */
 export interface SecretBox {
@@ -35,14 +36,11 @@ const profileReset = (copied: string | null): string =>
     ? "não consegui ler os escritórios salvos; entre de novo pelo convite ou por \"Já tenho conta\""
     : `não consegui ler os escritórios salvos; guardei uma cópia em ${copied}`;
 
-/** Teto da âncora no arquivo: um certificado cabe em poucos KiB. */
-const MAX_ANCHOR = 16 * 1024;
-
 /** O `offices.json`: a `session` vai cifrada pelo `SecretBox`. */
 const OfficesFile = z.object({
   version: z.literal(1),
   lastUsed: z.string().nullable(),
-  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable(), bridgeToken: z.string().nullable().default(null), pin: z.string().regex(PIN_PATTERN).nullable().default(null), anchor: z.string().max(MAX_ANCHOR).nullable().default(null) }).refine((o) => (o.pin === null) === (o.anchor === null), "pin e âncora andam juntos")),
+  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable(), bridgeToken: z.string().nullable().default(null), pin: z.string().regex(PIN_PATTERN).nullable().default(null), anchor: z.string().max(MAX_ANCHOR_LENGTH).nullable().default(null) }).refine((o) => (o.pin === null) === (o.anchor === null), "pin e âncora andam juntos")),
 });
 
 /** Os escritórios do perfil local: quem o app já abriu e a sessão de cada um. */

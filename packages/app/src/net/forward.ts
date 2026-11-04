@@ -1,5 +1,6 @@
 import type { AuthChange, ForwardTarget } from "../state.js";
 import { officeFetch } from "./pinned.js";
+import { readCapped } from "./read-capped.js";
 
 const SESSION_COOKIE = "wf_session=";
 const FORWARD_TIMEOUT_MS = 15_000;
@@ -67,36 +68,6 @@ function isCertificateError(error: unknown): boolean {
   return [fieldOf(error, "code"), fieldOf(fieldOf(error, "cause"), "code")].some(
     (code) => typeof code === "string" && (CERTIFICATE_ERRORS.has(code) || code.startsWith("CERT_")),
   );
-}
-
-/** Lê o corpo até o teto; null se passar dele (pelo `content-length` ou pelo que chegou de fato). */
-async function readCapped(response: Response, max: number): Promise<ArrayBuffer | null> {
-  const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > max) {
-    await response.body?.cancel().catch(() => {});
-    return null;
-  }
-  if (response.body === null) return new ArrayBuffer(0);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body.buffer;
 }
 
 function userNameFrom(body: ArrayBuffer): string | null {

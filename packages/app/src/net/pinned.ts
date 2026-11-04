@@ -1,33 +1,17 @@
 import { createHash, X509Certificate } from "node:crypto";
 import type { TlsAnchor } from "@workforces/protocol";
 import { Agent, fetch as undiciFetch } from "undici";
+import { readCapped } from "./read-capped.js";
 
 const ANCHOR_TIMEOUT_MS = 5_000;
 /** Um certificado cabe em poucos KiB; mais que isso não é a âncora. */
 const MAX_ANCHOR_BYTES = 64 * 1024;
+/** Teto da âncora já normalizada; o `offices.json` usa o mesmo, para o que a rede aceita ser sempre o que o arquivo lê. */
+export const MAX_ANCHOR_LENGTH = 16_384;
 
 /** O pino de um certificado: SHA-256 do DER em base64url. Cópia da do servidor (o app não depende do pacote dele). */
 export function pinOfCertificate(pem: string): string {
   return createHash("sha256").update(new X509Certificate(pem).raw).digest("base64url");
-}
-
-/** Lê o corpo até o teto; null se passar dele. */
-async function readCapped(body: ReadableStream<Uint8Array> | null, max: number): Promise<string | null> {
-  if (body === null) return "";
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 /**
@@ -43,11 +27,15 @@ export async function fetchAnchor(
   try {
     const response = await undiciFetch(new URL("/api/tls/anchor", url), { dispatcher: agent, redirect: "manual", signal: AbortSignal.timeout(timeoutMs ?? ANCHOR_TIMEOUT_MS) });
     if (!response.ok) return { ok: false, error: "unreachable" };
-    const text = await readCapped(response.body, MAX_ANCHOR_BYTES);
-    if (text === null) return { ok: false, error: "unreachable" };
-    const { anchor } = JSON.parse(text) as Partial<TlsAnchor>;
-    if (typeof anchor !== "string") return { ok: false, error: "unreachable" };
-    return pinOfCertificate(anchor) === pin ? { ok: true, anchor } : { ok: false, error: "mismatch" };
+    const body = await readCapped(response as unknown as Response, MAX_ANCHOR_BYTES);
+    if (body === null) return { ok: false, error: "unreachable" };
+    const { anchor } = JSON.parse(new TextDecoder().decode(body)) as Partial<TlsAnchor>;
+    // Mais de um certificado seria confiança extra que o pino não cobre; só um vale como âncora.
+    if (typeof anchor !== "string" || (anchor.match(/-----BEGIN /g) ?? []).length !== 1) return { ok: false, error: "unreachable" };
+    // Só o certificado conferido é guardado: o texto em volta (ou além) dele nunca vira confiança.
+    const normalized = new X509Certificate(anchor).toString();
+    if (normalized.length > MAX_ANCHOR_LENGTH) return { ok: false, error: "unreachable" };
+    return pinOfCertificate(normalized) === pin ? { ok: true, anchor: normalized } : { ok: false, error: "mismatch" };
   } catch {
     // Rede, tempo, JSON ou PEM que não se lê: de fora, é o escritório que não respondeu direito.
     return { ok: false, error: "unreachable" };
