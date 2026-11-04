@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { once } from "node:events";
+import { createServer as createHttpsServer } from "node:https";
 import { createServer, type AddressInfo, type Server, type Socket } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { BridgeSocket, type BridgeSocketOptions } from "../src/net/bridge-socket.js";
@@ -79,5 +82,42 @@ describe("BridgeSocket: vigia de vida", () => {
     }).start();
     await waitUntil(() => drops >= 1, 2000, "nova tentativa depois do prazo do handshake");
     expect(drops).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("BridgeSocket: âncora do escritório", () => {
+  const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../app/test/fixtures/tls/${name}`, import.meta.url)), "utf8");
+  const httpsServers: ReturnType<typeof createHttpsServer>[] = [];
+  afterEach(() => {
+    for (const server of httpsServers.splice(0)) server.close();
+  });
+
+  async function startTlsServer() {
+    const https = createHttpsServer({ cert: fixture("a.crt"), key: fixture("a.key") });
+    httpsServers.push(https);
+    const wss = new WebSocketServer({ server: https });
+    servers.push(wss);
+    https.listen(0, "127.0.0.1");
+    await once(https, "listening");
+    const received: string[] = [];
+    wss.on("connection", (ws) => ws.on("message", (data) => received.push(data.toString())));
+    return { received, url: `wss://127.0.0.1:${(https.address() as AddressInfo).port}/ws/bridge` };
+  }
+
+  it("com a âncora certa conecta e manda o hello", async () => {
+    const { received, url } = await startTlsServer();
+    let opened = 0;
+    makeSocket(url, { anchor: fixture("a.crt"), onOpen: () => opened++ }).start();
+    await waitUntil(() => received.length === 1, 5000, "hello");
+    expect(opened).toBe(1);
+  });
+
+  it("com outra âncora não abre nem manda nada", async () => {
+    const { received, url } = await startTlsServer();
+    let opened = 0;
+    makeSocket(url, { anchor: fixture("b.crt"), onOpen: () => opened++ }).start();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(opened).toBe(0);
+    expect(received).toEqual([]);
   });
 });

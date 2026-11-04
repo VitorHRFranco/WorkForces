@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { connect, type Socket } from "node:net";
-import { LOCAL_PROTOCOL_VERSION, type LocalStart } from "@workforces/protocol";
+import { AppToAgent, LOCAL_PROTOCOL_VERSION, type LocalStart } from "@workforces/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalChannel, channelPath, isChannelId, type LocalChannelHandlers } from "../src/channel/index.js";
 import { sleep, waitUntil } from "./helpers/wait.js";
@@ -160,5 +160,15 @@ describe("caminho do canal", () => {
     expect(isChannelId(id.toUpperCase())).toBe(false);
     expect(isChannelId(id.slice(1))).toBe(false);
     expect(isChannelId(`${id}0`)).toBe(false);
+  });
+});
+
+describe("start com âncora", () => {
+  const base = { type: "start", server: "https://escritorio.exemplo", token: "wf_teste", label: "loja", secretPatterns: [] };
+  it("aceita sem âncora (app antigo) e com PEM; recusa acima do limite", () => {
+    expect(AppToAgent.safeParse(base).success).toBe(true);
+    expect(AppToAgent.safeParse({ ...base, anchor: null }).success).toBe(true);
+    expect(AppToAgent.safeParse({ ...base, anchor: "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n" }).success).toBe(true);
+    expect(AppToAgent.safeParse({ ...base, anchor: "x".repeat(16_385) }).success).toBe(false);
   });
 });

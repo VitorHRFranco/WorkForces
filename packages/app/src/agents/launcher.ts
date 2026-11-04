@@ -17,7 +17,7 @@ export interface SpawnOffice {
   userName: string;
   session: string | null;
   bridgeToken: string | null;
-  /** A âncora do escritório (a Task 4 a leva no `start`; até lá só chega ao token). */
+  /** A âncora do escritório (vai no `start`, para a ponte confiar só nela). */
   anchor: string | null;
 }
 
@@ -96,7 +96,7 @@ export class AgentLauncher {
     const minimizing = deps.minimize(title).catch(() => {});
     const answered = await deps.deliver(
       channelId,
-      { type: "start", server: office.url, token: token.token, label: alias, secretPatterns: deps.folders.secretPatterns() },
+      { type: "start", server: office.url, token: token.token, label: alias, secretPatterns: deps.folders.secretPatterns(), anchor: office.anchor },
       { user: office.userName },
     );
     if (answered) return { ok: true };

@@ -122,6 +122,7 @@ async function runClaudeCommand(args: string[], ctx: MainContext): Promise<numbe
             const connection = new AgentConnection({
               url,
               token: start.token,
+              anchor: start.anchor ?? null,
               hello: { agentId, label: start.label, ...size },
               log,
               handlers: {

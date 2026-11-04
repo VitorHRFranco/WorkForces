@@ -51,6 +51,8 @@ export function bridgeSocketUrl(server: string): string {
 export interface BridgeSocketOptions {
   url: string;
   token: string;
+  /** Certificado (PEM) do escritório: com ele a conexão confia só nele (a conferência do nome do host fica de fora). */
+  anchor?: string | null;
   log: (message: string) => void;
   /** Primeira mensagem de cada conexão (o hello), montada na hora com os dados mais recentes. */
   hello(): unknown;
@@ -109,6 +111,8 @@ export class BridgeSocket {
       headers: { authorization: `Bearer ${this.options.token}` },
       maxPayload: SERVER_MAX_PAYLOAD,
       handshakeTimeout: this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS,
+      // Âncora fixa: cadeia e validade seguem conferidas; só o nome do host não (o escritório é achado por IP).
+      ...(this.options.anchor ? { ca: this.options.anchor, checkServerIdentity: (() => undefined) as unknown as () => boolean } : {}),
     });
     this.socket = socket;
 

@@ -22,6 +22,8 @@ export const LocalStart = z.object({
   token: z.string().min(1).max(200),
   label: z.string().min(1).max(LIMITS.maxLabelLength),
   secretPatterns: z.array(z.string().max(500)).max(50),
+  /** Certificado (PEM) do escritório; opcional para aceitar o app antigo. Nulo = confia nas CAs do sistema. */
+  anchor: z.string().min(1).max(16_384).nullable().optional(),
 });
 export type LocalStart = z.infer<typeof LocalStart>;
 

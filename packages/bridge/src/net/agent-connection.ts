@@ -22,6 +22,7 @@ export interface AgentLink {
 export interface AgentConnectionOptions {
   url: string;
   token: string;
+  anchor?: string | null;
   hello: Pick<AgentHello, "agentId" | "label" | "cols" | "rows">;
   handlers: AgentConnectionHandlers;
   log: (message: string) => void;
@@ -39,6 +40,7 @@ export class AgentConnection implements AgentLink {
     this.socket = new BridgeSocket({
       url: options.url,
       token: options.token,
+      anchor: options.anchor,
       log: options.log,
       random: options.random,
       stableMs: options.stableMs,

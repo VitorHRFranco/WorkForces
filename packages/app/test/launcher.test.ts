@@ -50,10 +50,17 @@ describe("AgentLauncher", () => {
     expect(delivered).toEqual([
       {
         channelId: window.channelId,
-        start: { type: "start", server: OFFICE.url, token: "tok", label: "loja", secretPatterns: ["segredo-\\d+"] },
+        start: { type: "start", server: OFFICE.url, token: "tok", label: "loja", secretPatterns: ["segredo-\\d+"], anchor: null },
         owner: { user: OFFICE.userName },
       },
     ]);
+  });
+
+  it("leva a âncora do escritório no start", async () => {
+    const { deps, delivered } = setup();
+    const anchor = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+    await new AgentLauncher(deps).spawn("loja", { ...OFFICE, anchor });
+    expect(delivered[0]!.start.anchor).toBe(anchor);
   });
 
   it("recusa apelido desconhecido, pasta apagada, pedido cedo demais e sem escritório, sem abrir nada", async () => {
