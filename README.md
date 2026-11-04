@@ -107,16 +107,13 @@ docker compose logs workforces   # o primeiro convite de admin aparece aqui
 - Não publique a porta 4600 do servidor: só o Caddy fala com ele.
 - Para usar no trabalho: só com aprovação de TI/segurança e num servidor interno.
 
-**Rede interna, sem DNS público.** Troque o bloco do `deploy/Caddyfile` por um com certificado interno:
+**Rede interna, sem DNS público.** Suba junto com a variante `deploy/docker-compose.internal.yml`, que usa o certificado interno do Caddy (`tls internal`):
 
-```text
-{$WF_DOMAIN} {
-    tls internal
-    reverse_proxy workforces:4600
-}
+```bash
+WF_DOMAIN=escritorio.interno docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
 ```
 
-Depois, copie a CA do Caddy (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) e instale-a no Windows de quem usa o escritório, em "Autoridades de Certificação Raiz Confiáveis": o app confia nos certificados instalados no Windows, além dos que vêm com ele. Os agentes rodam no Node do sistema, que não usa essa lista: nas variáveis de ambiente do seu usuário do Windows, aponte `NODE_EXTRA_CA_CERTS` para esse arquivo. Quando o convite levar o pino do certificado (num plano futuro do app), o app deixa de precisar desse passo.
+Ninguém precisa instalar a CA: os convites levam o pino dela, e o app e os agentes conferem sozinhos. Uma CA que já foi instalada no Windows continua valendo.
 
 Para testar só a imagem, sem o Caddy:
 

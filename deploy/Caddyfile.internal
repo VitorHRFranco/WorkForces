@@ -1,0 +1,5 @@
+# Rede interna, sem DNS público: o Caddy usa a CA interna dele, e o convite leva o pino dessa CA.
+{$WF_DOMAIN} {
+	tls internal
+	reverse_proxy workforces:4600
+}

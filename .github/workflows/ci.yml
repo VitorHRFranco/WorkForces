@@ -76,7 +76,33 @@ jobs:
           for i in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' wf)" = healthy ] && break; sleep 2; done
           test "$(docker inspect -f '{{.State.Health.Status}}' wf)" = healthy
       - name: O compose de exemplo é válido
-        run: WF_DOMAIN=escritorio.exemplo docker compose -f deploy/docker-compose.yml config --quiet
+        run: |
+          WF_DOMAIN=escritorio.exemplo docker compose -f deploy/docker-compose.yml config --quiet
+          WF_DOMAIN=escritorio.interno docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.internal.yml config --quiet
+      - name: A variante de rede interna entrega o pino da CA do Caddy e o põe no convite de admin
+        working-directory: deploy
+        env:
+          WF_DOMAIN: escritorio.interno
+        run: |
+          compose="docker compose -f docker-compose.yml -f docker-compose.internal.yml"
+          $compose up -d --build
+          for i in $(seq 1 90); do
+            code=$(curl -sk --resolve escritorio.interno:443:127.0.0.1 -o anchor.json -w '%{http_code}' https://escritorio.interno/api/tls/anchor || true)
+            [ "$code" = 200 ] && break; sleep 2
+          done
+          test "$code" = 200
+          python3 -c 'import json; print(json.load(open("anchor.json"))["anchor"])' > anchor.pem
+          $compose cp caddy:/data/caddy/pki/authorities/local/root.crt root.crt
+          pin=$(openssl x509 -in root.crt -outform der | openssl dgst -sha256 -binary | basenc --base64url | tr -d '=')
+          test "$(openssl x509 -in anchor.pem -outform der | openssl dgst -sha256 -binary | basenc --base64url | tr -d '=')" = "$pin"
+          for i in $(seq 1 15); do $compose logs workforces | grep -q "pin=$pin" && break; sleep 2; done
+          $compose logs workforces | grep -q "pin=$pin"
+      - name: Desliga a variante de rede interna
+        if: always()
+        working-directory: deploy
+        env:
+          WF_DOMAIN: escritorio.interno
+        run: docker compose -f docker-compose.yml -f docker-compose.internal.yml down -v || true
       - name: Log do container (se algo falhou)
         if: failure()
         run: docker logs wf || true

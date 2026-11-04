@@ -1,0 +1,34 @@
+# Rede interna, sem DNS público: use junto do docker-compose.yml.
+# Uso (nesta pasta): WF_DOMAIN=escritorio.interno docker compose -f docker-compose.yml -f docker-compose.internal.yml up -d --build
+# Ninguém instala a CA: o convite leva o pino dela, e o app confere sozinho.
+services:
+  workforces:
+    environment:
+      WF_TLS_PIN_FILE: /caddy-ca/root.crt
+    volumes:
+      - caddy-ca:/caddy-ca:ro
+
+  caddy:
+    volumes:
+      - ./Caddyfile.internal:/etc/caddy/Caddyfile:ro
+
+  # O Caddy grava a CA só para o root, e o servidor roda sem root. Este auxiliar copia o certificado público da CA
+  # (nunca a chave) para um volume que o servidor lê, e recopia se ele mudar.
+  caddy-ca:
+    image: caddy:2.11.6
+    restart: unless-stopped
+    depends_on: [caddy]
+    command:
+      - sh
+      - -c
+      - >-
+        while :; do f=/data/caddy/pki/authorities/local/root.crt;
+        if [ -f "$$f" ] && ! cmp -s "$$f" /caddy-ca/root.crt; then
+        cp "$$f" /caddy-ca/root.crt.tmp && chmod 644 /caddy-ca/root.crt.tmp && mv /caddy-ca/root.crt.tmp /caddy-ca/root.crt; fi;
+        sleep 5; done
+    volumes:
+      - caddy-data:/data:ro
+      - caddy-ca:/caddy-ca
+
+volumes:
+  caddy-ca:
