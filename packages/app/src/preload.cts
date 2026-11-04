@@ -1,6 +1,6 @@
 import electron = require("electron");
 const { contextBridge, ipcRenderer } = electron;
-import type { AppBridge, AppRoute, LocalAgentEvent, SocketEvent } from "@workforces/protocol";
+import type { AppBridge, AppRoute, HostStatus, LocalAgentEvent, SocketEvent } from "@workforces/protocol";
 
 // Preload com sandbox: só "electron" pode ser importado; os canais repetem os literais do main.ts.
 const subscribe = <T extends unknown[]>(channel: string, listener: (...args: T) => void) => {
@@ -22,6 +22,13 @@ const bridge: AppBridge = {
     current: () => ipcRenderer.invoke("offices:current"),
   },
   invites: { open: (link) => ipcRenderer.invoke("invites:open", link) },
+  host: {
+    status: () => ipcRenderer.invoke("host:status"),
+    configure: (input) => ipcRenderer.invoke("host:configure", input),
+    enter: () => ipcRenderer.invoke("host:enter"),
+    stop: () => ipcRenderer.invoke("host:stop"),
+    onStatus: (listener) => subscribe<[HostStatus]>("host:status", listener),
+  },
   socket: {
     open: (id) => ipcRenderer.send("socket:open", id),
     send: (id, text) => ipcRenderer.send("socket:send", id, text),

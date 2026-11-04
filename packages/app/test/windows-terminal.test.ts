@@ -45,19 +45,19 @@ describe("findNode", () => {
   };
 
   it("22.12 ou mais novo dá o executável real do probe; mais velho dá null", async () => {
-    expect(await findNode(env, run("22.12.0"), exists)).toBe(REAL);
-    expect(await findNode(env, run("24.0.0"), exists)).toBe(REAL);
-    expect(await findNode(env, run("22.9.0"), exists)).toBeNull();
-    expect(await findNode(env, run("20.11.0"), exists)).toBeNull();
+    expect(await findNode(env, run("22.12.0"), exists, "win32")).toBe(REAL);
+    expect(await findNode(env, run("24.0.0"), exists, "win32")).toBe(REAL);
+    expect(await findNode(env, run("22.9.0"), exists, "win32")).toBeNull();
+    expect(await findNode(env, run("20.11.0"), exists, "win32")).toBeNull();
   });
 
   it("probe malformado, falha ou sem node no PATH dá null", async () => {
-    expect(await findNode(env, async () => "22.12.0", exists)).toBeNull();
-    expect(await findNode(env, async () => "relativo\\node.exe\n22.12.0", exists)).toBeNull();
-    expect(await findNode(env, async () => "C:\\x\\node.exe\n22.12.0\nextra", exists)).toBeNull();
-    expect(await findNode(env, async () => Promise.reject(new Error("falhou")), exists)).toBeNull();
-    expect(await findNode(env, run("22.12.0"), () => false)).toBeNull();
-    expect(await findNode({}, run("22.12.0"), exists)).toBeNull();
+    expect(await findNode(env, async () => "22.12.0", exists, "win32")).toBeNull();
+    expect(await findNode(env, async () => "relativo\\node.exe\n22.12.0", exists, "win32")).toBeNull();
+    expect(await findNode(env, async () => "C:\\x\\node.exe\n22.12.0\nextra", exists, "win32")).toBeNull();
+    expect(await findNode(env, async () => Promise.reject(new Error("falhou")), exists, "win32")).toBeNull();
+    expect(await findNode(env, run("22.12.0"), () => false, "win32")).toBeNull();
+    expect(await findNode({}, run("22.12.0"), exists, "win32")).toBeNull();
   });
 
   it("entrada relativa ou vazia do PATH é ignorada, mesmo com node.exe", async () => {
@@ -69,6 +69,7 @@ describe("findNode", () => {
         return `${REAL}\n22.12.0`;
       },
       (path) => path === "node.exe" || path === "bin\\node.exe" || path === ".\\node.exe" || path === NODE,
+      "win32",
     );
     expect(found).toBe(REAL);
     expect(calls).toEqual([NODE]);
@@ -84,8 +85,39 @@ describe("findNode", () => {
         return "D:\\meu\\node.exe\n24.1.0";
       },
       exists,
+      "win32",
     );
     expect(found).toBe("D:\\meu\\node.exe");
     expect(seen).toEqual(["D:\\meu\\node.exe"]);
+  });
+
+  it("no Windows procura node.exe no PATH, separado por ;", async () => {
+    const calls: string[] = [];
+    const found = await findNode(
+      { Path: "C:\\a;C:\\b" },
+      async (file) => {
+        calls.push(file);
+        return `${file}\r\n22.12.0`;
+      },
+      (path) => path === "C:\\a\\node" || path === "C:\\b\\node.exe",
+      "win32",
+    );
+    expect(found).toBe("C:\\b\\node.exe");
+    expect(calls).toEqual(["C:\\b\\node.exe"]);
+  });
+
+  it("fora do Windows procura node no PATH, separado por :", async () => {
+    const calls: string[] = [];
+    const found = await findNode(
+      { PATH: "relativo:/opt/a:/usr/bin" },
+      async (file) => {
+        calls.push(file);
+        return `${file}\n22.12.0`;
+      },
+      (path) => path === "relativo/node" || path === "/opt/a/node.exe" || path === "/usr/bin/node",
+      "linux",
+    );
+    expect(found).toBe("/usr/bin/node");
+    expect(calls).toEqual(["/usr/bin/node"]);
   });
 });

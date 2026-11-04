@@ -1,8 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { statSync } from "node:fs";
-import { win32 } from "node:path";
-
-const { delimiter, isAbsolute, join } = win32; // só o Windows abre agentes; assim os testes valem também no Linux do CI
+import { posix, win32 } from "node:path";
 
 /** Tudo o que a janela de um agente precisa; as credenciais não entram aqui (vão pelo canal local). */
 export interface AgentWindow {
@@ -107,33 +105,40 @@ function versionAtLeast(version: string, min: number[]): boolean {
   return major > min[0]! || (major === min[0] && minor >= min[1]!);
 }
 
-/** O primeiro `node.exe` do PATH. A busca é feita aqui: o `where.exe` lista a pasta atual antes do PATH e escreve na página de código OEM (acento quebra). */
-function nodeOnPath(env: NodeJS.ProcessEnv, exists: (path: string) => boolean): string | null {
+/** Os caminhos de cada sistema pelo nome, e não pelos do processo: assim os testes dos dois valem em qualquer máquina. */
+const pathsOf = (platform: NodeJS.Platform) => (platform === "win32" ? win32 : posix);
+
+/** O primeiro `node.exe` (`node` fora do Windows) do PATH. A busca é feita aqui: o `where.exe` lista a pasta atual antes do PATH e escreve na página de código OEM (acento quebra). */
+function nodeOnPath(env: NodeJS.ProcessEnv, exists: (path: string) => boolean, platform: NodeJS.Platform): string | null {
+  const { delimiter, isAbsolute, join } = pathsOf(platform);
   const key = Object.keys(env).find((name) => name.toLowerCase() === "path");
   const value = key === undefined ? undefined : env[key];
   if (!value) return null;
+  const file = platform === "win32" ? "node.exe" : "node";
   for (const dir of value.split(delimiter)) {
     if (dir === "" || !isAbsolute(dir)) continue;
-    const candidate = join(dir, "node.exe");
+    const candidate = join(dir, file);
     if (exists(candidate)) return candidate;
   }
   return null;
 }
 
 /**
- * O Node do sistema que roda o invólucro: `WF_NODE`, ou o primeiro `node.exe` do PATH. Precisa ser 22.12 ou mais novo.
- * Devolve o executável real, informado pelo próprio Node. Qualquer falha dá null (o app explica o que instalar).
+ * O Node do sistema que roda o invólucro e o escritório hospedado: `WF_NODE`, ou o primeiro `node.exe` (`node` fora do
+ * Windows) do PATH. Precisa ser 22.12 ou mais novo. Devolve o executável real, informado pelo próprio Node. Qualquer
+ * falha dá null (o app explica o que instalar).
  */
 export async function findNode(
   env: NodeJS.ProcessEnv = process.env,
   run: (file: string, args: string[]) => Promise<string> = runDefault,
   exists: (path: string) => boolean = isFileDefault,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<string | null> {
   try {
-    const candidate = env.WF_NODE || nodeOnPath(env, exists);
+    const candidate = env.WF_NODE || nodeOnPath(env, exists, platform);
     if (!candidate) return null;
     const lines = (await run(candidate, ["-e", PROBE])).split(/\r?\n/).map((line) => line.trim());
-    if (lines.length !== 2 || lines[0] === "" || !isAbsolute(lines[0]!)) return null;
+    if (lines.length !== 2 || lines[0] === "" || !pathsOf(platform).isAbsolute(lines[0]!)) return null;
     return versionAtLeast(lines[1]!, MIN_NODE) ? lines[0]! : null;
   } catch {
     return null;

@@ -32,7 +32,11 @@ interface OpenOffice {
 export class AppState {
   private open_: OpenOffice | null = null;
 
-  constructor(private readonly store: OfficeStore) {}
+  /** `hostedPin`: o pino do escritório deste computador (null: não há); a entrada com ele é a do anfitrião. */
+  constructor(
+    private readonly store: OfficeStore,
+    private readonly hostedPin: () => string | null = () => null,
+  ) {}
 
   /** Primeira tela: o último escritório com sessão, ou a tela inicial (com o aviso do perfil ilegível, se houver). */
   startup(): AppRoute {
@@ -49,6 +53,12 @@ export class AppState {
   openInvite(invite: Invite, anchor: string | null): AppRoute {
     this.open_ = { url: invite.server, officeId: null, userName: null, session: null, bridgeToken: null, pin: invite.pin, anchor, sessionExpired: false };
     return { page: "invite", code: invite.code };
+  }
+
+  /** O escritório deste computador já tem conta, mas não há entrada salva: a pessoa entra pelo login, já confiando na âncora. */
+  openPending(url: string, pin: string, anchor: string): AppRoute {
+    this.open_ = { url, officeId: null, userName: null, session: null, bridgeToken: null, pin, anchor, sessionExpired: false };
+    return { page: "login" };
   }
 
   /** "Já tenho conta": o endereço vira um escritório pendente, e a pessoa entra pelo login. */
@@ -90,13 +100,23 @@ export class AppState {
   }
 
   list(): OfficeSummary[] {
+    const hostedPin = this.hostedPin();
     return this.store.list().map((entry) => ({
       id: entry.id,
       url: entry.url,
       host: new URL(entry.url).host,
       userName: entry.userName,
       loggedIn: entry.session !== null,
+      hosted: hostedPin !== null && entry.pin === hostedPin,
     }));
+  }
+
+  /** A entrada do escritório deste computador (a com sessão, se houver mais de uma conta), ou null. */
+  findHosted(): string | null {
+    const hostedPin = this.hostedPin();
+    if (hostedPin === null) return null;
+    const entries = this.store.list().filter((entry) => entry.pin === hostedPin);
+    return (entries.find((entry) => entry.session !== null) ?? entries[0])?.id ?? null;
   }
 
   current(): CurrentOffice | null {

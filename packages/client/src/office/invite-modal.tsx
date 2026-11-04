@@ -24,6 +24,10 @@ export function InviteModal({ onClose }: { onClose: () => void }) {
       {invite ? (
         <>
           <CopyField value={invite.url} />
+          {/* O link do app (com o pino) não abre no navegador: em chat que não o deixa clicável, ele é colado no app. */}
+          {invite.url.startsWith("workforces://") && (
+            <p class="muted">Se o link não ficar clicável no chat, a pessoa cola em "Entrar com convite" no app do WorkForces.</p>
+          )}
           <p class="muted">Expira em {formatDate(invite.expiresAt)}.</p>
         </>
       ) : (

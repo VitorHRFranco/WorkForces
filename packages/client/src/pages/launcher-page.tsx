@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import { takeFlash } from "../flash";
 import { navigate, routePath } from "../router";
+import { hostStateText, useHostStatus } from "./host-page";
 
 type Reach = "checking" | "up" | "down";
 
@@ -18,12 +19,17 @@ export function LauncherPage() {
   const [busy, setBusy] = useState(false);
   const [changing, setChanging] = useState<string | null>(null);
   const [newAddress, setNewAddress] = useState("");
+  const [host, setHost] = useHostStatus(
+    () => {},
+    () => setFlashText("não consegui ler o escritório deste computador"),
+  );
 
   const load = () =>
     bridge.offices.list().then(
       (list) => {
         setOffices(list);
-        for (const office of list) {
+        // O escritório deste computador fica na seção dele, e não na lista comum.
+        for (const office of list.filter((entry) => !entry.hosted)) {
           setReach((current) => ({ ...current, [office.id]: "checking" }));
           bridge.offices.reachable(office.id).then(
             (up) => setReach((current) => ({ ...current, [office.id]: up ? "up" : "down" })),
@@ -56,6 +62,15 @@ export function LauncherPage() {
       setFlashText("não consegui fazer isso. Tente de novo.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const stopHost = async () => {
+    setFlashText(null);
+    try {
+      setHost(await bridge.host.stop());
+    } catch {
+      setFlashText("não consegui desligar o escritório. Tente de novo.");
     }
   };
 
@@ -93,6 +108,8 @@ export function LauncherPage() {
     void run(() => bridge.offices.add(address));
   };
 
+  const common = offices?.filter((office) => !office.hosted) ?? null;
+
   return (
     <main class="card launcher">
       <h1>WorkForces</h1>
@@ -101,10 +118,42 @@ export function LauncherPage() {
           {flash}
         </p>
       )}
+      <h2>Neste computador</h2>
+      {host && !host.created && (
+        <button type="button" onClick={() => navigate("/host")}>
+          Criar escritório
+        </button>
+      )}
+      {host?.created && (
+        <ul class="offices">
+          <li>
+            <div>
+              <strong>Seu escritório</strong>
+              <span class="muted">{hostStateText(host)}</span>
+              {host.error && host.error !== flash && <span class="error">{host.error}</span>}
+            </div>
+            <button
+              type="button"
+              disabled={busy || host.state === "starting" || host.state === "stopping"}
+              onClick={() => void run(() => bridge.host.enter())}
+            >
+              {host.state === "on" ? "Entrar" : "Ligar e entrar"}
+            </button>
+            {host.state === "on" && (
+              <button type="button" onClick={() => void stopHost()}>
+                Desligar
+              </button>
+            )}
+            <button type="button" onClick={() => navigate("/host")}>
+              Configurar
+            </button>
+          </li>
+        </ul>
+      )}
       <h2>Seus escritórios</h2>
-      {offices && offices.length === 0 && <p class="muted">Nenhum escritório ainda. Entre com o convite que você recebeu.</p>}
+      {common && common.length === 0 && <p class="muted">Nenhum escritório ainda. Entre com o convite que você recebeu.</p>}
       <ul class="offices">
-        {(offices ?? []).map((office) => (
+        {(common ?? []).map((office) => (
           <li key={office.id}>
             <div>
               <strong>{office.host}</strong>
@@ -166,9 +215,6 @@ export function LauncherPage() {
           Já tenho conta
         </button>
       )}
-      <button type="button" disabled>
-        Criar escritório (em breve)
-      </button>
     </main>
   );
 }

@@ -202,4 +202,36 @@ describe("AppState", () => {
     expect(state.current()).toBeNull();
     expect(state.target()).toBeNull();
   });
+
+  describe("escritório deste computador", () => {
+    const HOSTED_PIN = "H".repeat(43);
+    const LOCAL = "https://127.0.0.1:4600";
+
+    it("list marca hosted só na entrada com o pino do anfitrião, e findHosted dá o id dela", () => {
+      let hostedPin: string | null = null;
+      const state = new AppState(OfficeStore.load(file, box), () => hostedPin);
+      state.openInvite({ server: LOCAL, code: "abc", pin: HOSTED_PIN }, "PEM");
+      state.applyAuth({ session: "s1", userName: "ana" });
+      state.openInvite({ server: "https://outro.exemplo", code: "abc", pin: "O".repeat(43) }, "OUTRA");
+      state.applyAuth({ session: "s2", userName: "ana" });
+      expect(state.list().map((office) => office.hosted)).toEqual([false, false]);
+      expect(state.findHosted()).toBeNull();
+      hostedPin = HOSTED_PIN;
+      const list = state.list();
+      expect(list.map((office) => [office.url, office.hosted])).toEqual([
+        [LOCAL, true],
+        ["https://outro.exemplo", false],
+      ]);
+      expect(state.findHosted()).toBe(list[0]!.id);
+    });
+
+    it("openPending leva ao login, com a âncora no alvo; o login salva a entrada com o pino", () => {
+      const state = new AppState(OfficeStore.load(file, box), () => HOSTED_PIN);
+      expect(state.openPending(LOCAL, HOSTED_PIN, "PEM")).toEqual({ page: "login" });
+      expect(state.target()).toEqual({ url: LOCAL, session: null, anchor: "PEM" });
+      state.applyAuth({ session: "s1", userName: "ana" });
+      expect(OfficeStore.load(file, box).list()).toEqual([expect.objectContaining({ url: LOCAL, pin: HOSTED_PIN, anchor: "PEM" })]);
+      expect(state.findHosted()).toBe(state.current()!.id);
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { HostPage } from "./pages/host-page";
 import { InvitePage } from "./pages/invite-page";
 import { LauncherPage } from "./pages/launcher-page";
 import { LoginPage } from "./pages/login-page";
@@ -19,5 +20,6 @@ export function App() {
   const invite = /^\/invite\/([^/]+)$/.exec(path);
   if (invite) return <InvitePage key={generation} code={decodeCode(invite[1]!)} />;
   if (path === "/office") return <OfficePage key={generation} />;
+  if (path === "/host") return <HostPage key={generation} />;
   return <LauncherPage key={generation} />;
 }

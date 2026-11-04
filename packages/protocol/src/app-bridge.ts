@@ -1,5 +1,6 @@
 import type { AgentState } from "./bridge.js";
 import type { FrameBody } from "./frame.js";
+import type { HostConfigResult, HostSettingsInput, HostStatus } from "./host.js";
 
 /** Um escritório salvo no app. */
 export interface OfficeSummary {
@@ -9,6 +10,8 @@ export interface OfficeSummary {
   host: string;
   userName: string | null;
   loggedIn: boolean;
+  /** É o escritório deste computador (o pino é o dele): a tela inicial o mostra em "Neste computador". */
+  hosted: boolean;
 }
 
 /** O escritório aberto agora; `id` é null até a conta ser criada ou o login ser feito. */
@@ -69,6 +72,15 @@ export interface AppBridge {
     current(): Promise<CurrentOffice | null>;
   };
   invites: { open(link: string): Promise<AppRoute> };
+  /** O escritório deste computador. */
+  host: {
+    status(): Promise<HostStatus>;
+    configure(input: HostSettingsInput): Promise<HostConfigResult>;
+    /** Liga, se preciso, e abre o escritório como o anfitrião. */
+    enter(): Promise<AppRoute>;
+    stop(): Promise<HostStatus>;
+    onStatus(listener: (status: HostStatus) => void): () => void;
+  };
   socket: {
     open(id: number): void;
     send(id: number, text: string): void;

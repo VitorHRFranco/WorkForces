@@ -19,7 +19,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { channelDir } from "@workforces/bridge/channel";
-import { ALIAS_PATTERN, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type LocalAgentInfo } from "@workforces/protocol";
+import { ALIAS_PATTERN, HostSettingsInput, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type HostConfigResult, type LocalAgentInfo } from "@workforces/protocol";
 import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
 import { FolderStore, INVALID_ALIAS } from "./agents/folders.js";
 import { AgentLauncher } from "./agents/launcher.js";
@@ -27,6 +27,10 @@ import { LocalAgents } from "./agents/local-agents.js";
 import { AgentRecordStore } from "./agents/records.js";
 import { countOpenAgents } from "./agents/open-agents.js";
 import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
+import { listAddresses } from "./host/addresses.js";
+import { Host, PORT_RANGE_ERROR } from "./host/host.js";
+import { EmbeddedServer } from "./host/server-process.js";
+import { HostSettingsStore } from "./host/settings.js";
 import { findInviteArg } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
@@ -94,6 +98,9 @@ async function start(): Promise<void> {
   let state: AppState | null = null;
   let relay: SocketRelay | null = null;
   let localAgents: LocalAgents | null = null;
+  let host: Host | null = null;
+  /** O escritório deste computador já foi desligado na saída: o próximo `before-quit` sai de vez. */
+  let hostOff = false;
   /** Os agentes que a página está assistindo: ao trocar de escritório, o app para de assistir todos (eles continuam rodando). */
   const watched = new Set<string>();
   const stopWatching = (): void => {
@@ -137,11 +144,19 @@ async function start(): Promise<void> {
     }, console.warn);
   });
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     quitting = true;
     relay?.closeAll();
     // Só solta os canais: os agentes continuam rodando nas janelas deles, e o app os acha de novo ao reabrir.
     localAgents?.closeAll();
+    // O escritório deste computador desliga antes de o app sair (o servidor fecha o banco e solta a porta); depois, sai de vez.
+    if (host && !hostOff && host.status().state !== "off") {
+      event.preventDefault();
+      void host.turnOff().finally(() => {
+        hostOff = true;
+        app.quit();
+      });
+    }
   });
 
   app.on("web-contents-created", (_e, contents) => {
@@ -174,7 +189,21 @@ async function start(): Promise<void> {
     open: (sealed) => safeStorage.decryptString(Buffer.from(sealed, "base64")),
   };
 
-  const appState = new AppState(OfficeStore.load(join(app.getPath("userData"), "offices.json"), box, console.warn));
+  // O escritório deste computador: liga só quando a pessoa pede (abrir o app não liga).
+  const userData = app.getPath("userData");
+  const officeHost = new Host({
+    settings: HostSettingsStore.load(join(userData, "host.json"), console.warn),
+    server: new EmbeddedServer({ log: console.log }),
+    findNode: () => findNode(),
+    addresses: () => listAddresses(),
+    entry: fileURLToPath(new URL("../../server/dist/embedded.js", import.meta.url)),
+    dataDir: join(userData, "office"),
+    emit: (status) => sendToPage("host:status", status),
+    log: console.warn,
+  });
+  host = officeHost;
+
+  const appState = new AppState(OfficeStore.load(join(userData, "offices.json"), box, console.warn), () => officeHost.hostedPin());
   state = appState;
 
   const clientDir = fileURLToPath(new URL("../../client/dist", import.meta.url));
@@ -323,6 +352,54 @@ async function start(): Promise<void> {
     socketRelay.closeAll();
     stopWatching();
     return openInviteLink(value);
+  });
+
+  // O escritório deste computador: a página escolhe, liga, entra e desliga. O status não leva o pino nem o convite de
+  // admin; o código do convite só vai à tela de criar a conta, como o de qualquer convite.
+  handle("host:status", () => officeHost.status());
+  handle("host:configure", async (input): Promise<HostConfigResult> => {
+    const parsed = HostSettingsInput.safeParse(input);
+    if (!parsed.success) {
+      // A porta vem de um campo que a pessoa digita; o resto, só a própria página monta.
+      if (parsed.error.issues.some((issue) => issue.path[0] === "port")) return { ok: false, error: PORT_RANGE_ERROR };
+      throw new Error("argumento inválido");
+    }
+    const before = officeHost.localUrl();
+    const result = await officeHost.configure(parsed.data);
+    const after = officeHost.localUrl();
+    const hosted = appState.findHosted();
+    // A entrada do anfitrião aponta para 127.0.0.1 na porta: porta nova, endereço novo, mantendo conta e pino.
+    if (result.ok && hosted !== null && after !== null && after !== before) {
+      socketRelay.closeAll();
+      stopWatching();
+      const change = appState.changeAddress(hosted, after);
+      if (!change.ok) console.warn("não consegui trocar o endereço do escritório deste computador", change.error);
+    }
+    return result;
+  });
+  handle("host:enter", async (): Promise<AppRoute> => {
+    socketRelay.closeAll();
+    stopWatching();
+    const on = await officeHost.turnOn();
+    if (!on.ok) return { page: "launcher", notice: on.error };
+    const localUrl = officeHost.localUrl()!; // ligado, o escritório existe
+    const hosted = appState.findHosted();
+    if (hosted !== null) return appState.open(hosted);
+    // Sem conta ainda: o convite de admin abre a criação da primeira; com conta e sem entrada salva, o login.
+    if (on.adminInvite !== null) return appState.openInvite({ server: localUrl, code: on.adminInvite, pin: on.pin }, on.anchor);
+    return appState.openPending(localUrl, on.pin, on.anchor);
+  });
+  handle("host:stop", async () => {
+    await officeHost.turnOff();
+    const localUrl = officeHost.localUrl();
+    // O escritório aberto era o deste computador (salvo ou ainda no convite/login): ele saiu do ar.
+    if (localUrl !== null && appState.current()?.url === localUrl) {
+      socketRelay.closeAll();
+      stopWatching();
+      appState.close();
+      sendToPage("app:route", { page: "launcher" } satisfies AppRoute);
+    }
+    return officeHost.status();
   });
 
   on("socket:open", (id) => {
