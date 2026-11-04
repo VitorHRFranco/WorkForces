@@ -32,6 +32,8 @@ interface Entry {
 }
 
 const RETRY_MS = 250;
+/** Um registro sem canal na pasta só sai na segunda busca seguida: uma listagem que deixasse passar um agente vivo o perderia de vez. */
+const GONE_AFTER_SCANS = 2;
 const DELIVER_TIMEOUT_MS = 20_000;
 const CONNECT_TRY_MS = 3_000;
 
@@ -44,31 +46,42 @@ export class LocalAgents {
   /** Por id do canal: só entram os que já receberam `start`. */
   private readonly entries = new Map<string, Entry>();
   private readonly connecting = new Set<string>();
+  /** Buscas em andamento: só a que começa sozinha conta as faltas (duas ao mesmo tempo veem quase a mesma listagem). */
+  private scanning = 0;
+  /** Canal registrado que faltou na pasta → quantas buscas seguidas sem ele. */
+  private missing = new Map<string, number>();
   private closedAll = false;
 
   constructor(private readonly deps: LocalAgentsDeps) {}
 
   /**
    * Conecta aos agentes registrados que ainda não temos. Um canal sem registro nunca é tocado: pode ser de outro usuário
-   * do Windows com o nome certo. Registro sem canal na pasta é de agente que terminou, e sai. Recusa ou demora: ignora.
+   * do Windows com o nome certo. Registro sem canal na pasta em duas buscas seguidas é de agente que terminou, e sai.
+   * Recusa ou demora: ignora.
    */
   async scan(): Promise<void> {
-    if ((await this.dirState()) !== "ok") return;
-    // Os registros antes da pasta: um registro novo é de canal que já existia, e a listagem seguinte o encontra.
-    const records = this.deps.records.list();
-    let names: string[];
+    const counts = this.scanning === 0;
+    this.scanning++;
     try {
-      names = await readdir(this.deps.dir);
-    } catch (error) {
-      this.deps.log(`não consegui listar os canais dos agentes: ${errorMessage(error)}`);
-      return;
+      if ((await this.dirState()) !== "ok") return;
+      // Os registros antes da pasta: um registro novo é de canal que já existia, e a listagem seguinte o encontra.
+      const records = this.deps.records.list();
+      let names: string[];
+      try {
+        names = await readdir(this.deps.dir);
+      } catch (error) {
+        this.deps.log(`não consegui listar os canais dos agentes: ${errorMessage(error)}`);
+        return;
+      }
+      const present = new Set(names.filter((name) => name.startsWith(this.prefix)).map((name) => name.slice(this.prefix.length)));
+      const gone = this.countMissing(records, present, counts);
+      if (gone.length > 0) this.deps.records.remove(gone);
+      const before = this.snapshot();
+      await Promise.all(records.filter((record) => present.has(record.channelId)).map((record) => this.adopt(record)));
+      if (this.snapshot() !== before) this.deps.emit({ type: "changed" });
+    } finally {
+      this.scanning--;
     }
-    const present = new Set(names.filter((name) => name.startsWith(this.prefix)).map((name) => name.slice(this.prefix.length)));
-    const gone = records.filter((record) => !present.has(record.channelId)).map((record) => record.channelId);
-    if (gone.length > 0) this.deps.records.remove(gone);
-    const before = this.snapshot();
-    await Promise.all(records.filter((record) => present.has(record.channelId)).map((record) => this.adopt(record)));
-    if (this.snapshot() !== before) this.deps.emit({ type: "changed" });
   }
 
   /** Manda o `start` a um agente recém-aberto; true quando ele confirma o escritório. Confirmado, o agente fica registrado em nome de `owner`. */
@@ -180,6 +193,23 @@ export class LocalAgents {
     }
   }
 
+  /**
+   * Conta as faltas de cada registro nesta listagem e devolve os que faltaram em GONE_AFTER_SCANS buscas seguidas. Canal
+   * visto zera a contagem; uma busca que não começou sozinha (`counts` falso) não soma falta nenhuma.
+   */
+  private countMissing(records: readonly AgentRecord[], present: ReadonlySet<string>, counts: boolean): string[] {
+    const missing = new Map<string, number>();
+    const gone: string[] = [];
+    for (const { channelId } of records) {
+      if (present.has(channelId)) continue;
+      const count = (this.missing.get(channelId) ?? 0) + (counts ? 1 : 0);
+      if (count >= GONE_AFTER_SCANS) gone.push(channelId);
+      else if (count > 0) missing.set(channelId, count);
+    }
+    this.missing = missing;
+    return gone;
+  }
+
   private async adopt(record: AgentRecord): Promise<void> {
     const { channelId } = record;
     if (this.entries.has(channelId) || this.connecting.has(channelId)) return;
@@ -229,9 +259,12 @@ export class LocalAgents {
     const entry: Entry = { client, record, state: client.info.state, watched: false };
     this.entries.set(channelId, entry);
     client.onMessage = (message) => this.handle(entry, message);
+    // O `closeAll` (sair do app) tira este aviso antes de fechar: os registros ficam para o próximo início.
     client.onClose = () => {
       if (this.entries.get(channelId) !== entry) return;
       this.entries.delete(channelId);
+      // O nome do canal ficou livre: outro usuário do Windows poderia ocupá-lo antes da próxima busca.
+      this.deps.records.remove([channelId]);
       this.deps.log(`o agente ${client.info.label ?? channelId} fechou o canal`);
       this.deps.emit({ type: "changed" });
     };

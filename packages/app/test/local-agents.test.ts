@@ -51,8 +51,11 @@ function newId(): string {
   return randomBytes(16).toString("hex");
 }
 
-/** Um invólucro de mentira no prefixo do teste; com `office`, responde como se já tivesse recebido o start. */
-async function openChannel(id = newId(), options: { office?: string } = {}) {
+/**
+ * Um invólucro de mentira no prefixo do teste. Com `office`, responde como se já tivesse recebido o start; com
+ * `confirm: false`, recebe o start e nunca confirma o escritório.
+ */
+async function openChannel(id = newId(), options: { office?: string; confirm?: boolean } = {}) {
   const calls = { starts: [] as LocalStart[], inputs: [] as string[], watch: [] as boolean[], infos: 0 };
   const agentId = randomUUID();
   let office: string | null = options.office ?? null;
@@ -60,6 +63,7 @@ async function openChannel(id = newId(), options: { office?: string } = {}) {
   const handlers: LocalChannelHandlers = {
     onStart: (start) => {
       calls.starts.push(start);
+      if (options.confirm === false) return;
       office = start.server;
       label = start.label;
     },
@@ -74,6 +78,19 @@ async function openChannel(id = newId(), options: { office?: string } = {}) {
   channels.push(channel);
   await channel.listen();
   return { channel, id, calls, agentId };
+}
+
+/** Um canal com o nome certo que derruba toda conexão, como um agente que não consegue responder. */
+async function refusingChannel(id: string) {
+  const path = join(dir, PREFIX + id);
+  const server = createServer((socket) => socket.destroy());
+  await new Promise<void>((resolve) => server.listen(path, resolve));
+  return {
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (!windows) rmSync(path, { force: true });
+    },
+  };
 }
 
 function newRecords(): AgentRecordStore {
@@ -155,17 +172,101 @@ describe("LocalAgents", () => {
     expect(second.app.list(OFFICE, "bia")).toEqual([]);
   });
 
-  it("registro de agente que terminou sai no scan", async () => {
+  it("canal registrado que fecha com o app ligado perde o registro na hora", async () => {
     const { id, channel } = await openChannel();
-    const { app, records } = newApp();
+    const { app, events, records } = newApp();
     expect(await app.deliver(id, START, OWNER)).toBe(true);
     expect(records.list().map((record) => record.channelId)).toEqual([id]);
+    events.length = 0;
 
     await channel.close();
-    await waitUntil(() => app.list(OFFICE, USER).length === 0, "saída da lista");
+    await waitUntil(() => events.some((event) => event.type === "changed"), "aviso de mudança");
+
+    // Sem scan: o nome do canal ficou livre, e o registro não pode esperar alguém abrir "Meus agentes".
+    expect(records.list()).toEqual([]);
+
+    // Sair do app (closeAll) só solta os canais: os registros ficam para o próximo início, mesmo que o canal feche depois.
+    const kept = await openChannel();
+    const quitting = newApp();
+    expect(await quitting.app.deliver(kept.id, START, OWNER)).toBe(true);
+    quitting.app.closeAll();
+    await kept.channel.close();
+    await sleep(100);
+    expect(quitting.records.list().map((record) => record.agentId)).toEqual([kept.agentId]);
+  });
+
+  it("registro de agente que terminou com o app fechado sai na segunda busca sem o canal", async () => {
+    const { app, records } = newApp();
+    const id = newId();
+    records.add({ channelId: id, agentId: randomUUID(), office: OFFICE, user: USER, at: Date.now() });
+
+    await app.scan();
+    // Uma busca só não basta: uma listagem da pasta que deixasse passar um agente vivo o perderia para sempre.
+    expect(records.list().map((record) => record.channelId)).toEqual([id]);
+
+    await app.scan();
+    expect(records.list()).toEqual([]);
+  });
+
+  it("duas buscas ao mesmo tempo contam uma falta só", async () => {
+    const { app, records } = newApp();
+    const id = newId();
+    records.add({ channelId: id, agentId: randomUUID(), office: OFFICE, user: USER, at: Date.now() });
+
+    // Buscas simultâneas (o painel pede a lista a cada mudança) veem quase a mesma listagem: não valem por duas.
+    await Promise.all([app.scan(), app.scan()]);
+    expect(records.list().map((record) => record.channelId)).toEqual([id]);
+
+    await app.scan();
+    expect(records.list()).toEqual([]);
+  });
+
+  it("o canal que volta a aparecer zera a contagem de buscas sem ele", async () => {
+    const { app, records } = newApp();
+    const id = newId();
+    records.add({ channelId: id, agentId: randomUUID(), office: OFFICE, user: USER, at: Date.now() });
     await app.scan();
 
+    // O canal aparece na pasta, mas derruba a conexão: o registro fica, e a contagem recomeça.
+    const busy = await refusingChannel(id);
+    try {
+      await app.scan();
+    } finally {
+      await busy.close();
+    }
+
+    await app.scan();
+    expect(records.list().map((record) => record.channelId)).toEqual([id]);
+    await app.scan();
     expect(records.list()).toEqual([]);
+  });
+
+  it("deliver sem confirmação do escritório não registra", async () => {
+    const { id, calls } = await openChannel(newId(), { confirm: false });
+    const { app, records } = newApp();
+
+    expect(await app.deliver(id, START, OWNER, 300)).toBe(false);
+
+    expect(calls.starts).not.toEqual([]);
+    expect(records.list()).toEqual([]);
+    expect(app.list(OFFICE, USER)).toEqual([]);
+  });
+
+  it("adopt com escritório diferente do registro não lista e apaga o registro", async () => {
+    const other = "https://outro.exemplo";
+    const { id, agentId, calls } = await openChannel(newId(), { office: other });
+    const { app, records, logs } = newApp();
+    records.add({ channelId: id, agentId, office: OFFICE, user: USER, at: Date.now() });
+
+    await app.scan();
+
+    expect(app.list(OFFICE, USER)).toEqual([]);
+    expect(app.list(other, USER)).toEqual([]);
+    expect(app.input(agentId, "oi")).toBe(false);
+    await sleep(100);
+    expect(calls.inputs).toEqual([]);
+    expect(records.list()).toEqual([]);
+    expect(logs.some((message) => message.includes(id))).toBe(true);
   });
 
   it("registro que não bate com o info é ignorado", async () => {

@@ -46,6 +46,10 @@ const CHANNEL_RETRY_MS = 200;
 const CHANNEL_TIMEOUT_MS = 15_000;
 /** Quanto do terminal do agente fica guardado para a mensagem de erro, se o canal não responder. */
 const AGENT_OUTPUT_KEEP = 4_000;
+/** Como no app: no Windows, antivírus e indexador seguram o arquivo por instantes, e a troca tenta de novo antes de desistir. */
+const RENAME_RETRIES = 5;
+const RENAME_WAIT_MS = 30;
+const RENAME_BUSY = new Set(["EPERM", "EACCES", "EBUSY"]);
 
 export interface Account {
   name: string;
@@ -295,7 +299,7 @@ export class Office {
       throw new Error(`o agente ${label} não recebeu o start pelo canal local (${status}):${EOL}${output}`, { cause: error });
     }
     const dataDir = this.appData.get(account.name);
-    if (dataDir !== undefined) recordAgent(dataDir, { channelId, agentId, office: this.url, user: account.name, at: Date.now() });
+    if (dataDir !== undefined) await recordAgent(dataDir, { channelId, agentId, office: this.url, user: account.name, at: Date.now() });
   }
 
   /** Entra no escritório só com a conexão do cliente, sem abrir o app (um app a menos desenhando o jogo). */
@@ -500,9 +504,10 @@ function sendStart(path: string, start: LocalStart, timeoutMs: number): Promise<
 
 /**
  * Acrescenta o agente ao `local-agents.json` do app, como o app faz ao entregar o `start`. O app relê o arquivo a cada
- * `scan`: a gravação passa por um temporário e um `rename`, e ele nunca lê um arquivo pela metade.
+ * `scan`: a gravação passa por um temporário de nome único e um `rename` (com novas tentativas, como no app), e ele nunca
+ * lê um arquivo pela metade.
  */
-function recordAgent(dataDir: string, record: { channelId: string; agentId: string; office: string; user: string; at: number }): void {
+async function recordAgent(dataDir: string, record: { channelId: string; agentId: string; office: string; user: string; at: number }): Promise<void> {
   const file = join(dataDir, "local-agents.json");
   let agents: unknown[] = [];
   try {
@@ -510,9 +515,20 @@ function recordAgent(dataDir: string, record: { channelId: string; agentId: stri
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const tmp = `${file}.e2e.tmp`;
+  const tmp = `${file}.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, JSON.stringify({ version: 1, agents: [...agents, record] }, null, 2));
-  renameSync(tmp, file);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(tmp, file);
+      return;
+    } catch (error) {
+      if (attempt >= RENAME_RETRIES || !RENAME_BUSY.has((error as NodeJS.ErrnoException).code ?? "")) {
+        rmSync(tmp, { force: true });
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, RENAME_WAIT_MS));
+    }
+  }
 }
 
 /** Resolve `true` quando o processo sai e `false` se o prazo acabar antes. */
