@@ -14,6 +14,8 @@ const box = (available = true): SecretBox => ({
   },
 });
 
+const NO_TLS = { pin: null, anchor: null };
+
 let dir: string;
 let file: string;
 beforeEach(() => {
@@ -24,7 +26,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
 
 describe("OfficeStore", () => {
   it("guarda o escritório e a sessão cifrada, e lê de volta", () => {
-    OfficeStore.load(file, box()).saveLogin("https://e.exemplo", "ana", "sessao-1");
+    OfficeStore.load(file, box()).saveLogin("https://e.exemplo", "ana", "sessao-1", NO_TLS);
     expect(readFileSync(file, "utf8")).not.toContain("sessao-1");
     const last = OfficeStore.load(file, box()).lastUsed();
     expect(last).toMatchObject({ session: "sessao-1", userName: "ana" });
@@ -32,7 +34,7 @@ describe("OfficeStore", () => {
 
   it("sem cofre disponível, a sessão fica só na memória", () => {
     const store = OfficeStore.load(file, box(false));
-    const saved = store.saveLogin("https://e.exemplo", "ana", "sessao-1");
+    const saved = store.saveLogin("https://e.exemplo", "ana", "sessao-1", NO_TLS);
     expect(store.get(saved.id)!.session).toBe("sessao-1");
     expect(readFileSync(file, "utf8")).toContain('"session":null');
     expect(OfficeStore.load(file, box(false)).lastUsed()!.session).toBeNull();
@@ -46,13 +48,13 @@ describe("OfficeStore", () => {
     expect(existsSync(file + ".bad")).toBe(true);
     expect(log).toEqual([expect.stringContaining("copiado para")]);
     expect(store.problem).toBe("não consegui ler os escritórios salvos; guardei uma cópia em offices.json.bad");
-    store.saveLogin("https://e.exemplo", "ana", "s1");
+    store.saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
     expect(OfficeStore.load(file, box()).list()).toHaveLength(1);
   });
 
   it("perfil novo ou lido sem erro não tem aviso", () => {
     expect(OfficeStore.load(file, box()).problem).toBeNull();
-    OfficeStore.load(file, box()).saveLogin("https://e.exemplo", "ana", "s1");
+    OfficeStore.load(file, box()).saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
     expect(OfficeStore.load(file, box()).problem).toBeNull();
   });
 
@@ -71,18 +73,41 @@ describe("OfficeStore", () => {
 
   it("mesmo endereço e nome atualizam a entrada; outro nome vira outra", () => {
     const store = OfficeStore.load(file, box());
-    store.saveLogin("https://e.exemplo", "ana", "s1");
-    store.saveLogin("https://e.exemplo", "ana", "s2");
+    store.saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
+    store.saveLogin("https://e.exemplo", "ana", "s2", NO_TLS);
     expect(store.list()).toHaveLength(1);
     expect(store.list()[0]!.session).toBe("s2");
-    store.saveLogin("https://e.exemplo", "bia", "s3");
+    store.saveLogin("https://e.exemplo", "bia", "s3", NO_TLS);
     expect(store.list()).toHaveLength(2);
     expect(store.lastUsed()!.userName).toBe("bia");
   });
 
+  it("offices.json antigo, sem pin nem anchor, carrega com os dois nulos", () => {
+    writeFileSync(file, JSON.stringify({ version: 1, lastUsed: null, offices: [{ id: "a", url: "https://e.exemplo", userName: "ana", session: null, bridgeToken: null }] }));
+    expect(OfficeStore.load(file, box()).get("a")).toMatchObject({ pin: null, anchor: null });
+  });
+
+  it("pin e anchor são gravados em claro (a âncora é pública), voltam ao recarregar e são atualizados na entrada existente", () => {
+    const pin = "C".repeat(43);
+    const store = OfficeStore.load(file, box());
+    store.saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
+    store.saveLogin("https://e.exemplo", "ana", "s1", { pin, anchor: "PEM" });
+    expect(readFileSync(file, "utf8")).toContain('"anchor":"PEM"');
+    expect(OfficeStore.load(file, box()).list()).toEqual([expect.objectContaining({ pin, anchor: "PEM" })]);
+  });
+
+  it("pin sem anchor, ou o contrário, deixa o arquivo ilegível", () => {
+    for (const tls of [{ pin: "C".repeat(43), anchor: null }, { pin: null, anchor: "PEM" }]) {
+      rmSync(file + ".bad", { force: true });
+      writeFileSync(file, JSON.stringify({ version: 1, lastUsed: "a", offices: [{ id: "a", url: "https://e.exemplo", userName: "ana", session: null, ...tls }] }));
+      expect(OfficeStore.load(file, box()).list()).toEqual([]);
+      expect(existsSync(file + ".bad")).toBe(true);
+    }
+  });
+
   it("esquecer tira da lista e do último usado", () => {
     const store = OfficeStore.load(file, box());
-    const saved = store.saveLogin("https://e.exemplo", "ana", "s1");
+    const saved = store.saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
     store.forget(saved.id);
     expect(store.list()).toEqual([]);
     expect(store.lastUsed()).toBeNull();
@@ -112,7 +137,7 @@ describe("OfficeStore", () => {
     expect(existsSync(file + ".bad")).toBe(false);
     expect(store.problem).toBe("não consegui ler os escritórios salvos; feche outros programas que usem a pasta do WorkForces e abra de novo");
     // A lista funciona na memória, mas nada é gravado no lugar do arquivo de verdade.
-    const saved = store.saveLogin("https://e.exemplo", "ana", "s1");
+    const saved = store.saveLogin("https://e.exemplo", "ana", "s1", NO_TLS);
     expect(store.get(saved.id)).toMatchObject({ session: "s1" });
     expect(statSync(file).isDirectory()).toBe(true);
     expect(existsSync(file + ".tmp")).toBe(false);
@@ -120,7 +145,7 @@ describe("OfficeStore", () => {
 
   it("o token da ponte é guardado cifrado e volta ao reabrir", () => {
     const store = OfficeStore.load(file, box());
-    const saved = store.saveLogin("https://e.exemplo", "ana", "sessao-1");
+    const saved = store.saveLogin("https://e.exemplo", "ana", "sessao-1", NO_TLS);
     store.setBridgeToken(saved.id, "ponte-secreta");
     expect(readFileSync(file, "utf8")).not.toContain("ponte-secreta");
     expect(OfficeStore.load(file, box()).get(saved.id)).toMatchObject({ bridgeToken: "ponte-secreta" });

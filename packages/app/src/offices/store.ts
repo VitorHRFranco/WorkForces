@@ -3,6 +3,7 @@ import { copyFileSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic-write.js";
+import { PIN_PATTERN } from "@workforces/protocol";
 import { parseOfficeAddress } from "../links.js";
 
 /** Onde as sessões ficam cifradas (no Electron, o `safeStorage`; no Windows, o DPAPI). */
@@ -22,6 +23,9 @@ export interface StoredOffice {
   session: string | null;
   /** O token da ponte (agentes) deste escritório, cifrado como a sessão. */
   bridgeToken: string | null;
+  /** O pino do certificado do convite e a âncora conferida por ele; os dois nulos (CA pública) ou os dois preenchidos. */
+  pin: string | null;
+  anchor: string | null;
 }
 
 /** Avisos da tela inicial quando o perfil não pôde ser lido. */
@@ -31,11 +35,14 @@ const profileReset = (copied: string | null): string =>
     ? "não consegui ler os escritórios salvos; entre de novo pelo convite ou por \"Já tenho conta\""
     : `não consegui ler os escritórios salvos; guardei uma cópia em ${copied}`;
 
+/** Teto da âncora no arquivo: um certificado cabe em poucos KiB. */
+const MAX_ANCHOR = 16 * 1024;
+
 /** O `offices.json`: a `session` vai cifrada pelo `SecretBox`. */
 const OfficesFile = z.object({
   version: z.literal(1),
   lastUsed: z.string().nullable(),
-  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable(), bridgeToken: z.string().nullable().default(null) })),
+  offices: z.array(z.object({ id: z.string(), url: z.string().refine((u) => { const r = parseOfficeAddress(u); return "url" in r && r.url === u; }, "endereço de escritório inválido"), userName: z.string().nullable(), session: z.string().nullable(), bridgeToken: z.string().nullable().default(null), pin: z.string().regex(PIN_PATTERN).nullable().default(null), anchor: z.string().max(MAX_ANCHOR).nullable().default(null) }).refine((o) => (o.pin === null) === (o.anchor === null), "pin e âncora andam juntos")),
 });
 
 /** Os escritórios do perfil local: quem o app já abriu e a sessão de cada um. */
@@ -123,12 +130,14 @@ export class OfficeStore {
   }
 
   /** Mesmo endereço e mesmo nome atualizam a entrada; senão, cria outra. Vira o último usado. */
-  saveLogin(url: string, userName: string, session: string): StoredOffice {
+  saveLogin(url: string, userName: string, session: string, tls: { pin: string | null; anchor: string | null }): StoredOffice {
     let entry = this.offices.find((e) => e.url === url && e.userName === userName);
     if (entry) {
       entry.session = session;
+      entry.pin = tls.pin;
+      entry.anchor = tls.anchor;
     } else {
-      entry = { id: randomUUID(), url, userName, session, bridgeToken: null };
+      entry = { id: randomUUID(), url, userName, session, bridgeToken: null, pin: tls.pin, anchor: tls.anchor };
       this.offices.push(entry);
     }
     this.last = entry.id;

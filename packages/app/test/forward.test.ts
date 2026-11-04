@@ -55,7 +55,7 @@ afterEach(async () => {
 describe("forwardToOffice", () => {
   it("repassa ao escritório com Bearer, só o caminho e a busca", async () => {
     const { base, seen } = await fakeOffice();
-    await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/me?x=1", { headers: { cookie: "a=b", origin: "app://workforces" } }));
+    await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/me?x=1", { headers: { cookie: "a=b", origin: "app://workforces" } }));
     expect(seen[0].url).toBe("/api/me?x=1");
     expect(seen[0].headers.authorization).toBe("Bearer s1");
     expect(seen[0].headers.cookie).toBeUndefined();
@@ -67,7 +67,7 @@ describe("forwardToOffice", () => {
       headers: { "content-type": "application/json", "set-cookie": "wf_session=abc%2Fd; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600" },
       body: '{"id":1,"name":"ana","isAdmin":false}',
     });
-    const out = await forwardToOffice({ url: base, session: null }, new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
+    const out = await forwardToOffice({ url: base, session: null, anchor: null }, new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
     expect(out.auth).toEqual({ session: "abc/d", userName: "ana" });
     expect(out.response.headers.get("set-cookie")).toBeNull();
     expect(await out.response.json()).toMatchObject({ name: "ana" });
@@ -77,27 +77,27 @@ describe("forwardToOffice", () => {
 
   it("o POST leva o corpo e o content-type", async () => {
     const { base, seen } = await fakeOffice();
-    await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/x", { method: "POST", headers: { "content-type": "application/json" }, body: '{"name":"ana"}' }));
+    await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/x", { method: "POST", headers: { "content-type": "application/json" }, body: '{"name":"ana"}' }));
     expect(seen[0].body).toBe('{"name":"ana"}');
     expect(seen[0].headers["content-type"]).toBe("application/json");
   });
 
   it("cookie apagado vira logout", async () => {
     const { base } = await fakeOffice({ headers: { "set-cookie": "wf_session=; Path=/; Max-Age=0" } });
-    const out = await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
+    const out = await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
     expect(out.auth).toEqual({ session: null, userName: null });
   });
 
   it("401 com sessão avisa que expirou; sem sessão, não", async () => {
     const { base } = await fakeOffice({ status: 401, body: "{}" });
-    const withSession = await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/me"));
-    const without = await forwardToOffice({ url: base, session: null }, new Request("app://workforces/api/me"));
+    const withSession = await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/me"));
+    const without = await forwardToOffice({ url: base, session: null, anchor: null }, new Request("app://workforces/api/me"));
     expect(withSession.unauthorized).toBe(true);
     expect(without.unauthorized).toBe(false);
   });
 
   it("o pedido nunca sai do endereço do escritório", async () => {
-    const target = { url: "https://escritorio.exemplo", session: "s1" };
+    const target = { url: "https://escritorio.exemplo", session: "s1", anchor: null };
     for (const path of ["//outro.exemplo/api/x", "/api/..%2f..%2fx", "/api/x?y=//outro.exemplo"]) {
       const called: string[] = [];
       const spy = (async (input: URL | string) => {
@@ -112,7 +112,7 @@ describe("forwardToOffice", () => {
 
   it("escritório fora do ar dá 502 com o que fazer", async () => {
     const url = await closedPort();
-    const out = await forwardToOffice({ url, session: "s1" }, new Request("app://workforces/api/me"));
+    const out = await forwardToOffice({ url, session: "s1", anchor: null }, new Request("app://workforces/api/me"));
     expect(out.response.status).toBe(502);
     const body = (await out.response.json()) as { error: string };
     expect(body.error).toContain(new URL(url).host);
@@ -124,7 +124,7 @@ describe("forwardToOffice", () => {
       const rejecting = (async () => {
         throw new TypeError("fetch failed", { cause: Object.assign(new Error("certificado"), { code }) });
       }) as typeof fetch;
-      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/api/me"), rejecting);
+      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, new Request("app://workforces/api/me"), rejecting);
       expect(out.response.status, code).toBe(502);
       const body = (await out.response.json()) as { error: string };
       expect(body.error, code).toContain("o certificado de escritorio.exemplo não é confiável");
@@ -132,16 +132,28 @@ describe("forwardToOffice", () => {
     }
   });
 
+  it("com âncora, erro de certificado diz que o certificado mudou e pede convite novo; sem âncora, a mensagem de sempre", async () => {
+    const rejecting = (async () => {
+      throw new TypeError("fetch failed", { cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" } });
+    }) as typeof fetch;
+    const request = () => new Request("app://workforces/api/me");
+    const pinned = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: "PEM" }, request(), rejecting);
+    expect(pinned.response.status).toBe(502);
+    expect(await pinned.response.json()).toEqual({ error: "o certificado de escritorio.exemplo mudou desde que você entrou; peça um convite novo a quem administra o escritório" });
+    const plain = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, request(), rejecting);
+    expect(((await plain.response.json()) as { error: string }).error).toContain("não é confiável neste computador");
+  });
+
   it("resposta grande demais dá 502, pelo content-length ou pelo que chegou", async () => {
     const declared = (async () => new Response("{}", { headers: { "content-length": String(MAX_FORWARD_BYTES + 1) } })) as typeof fetch;
     const streamed = (async () => new Response(new Uint8Array(MAX_FORWARD_BYTES + 1))) as typeof fetch;
     for (const fetchImpl of [declared, streamed]) {
-      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/map/map.tmj"), fetchImpl);
+      const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, new Request("app://workforces/map/map.tmj"), fetchImpl);
       expect(out.response.status).toBe(502);
       expect(((await out.response.json()) as { error: string }).error).toContain("grande demais");
     }
     const fits = (async () => new Response(new Uint8Array(MAX_FORWARD_BYTES))) as typeof fetch;
-    const ok = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/map/map.tmj"), fits);
+    const ok = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, new Request("app://workforces/map/map.tmj"), fits);
     expect(ok.response.status).toBe(200);
     expect((await ok.response.arrayBuffer()).byteLength).toBe(MAX_FORWARD_BYTES);
   });
@@ -149,7 +161,7 @@ describe("forwardToOffice", () => {
   it("resposta que não cabe num Response dá 502 em vez de exceção", async () => {
     for (const status of [205, 600]) {
       const { base } = await fakeOffice({ status });
-      const out = await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/me"));
+      const out = await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/me"));
       expect(out.response.status, String(status)).toBe(502);
       expect(out.response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     }
@@ -161,7 +173,7 @@ describe("forwardToOffice", () => {
       called.push(String(input));
       return new Response("{}");
     }) as typeof fetch;
-    const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1" }, new Request("app://workforces/api\\..\\..\\x"), spy);
+    const out = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, new Request("app://workforces/api\\..\\..\\x"), spy);
     expect(out.response.status).toBe(404);
     expect(called).toEqual([]);
   });
@@ -169,7 +181,7 @@ describe("forwardToOffice", () => {
   it("redirecionamento não é seguido", async () => {
     const other = await fakeOffice();
     const { base } = await fakeOffice({ status: 302, headers: { location: `${other.base}/api/me` } });
-    const out = await forwardToOffice({ url: base, session: "s1" }, new Request("app://workforces/api/me"));
+    const out = await forwardToOffice({ url: base, session: "s1", anchor: null }, new Request("app://workforces/api/me"));
     expect(out.response.status).toBe(502);
     expect(other.seen).toHaveLength(0);
   });

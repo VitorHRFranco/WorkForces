@@ -3,10 +3,18 @@ import { findInviteArg, parseInviteLink, parseOfficeAddress } from "../src/links
 
 describe("parseInviteLink", () => {
   it("aceita o link do app e o link https do convite", () => {
-    expect(parseInviteLink(" workforces://invite?server=https%3A%2F%2Fescritorio.exemplo&code=Abc_123-x ")).toEqual({ server: "https://escritorio.exemplo", code: "Abc_123-x" });
-    expect(parseInviteLink("WORKFORCES://invite?server=http%3A%2F%2Flocalhost%3A4600&code=abc")).toEqual({ server: "http://localhost:4600", code: "abc" });
-    expect(parseInviteLink("https://escritorio.exemplo:8443/invite/abc")).toEqual({ server: "https://escritorio.exemplo:8443", code: "abc" });
-    expect(parseInviteLink("http://127.0.0.1:4600/invite/abc")).toEqual({ server: "http://127.0.0.1:4600", code: "abc" });
+    expect(parseInviteLink(" workforces://invite?server=https%3A%2F%2Fescritorio.exemplo&code=Abc_123-x ")).toEqual({ server: "https://escritorio.exemplo", code: "Abc_123-x", pin: null });
+    expect(parseInviteLink("WORKFORCES://invite?server=http%3A%2F%2Flocalhost%3A4600&code=abc")).toEqual({ server: "http://localhost:4600", code: "abc", pin: null });
+    expect(parseInviteLink("https://escritorio.exemplo:8443/invite/abc")).toEqual({ server: "https://escritorio.exemplo:8443", code: "abc", pin: null });
+    expect(parseInviteLink("http://127.0.0.1:4600/invite/abc")).toEqual({ server: "http://127.0.0.1:4600", code: "abc", pin: null });
+  });
+
+  it("lê o pino do convite; sem pino ou no link https, pin é null; pino malformado é convite incompleto", () => {
+    const pin = "Ab1_-".repeat(8) + "Ab3";
+    expect(parseInviteLink(`workforces://invite?server=https%3A%2F%2F192.168.0.10%3A4600&code=abc&pin=${pin}`)).toEqual({ server: "https://192.168.0.10:4600", code: "abc", pin });
+    expect(parseInviteLink("workforces://invite?server=https%3A%2F%2Fe.exemplo&code=abc")).toMatchObject({ pin: null });
+    expect(parseInviteLink("https://e.exemplo/invite/abc")).toMatchObject({ pin: null });
+    expect(parseInviteLink("workforces://invite?server=https%3A%2F%2Fe.exemplo&code=abc&pin=curto")).toEqual({ error: "o convite está incompleto; copie o link inteiro de novo" });
   });
 
   it("recusa http fora de localhost, código ruim e lixo, dizendo o que fazer", () => {

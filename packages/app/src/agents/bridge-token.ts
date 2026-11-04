@@ -1,7 +1,11 @@
+import { officeFetch } from "../net/pinned.js";
+
 export interface TokenOffice {
   url: string;
   session: string | null;
   bridgeToken: string | null;
+  /** A âncora do escritório: as conexões confiam só nela. */
+  anchor: string | null;
 }
 
 export type TokenResult = { ok: true; token: string; created: boolean } | { ok: false; error: "no-office" | "office-down" | "spawn-failed" };
@@ -24,7 +28,7 @@ async function ask(fetchImpl: typeof fetch, url: string, init: RequestInit): Pro
 }
 
 /** Garante um token da ponte aceito pelo escritório: usa o guardado, ou cria outro com a sessão. */
-export async function ensureBridgeToken(office: TokenOffice, name: string, fetchImpl: typeof fetch = fetch): Promise<TokenResult> {
+export async function ensureBridgeToken(office: TokenOffice, name: string, fetchImpl: typeof fetch = officeFetch(office.anchor)): Promise<TokenResult> {
   if (office.session === null) return { ok: false, error: "no-office" };
   const base = office.url.replace(/\/+$/, "");
   if (office.bridgeToken !== null) {

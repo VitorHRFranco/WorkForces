@@ -15,7 +15,7 @@ const box: SecretBox = {
   },
 };
 
-const LINK = "workforces://invite?server=http%3A%2F%2Flocalhost%3A4600&code=abc";
+const INVITE = { server: "http://localhost:4600", code: "abc", pin: null };
 
 let dir: string;
 let file: string;
@@ -30,60 +30,71 @@ const fresh = () => new AppState(OfficeStore.load(file, box));
 describe("AppState", () => {
   it("convite pela linha de comando abre a criação da conta naquele escritório", () => {
     const state = fresh();
-    expect(state.startup(LINK)).toEqual({ page: "invite", code: "abc" });
+    expect(state.openInvite(INVITE, null)).toEqual({ page: "invite", code: "abc" });
     expect(state.current()).toEqual({ id: null, url: "http://localhost:4600", host: "localhost:4600", userName: null, loggedIn: false, sessionExpired: false });
   });
 
-  it("link inválido volta à tela inicial com o motivo", () => {
+  it("convite com pino guarda a âncora, e ela volta pelo alvo, pelo escritório dos agentes e pelo teste de rede", () => {
+    const pin = "B".repeat(43);
     const state = fresh();
-    const route = state.startup("workforces://invite?server=http%3A%2F%2F10.0.0.5&code=abc");
-    expect(route).toMatchObject({ page: "launcher", notice: expect.stringContaining("https") });
-    expect(state.current()).toBeNull();
+    state.openInvite({ server: "https://192.168.0.10:4600", code: "abc", pin }, "PEM");
+    expect(state.target()).toEqual({ url: "https://192.168.0.10:4600", session: null, anchor: "PEM" });
+    state.applyAuth({ session: "s1", userName: "ana" });
+    const saved = state.list()[0]!;
+    expect(OfficeStore.load(file, box).get(saved.id)).toMatchObject({ pin, anchor: "PEM" });
+    expect(state.agentOffice()).toMatchObject({ anchor: "PEM" });
+    expect(state.reachTarget(saved.id)).toEqual({ url: "https://192.168.0.10:4600", anchor: "PEM" });
+    expect(state.reachTarget("nao-existe")).toBeNull();
+    const next = fresh();
+    next.startup();
+    expect(next.target()!.anchor).toBe("PEM");
+    expect(next.open(saved.id)).toEqual({ page: "office" });
+    expect(next.target()!.anchor).toBe("PEM");
   });
 
   it("perfil corrompido abre a tela inicial com o aviso, em vez de uma lista vazia calada", () => {
     writeFileSync(file, "{oops");
-    expect(fresh().startup(null)).toEqual({ page: "launcher", notice: "não consegui ler os escritórios salvos; guardei uma cópia em offices.json.bad" });
+    expect(fresh().startup()).toEqual({ page: "launcher", notice: "não consegui ler os escritórios salvos; guardei uma cópia em offices.json.bad" });
   });
 
   it("perfil que não pôde ser lido avisa o que fazer", () => {
     mkdirSync(file);
-    expect(fresh().startup(null)).toEqual({
+    expect(fresh().startup()).toEqual({
       page: "launcher",
       notice: "não consegui ler os escritórios salvos; feche outros programas que usem a pasta do WorkForces e abra de novo",
     });
   });
 
   it("perfil novo abre a tela inicial sem aviso", () => {
-    expect(fresh().startup(null)).toEqual({ page: "launcher" });
+    expect(fresh().startup()).toEqual({ page: "launcher" });
   });
 
   it("a sessão entregue no login salva o escritório e vira o último usado", () => {
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
     expect(state.list()).toEqual([expect.objectContaining({ host: "localhost:4600", userName: "ana", loggedIn: true })]);
     const next = fresh();
-    expect(next.startup(null)).toEqual({ page: "office" });
-    expect(next.target()).toEqual({ url: "http://localhost:4600", session: "s1" });
+    expect(next.startup()).toEqual({ page: "office" });
+    expect(next.target()).toEqual({ url: "http://localhost:4600", session: "s1", anchor: null });
   });
 
   it("sessão recusada pelo servidor apaga a sessão e avisa no login", () => {
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
     state.unauthorized();
     expect(state.current()).toMatchObject({ sessionExpired: true, loggedIn: false });
-    expect(fresh().startup(null)).toEqual({ page: "launcher" });
+    expect(fresh().startup()).toEqual({ page: "launcher" });
   });
 
   it("logout (cookie apagado) tira a sessão", () => {
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
     state.applyAuth({ session: null, userName: null });
     expect(state.current()).toMatchObject({ loggedIn: false });
-    expect(fresh().startup(null)).toEqual({ page: "launcher" });
+    expect(fresh().startup()).toEqual({ page: "launcher" });
   });
 
   it("Já tenho conta: endereço vira login; endereço ruim fica na tela inicial", () => {
@@ -95,7 +106,7 @@ describe("AppState", () => {
 
   it("esquecer o escritório aberto fecha ele", () => {
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
     state.forget(state.current()!.id!);
     expect(state.current()).toBeNull();
@@ -103,21 +114,20 @@ describe("AppState", () => {
   });
 
   it("trocar de escritório nunca leva a sessão do anterior", () => {
-    const other = "workforces://invite?server=https%3A%2F%2Foutro.exemplo&code=abc";
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
-    state.openLink(other);
-    expect(state.target()).toEqual({ url: "https://outro.exemplo", session: null });
+    state.openInvite({ server: "https://outro.exemplo", code: "abc", pin: null }, null);
+    expect(state.target()).toEqual({ url: "https://outro.exemplo", session: null, anchor: null });
     state.applyAuth({ session: "s1", userName: "ana" });
     state.add("terceiro.exemplo");
-    expect(state.target()).toEqual({ url: "https://terceiro.exemplo", session: null });
+    expect(state.target()).toEqual({ url: "https://terceiro.exemplo", session: null, anchor: null });
   });
 
   it("agentOffice só existe com escritório aberto e conta salva; saveBridgeToken grava na conta aberta", () => {
     const state = fresh();
     expect(state.agentOffice()).toBeNull();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     expect(state.agentOffice()).toBeNull();
     state.applyAuth({ session: "s1", userName: "ana" });
     const office = state.agentOffice()!;
@@ -125,7 +135,7 @@ describe("AppState", () => {
     state.saveBridgeToken(office.id, "ponte");
     expect(state.agentOffice()).toMatchObject({ id: office.id, bridgeToken: "ponte" });
     const next = fresh();
-    next.startup(null);
+    next.startup();
     expect(next.agentOffice()).toMatchObject({ bridgeToken: "ponte" });
   });
 
@@ -140,10 +150,10 @@ describe("AppState", () => {
 
   it("token criado para outro escritório vai para o id dele e não muda o aberto", () => {
     const state = fresh();
-    state.openLink(LINK);
+    state.openInvite(INVITE, null);
     state.applyAuth({ session: "s1", userName: "ana" });
     const a = state.agentOffice()!;
-    state.openLink("workforces://invite?server=http%3A%2F%2Flocalhost%3A4700&code=abc");
+    state.openInvite({ server: "http://localhost:4700", code: "abc", pin: null }, null);
     state.applyAuth({ session: "s2", userName: "bia" });
     const b = state.agentOffice()!;
     state.saveBridgeToken(a.id, "token-de-a");

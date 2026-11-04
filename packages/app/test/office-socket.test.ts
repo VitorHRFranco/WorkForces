@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import type { SocketEvent } from "@workforces/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -68,7 +71,7 @@ describe("SocketRelay", () => {
   it("abre com Bearer no escritório e repassa nos dois sentidos", async () => {
     const server = await fakeServer();
     const { relay, events } = makeRelay();
-    relay.open(1, { url: server.url, session: "s1" });
+    relay.open(1, { url: server.url, session: "s1", anchor: null });
     const conn = await server.next();
     expect(conn.req.headers.authorization).toBe("Bearer s1");
     expect(conn.req.headers.origin).toBeUndefined();
@@ -85,7 +88,7 @@ describe("SocketRelay", () => {
   it("4001 do servidor avisa que a sessão acabou", async () => {
     const server = await fakeServer();
     const { relay, events, onUnauthorized } = makeRelay();
-    relay.open(1, { url: server.url, session: "s1" });
+    relay.open(1, { url: server.url, session: "s1", anchor: null });
     const conn = await server.next();
     conn.socket.close(4001);
     await until(() => events.some(([, e]) => e.type === "close"));
@@ -96,10 +99,10 @@ describe("SocketRelay", () => {
   it("abrir outra conexão fecha a anterior; o id antigo não manda mais", async () => {
     const server = await fakeServer();
     const { relay, events } = makeRelay();
-    relay.open(1, { url: server.url, session: "s1" });
+    relay.open(1, { url: server.url, session: "s1", anchor: null });
     const first = await server.next();
     await until(() => opened(events, 1));
-    relay.open(2, { url: server.url, session: "s1" });
+    relay.open(2, { url: server.url, session: "s1", anchor: null });
     expect(await first.closeCode).toBe(1000);
     const second = await server.next();
     await until(() => opened(events, 2));
@@ -116,11 +119,11 @@ describe("SocketRelay", () => {
   it("4001 de conexão trocada ou fechada pela página não vale como sessão expirada", async () => {
     const server = await fakeServer();
     const { relay, events, onUnauthorized } = makeRelay();
-    relay.open(1, { url: server.url, session: "s1" });
+    relay.open(1, { url: server.url, session: "s1", anchor: null });
     const first = await server.next();
     await until(() => opened(events, 1));
     first.socket.close(4001);
-    relay.open(2, { url: server.url, session: "s1" });
+    relay.open(2, { url: server.url, session: "s1", anchor: null });
     await until(() => events.some(([id, e]) => id === 1 && e.type === "close"));
     const second = await server.next();
     await until(() => opened(events, 2));
@@ -133,7 +136,7 @@ describe("SocketRelay", () => {
   it("sem sessão não vai à rede", async () => {
     const server = await fakeServer();
     const { relay, events, onUnauthorized } = makeRelay();
-    relay.open(3, { url: server.url, session: null });
+    relay.open(3, { url: server.url, session: null, anchor: null });
     relay.open(4, null);
     expect(events).toEqual([
       [3, { type: "close", code: 4001 }],
@@ -147,10 +150,33 @@ describe("SocketRelay", () => {
   it("código de fechamento inválido vira 1000", async () => {
     const server = await fakeServer();
     const { relay, events } = makeRelay();
-    relay.open(1, { url: server.url, session: "s1" });
+    relay.open(1, { url: server.url, session: "s1", anchor: null });
     const conn = await server.next();
     await until(() => opened(events, 1));
     relay.close(1, 5);
     expect(await conn.closeCode).toBe(1000);
+  });
+});
+
+describe("SocketRelay com âncora", () => {
+  const fixture = (name: string): string => readFileSync(fileURLToPath(new URL(`./fixtures/tls/${name}`, import.meta.url)), "utf8");
+
+  async function wssOffice(): Promise<string> {
+    const https = createHttpsServer({ key: fixture("a.key"), cert: fixture("a.crt") });
+    await new Promise<void>((resolve) => https.listen(0, "127.0.0.1", resolve));
+    const wss = new WebSocketServer({ server: https });
+    servers.push(Object.assign(wss, { close: ((cb?: () => void) => { https.closeAllConnections(); https.close(() => cb?.()); }) as WebSocketServer["close"] }));
+    return `https://127.0.0.1:${(https.address() as AddressInfo).port}`;
+  }
+
+  it("confia só na âncora do escritório: a certa conecta, a de outro certificado cai com 1006", async () => {
+    const url = await wssOffice();
+    const good = makeRelay();
+    good.relay.open(1, { url, session: "s1", anchor: fixture("a.crt") });
+    await until(() => opened(good.events, 1));
+    const bad = makeRelay();
+    bad.relay.open(1, { url, session: "s1", anchor: fixture("b.crt") });
+    await until(() => bad.events.some(([, e]) => e.type === "close"));
+    expect(opened(bad.events, 1)).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import type { AuthChange, ForwardTarget } from "../state.js";
+import { officeFetch } from "./pinned.js";
 
 const SESSION_COOKIE = "wf_session=";
 const FORWARD_TIMEOUT_MS = 15_000;
@@ -108,7 +109,7 @@ function userNameFrom(body: ArrayBuffer): string | null {
 }
 
 /** Repassa o pedido da página ao escritório aberto, com a sessão como Bearer. A origem vem sempre do `target`, nunca do pedido. */
-export async function forwardToOffice(target: ForwardTarget, request: Request, fetchImpl: typeof fetch = fetch): Promise<Forwarded> {
+export async function forwardToOffice(target: ForwardTarget, request: Request, fetchImpl: typeof fetch = officeFetch(target.anchor)): Promise<Forwarded> {
   const incoming = new URL(request.url);
   const url = new URL(target.url);
   url.pathname = incoming.pathname;
@@ -134,6 +135,10 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
     body = await readCapped(upstream, MAX_FORWARD_BYTES);
   } catch (error) {
     if (isCertificateError(error)) {
+      // Com âncora, o certificado só pode ter mudado depois do convite: o remédio é um convite novo.
+      if (target.anchor !== null) {
+        return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} mudou desde que você entrou; peça um convite novo a quem administra o escritório`));
+      }
       return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} não é confiável neste computador; peça a quem administra o escritório o certificado da rede interna`));
     }
     return failed(jsonError(BAD_GATEWAY, `não consegui falar com ${url.host}; confira a internet ou a VPN e tente de novo`));
@@ -171,7 +176,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
 }
 
 /** O escritório responde? Só pergunta `/api/health`, sem sessão. */
-export async function checkReachable(url: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function checkReachable(url: string, fetchImpl: typeof fetch = officeFetch(null)): Promise<boolean> {
   try {
     const response = await fetchImpl(new URL("/api/health", url), { redirect: "manual", signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
     await response.body?.cancel();

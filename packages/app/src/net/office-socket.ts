@@ -1,6 +1,7 @@
 import { CLOSE_CODES, type SocketEvent } from "@workforces/protocol";
 import { WebSocket } from "ws";
 import type { ForwardTarget } from "../state.js";
+import { socketTls } from "./pinned.js";
 
 const NORMAL_CLOSE = 1000;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -32,6 +33,7 @@ export class SocketRelay {
     const ws = new WebSocket(`${new URL(target.url).origin.replace(/^http/, "ws")}/ws/client`, {
       headers: { authorization: `Bearer ${target.session}` },
       maxPayload: MAX_PAYLOAD_BYTES,
+      ...socketTls(target.anchor),
     });
     this.current = { id, ws };
     ws.on("open", () => this.emit(id, { type: "open" }));

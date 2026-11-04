@@ -27,9 +27,11 @@ import { LocalAgents } from "./agents/local-agents.js";
 import { AgentRecordStore } from "./agents/records.js";
 import { countOpenAgents } from "./agents/open-agents.js";
 import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
-import { findInviteArg, parseInviteLink } from "./links.js";
+import { findInviteArg } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
+import { officeFetch } from "./net/pinned.js";
+import { prepareInvite } from "./offices/join.js";
 import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
 import { AppState } from "./state.js";
@@ -120,15 +122,19 @@ async function start(): Promise<void> {
     showWindow();
     const link = findInviteArg(argv);
     if (link === null || !state || !relay) return;
-    // Link inválido não tira ninguém do escritório: o motivo só aparece se nenhum estiver aberto.
-    const parsed = parseInviteLink(link);
-    if ("error" in parsed) {
-      if (state.current() === null) sendToPage("app:route", { page: "launcher", notice: parsed.error } satisfies AppRoute);
-      return;
-    }
-    relay.closeAll();
-    stopWatching();
-    sendToPage("app:route", state.openLink(link));
+    const current = state;
+    const currentRelay = relay;
+    // O convite é preparado (âncora buscada e conferida) antes de largar o escritório aberto.
+    void prepareInvite(link).then((prepared) => {
+      // Convite que falha não tira ninguém do escritório: o motivo só aparece se nenhum estiver aberto.
+      if (!prepared.ok) {
+        if (current.current() === null) sendToPage("app:route", { page: "launcher", notice: prepared.notice } satisfies AppRoute);
+        return;
+      }
+      currentRelay.closeAll();
+      stopWatching();
+      sendToPage("app:route", current.openInvite(prepared.invite, prepared.anchor));
+    }, console.warn);
   });
 
   app.on("before-quit", () => {
@@ -276,19 +282,26 @@ async function start(): Promise<void> {
     return action(value);
   };
 
-  handle("app:startup", () => {
+  /** Prepara o convite (busca e confere a âncora) e abre; se falhar, o aviso vai para a tela inicial. */
+  const openInviteLink = async (link: string): Promise<AppRoute> => {
+    const prepared = await prepareInvite(link);
+    return prepared.ok ? appState.openInvite(prepared.invite, prepared.anchor) : { page: "launcher", notice: prepared.notice };
+  };
+
+  handle("app:startup", async () => {
     socketRelay.closeAll();
     stopWatching();
     const link = initialLink;
     initialLink = null;
-    return appState.startup(link);
+    return link === null ? appState.startup() : openInviteLink(link);
   });
   handle("offices:list", () => appState.list());
   handle("offices:current", () => appState.current());
   handle("offices:reachable", async (id) => {
     const wanted = text(id);
     const entry = appState.list().find((office) => office.id === wanted);
-    return entry ? checkReachable(entry.url) : false;
+    const reach = entry ? appState.reachTarget(wanted) : null;
+    return reach ? checkReachable(reach.url, officeFetch(reach.anchor)) : false;
   });
   handle("offices:open", (id) => switching(id, (value) => appState.open(value)));
   handle("offices:add", (address) => switching(address, (value) => appState.add(value)));
@@ -298,7 +311,12 @@ async function start(): Promise<void> {
     stopWatching();
     appState.forget(wanted);
   });
-  handle("invites:open", (link) => switching(link, (value) => appState.openLink(value)));
+  handle("invites:open", (link) => {
+    const value = text(link);
+    socketRelay.closeAll();
+    stopWatching();
+    return openInviteLink(value);
+  });
 
   on("socket:open", (id) => {
     if (isSocketId(id)) socketRelay.open(id, appState.target());

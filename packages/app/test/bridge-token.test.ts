@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ensureBridgeToken, tokenName } from "../src/agents/bridge-token.js";
 
-const office = { url: "https://e.exemplo", session: "sess", bridgeToken: null as string | null };
+const office = { url: "https://e.exemplo", session: "sess", bridgeToken: null as string | null, anchor: null as string | null };
 interface Call { url: string; init: RequestInit }
 const fake = (...answers: (Response | Error)[]) => {
   const calls: Call[] = [];

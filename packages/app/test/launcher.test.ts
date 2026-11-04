@@ -3,7 +3,7 @@ import type { LocalStart } from "@workforces/protocol";
 import { AgentLauncher, MAX_OPEN_AGENTS, SPAWN_INTERVAL_MS, type AgentLauncherDeps, type SpawnOffice } from "../src/agents/launcher.js";
 import { SpawnFailure, type AgentWindow } from "../src/agents/windows-terminal.js";
 
-const OFFICE: SpawnOffice = { id: "of-1", url: "https://escritorio.exemplo", userName: "ana", session: "sessao", bridgeToken: null };
+const OFFICE: SpawnOffice = { id: "of-1", url: "https://escritorio.exemplo", userName: "ana", session: "sessao", bridgeToken: null, anchor: null };
 
 function setup(overrides: Partial<AgentLauncherDeps> = {}) {
   const opened: AgentWindow[] = [];
@@ -150,7 +150,7 @@ describe("AgentLauncher", () => {
 
   it("o token vem do mesmo escritório do pedido", async () => {
     const asked: SpawnOffice[] = [];
-    const office: SpawnOffice = { id: "of-a", url: "https://a.exemplo", userName: "bia", session: "sessao-a", bridgeToken: "tok-a" };
+    const office: SpawnOffice = { id: "of-a", url: "https://a.exemplo", userName: "bia", session: "sessao-a", bridgeToken: "tok-a", anchor: null };
     const { deps, delivered } = setup({
       ensureToken: async (received) => {
         asked.push(received);

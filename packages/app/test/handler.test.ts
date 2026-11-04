@@ -6,7 +6,7 @@ import { createPageHandler } from "../src/page/handler.js";
 import type { ForwardTarget } from "../src/state.js";
 
 let clientDir: string;
-const target: ForwardTarget = { url: "https://escritorio.exemplo", session: "s1" };
+const target: ForwardTarget = { url: "https://escritorio.exemplo", session: "s1", anchor: null };
 
 beforeEach(() => {
   clientDir = mkdtempSync(join(tmpdir(), "wf-handler-"));
@@ -58,7 +58,7 @@ describe("createPageHandler", () => {
   });
 
   it("resposta atrasada do escritório antigo não mexe na sessão do novo", async () => {
-    const other: ForwardTarget = { url: "https://outro.exemplo", session: null };
+    const other: ForwardTarget = { url: "https://outro.exemplo", session: null, anchor: null };
     for (const late of [
       () => new Response("{}", { headers: { "set-cookie": "wf_session=tokenA; Path=/" } }),
       () => new Response("{}", { status: 401 }),
@@ -78,8 +78,8 @@ describe("createPageHandler", () => {
   });
 
   it("resposta atrasada da conta anterior no mesmo escritório não troca nem apaga a sessão da nova", async () => {
-    const ana: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-ana" };
-    const bia: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-bia" };
+    const ana: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-ana", anchor: null };
+    const bia: ForwardTarget = { url: "https://escritorio.exemplo", session: "sessao-bia", anchor: null };
     for (const late of [
       () => new Response('{"name":"ana"}', { headers: { "content-type": "application/json", "set-cookie": "wf_session=sessao-ana; Path=/" } }),
       () => new Response("{}", { status: 401 }),
@@ -107,7 +107,7 @@ describe("createPageHandler", () => {
       const onAuth = vi.fn(() => {
         throw Object.assign(new Error("operation not permitted, rename"), { code: "EPERM" });
       });
-      const handler = createPageHandler({ clientDir, target: () => ({ url: "https://escritorio.exemplo", session: null }), onAuth, onUnauthorized: vi.fn(), fetchImpl });
+      const handler = createPageHandler({ clientDir, target: () => ({ url: "https://escritorio.exemplo", session: null, anchor: null }), onAuth, onUnauthorized: vi.fn(), fetchImpl });
       const res = await handler(new Request("app://workforces/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }));
       expect(onAuth).toHaveBeenCalledTimes(1);
       expect(res.status).toBe(200);

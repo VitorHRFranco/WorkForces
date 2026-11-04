@@ -1,10 +1,13 @@
-import { INVITE_CODE_PATTERN } from "@workforces/protocol";
+import { INVITE_CODE_PATTERN, PIN_PATTERN } from "@workforces/protocol";
 
 const NOT_AN_INVITE = "isso não parece um convite do WorkForces; cole o link que você recebeu";
 const INVITE_WITHOUT_HTTPS = "o convite aponta para um endereço sem https; peça um link com https a quem administra o escritório";
 const BAD_CODE = "o convite está incompleto; copie o link inteiro de novo";
 const BAD_ADDRESS = "endereço inválido; use algo como https://escritorio.exemplo";
 const ADDRESS_WITHOUT_HTTPS = "esse endereço usa http sem criptografia; use https";
+
+/** Um convite lido: o escritório, o código e o pino do certificado (null: convite sem pino). */
+export type Invite = { server: string; code: string; pin: string | null };
 
 /** http:// só vale para a própria máquina. */
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -26,10 +29,11 @@ function originOf(text: string): Origin {
 }
 
 /** Lê um convite: o link do app (`workforces://invite?...`) ou o link https da página do convite. */
-export function parseInviteLink(text: string): { server: string; code: string } | { error: string } {
+export function parseInviteLink(text: string): Invite | { error: string } {
   const input = text.trim();
   let server: string | null;
   let code: string | null;
+  let pin: string | null = null;
 
   if (/^workforces:/i.test(input)) {
     let url: URL;
@@ -41,6 +45,7 @@ export function parseInviteLink(text: string): { server: string; code: string } 
     if (url.hostname.toLowerCase() !== "invite") return { error: NOT_AN_INVITE };
     server = url.searchParams.get("server");
     code = url.searchParams.get("code");
+    pin = url.searchParams.get("pin");
     if (server === null) return { error: NOT_AN_INVITE };
   } else if (/^https?:\/\//i.test(input)) {
     let url: URL;
@@ -62,7 +67,8 @@ export function parseInviteLink(text: string): { server: string; code: string } 
   const origin = originOf(server);
   if ("problem" in origin) return { error: origin.problem === "insecure" ? INVITE_WITHOUT_HTTPS : NOT_AN_INVITE };
   if (code === null || !INVITE_CODE_PATTERN.test(code)) return { error: BAD_CODE };
-  return { server: origin.origin, code };
+  if (pin !== null && !PIN_PATTERN.test(pin)) return { error: BAD_CODE };
+  return { server: origin.origin, code, pin };
 }
 
 /** Endereço digitado em "Já tenho conta": `https://host[:porta]` ou só `host[:porta]` (vira https). */

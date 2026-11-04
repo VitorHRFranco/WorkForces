@@ -17,6 +17,8 @@ export interface SpawnOffice {
   userName: string;
   session: string | null;
   bridgeToken: string | null;
+  /** A âncora do escritório (a Task 4 a leva no `start`; até lá só chega ao token). */
+  anchor: string | null;
 }
 
 export interface AgentLauncherDeps {
