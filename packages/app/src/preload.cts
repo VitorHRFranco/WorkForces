@@ -18,6 +18,7 @@ const bridge: AppBridge = {
     open: (id) => ipcRenderer.invoke("offices:open", id),
     add: (address) => ipcRenderer.invoke("offices:add", address),
     forget: (id) => ipcRenderer.invoke("offices:forget", id),
+    changeAddress: (id, address) => ipcRenderer.invoke("offices:changeAddress", id, address),
     current: () => ipcRenderer.invoke("offices:current"),
   },
   invites: { open: (link) => ipcRenderer.invoke("invites:open", link) },

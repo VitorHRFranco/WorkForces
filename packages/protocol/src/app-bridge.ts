@@ -50,6 +50,9 @@ export interface FolderInfo {
 
 export type FolderChange = { ok: true; folders: FolderInfo[] } | { ok: false; error: string };
 
+/** O resultado de trocar o endereço de um escritório salvo. */
+export type AddressChange = { ok: true } | { ok: false; error: string };
+
 export type SocketEvent = { type: "open" } | { type: "message"; data: string } | { type: "close"; code: number };
 
 /** O `window.workforces` do preload: tudo o que a página pede ao processo principal. */
@@ -62,6 +65,7 @@ export interface AppBridge {
     open(id: string): Promise<AppRoute>;
     add(address: string): Promise<AppRoute>;
     forget(id: string): Promise<void>;
+    changeAddress(id: string, address: string): Promise<AddressChange>;
     current(): Promise<CurrentOffice | null>;
   };
   invites: { open(link: string): Promise<AppRoute> };

@@ -6,7 +6,7 @@ import { navigate, routePath } from "../router";
 
 type Reach = "checking" | "up" | "down";
 
-const reachText: Record<Reach, string> = { checking: "conferindo…", up: "no ar", down: "fora do ar" };
+const reachText: Record<Reach, string> = { checking: "conferindo…", up: "no ar", down: "fora do ar · se o endereço mudou, use \"Trocar endereço\"" };
 
 export function LauncherPage() {
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
@@ -16,6 +16,8 @@ export function LauncherPage() {
   const [showAddress, setShowAddress] = useState(false);
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
+  const [changing, setChanging] = useState<string | null>(null);
+  const [newAddress, setNewAddress] = useState("");
 
   const load = () =>
     bridge.offices.list().then(
@@ -67,6 +69,20 @@ export function LauncherPage() {
     await load();
   };
 
+  const submitChange = async (event: Event, office: OfficeSummary) => {
+    event.preventDefault();
+    setFlashText(null);
+    try {
+      const result = await bridge.offices.changeAddress(office.id, newAddress);
+      if (result.ok) {
+        setChanging(null);
+        await load();
+      } else setFlashText(result.error);
+    } catch {
+      setFlashText("não consegui trocar o endereço. Tente de novo.");
+    }
+  };
+
   const submitInvite = (event: Event) => {
     event.preventDefault();
     void run(() => bridge.invites.open(invite));
@@ -101,6 +117,28 @@ export function LauncherPage() {
             <button type="button" aria-label={`Esquecer ${office.host}`} onClick={() => void forget(office)}>
               Esquecer
             </button>
+            <button
+              type="button"
+              aria-label={`Trocar o endereço de ${office.host}`}
+              onClick={() => {
+                setNewAddress("");
+                setChanging(office.id);
+              }}
+            >
+              Trocar endereço
+            </button>
+            {changing === office.id && (
+              <form onSubmit={(event) => void submitChange(event, office)}>
+                <label>
+                  Novo endereço
+                  <input value={newAddress} onInput={(e) => setNewAddress(e.currentTarget.value)} autocapitalize="none" spellcheck={false} required />
+                </label>
+                <button type="submit">Salvar</button>
+                <button type="button" onClick={() => setChanging(null)}>
+                  Cancelar
+                </button>
+              </form>
+            )}
           </li>
         ))}
       </ul>

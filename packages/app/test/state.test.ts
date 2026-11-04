@@ -161,4 +161,45 @@ describe("AppState", () => {
     expect(OfficeStore.load(file, box).get(a.id)).toMatchObject({ bridgeToken: "token-de-a" });
     expect(OfficeStore.load(file, box).get(b.id)).toMatchObject({ bridgeToken: null });
   });
+  describe("changeAddress", () => {
+    const saved = (state: AppState, server: string, name: string) => {
+      state.openInvite({ server, code: "abc", pin: null }, null);
+      state.applyAuth({ session: `s-${name}`, userName: name });
+      return state.agentOffice()!.id;
+    };
+
+    it("aceita endereço sem https:// e fecha o escritório trocado se era o aberto", () => {
+      const state = fresh();
+      const id = saved(state, "http://localhost:4600", "ana");
+      expect(state.changeAddress(id, "192.168.0.20:4600")).toEqual({ ok: true });
+      expect(state.list()[0]!.url).toBe("https://192.168.0.20:4600");
+      expect(state.current()).toBeNull();
+    });
+
+    it("não fecha o aberto quando troca o endereço de outro", () => {
+      const state = fresh();
+      const a = saved(state, "http://localhost:4600", "ana");
+      saved(state, "http://localhost:4700", "bia");
+      expect(state.changeAddress(a, "192.168.0.20:4600")).toEqual({ ok: true });
+      expect(state.current()).not.toBeNull();
+    });
+
+    it("recusa endereço inválido, duplicado e id sumido, com a mensagem de cada caso", () => {
+      const state = fresh();
+      const a = saved(state, "http://localhost:4600", "ana");
+      saved(state, "http://localhost:4700", "ana");
+      expect(state.changeAddress(a, "")).toEqual({ ok: false, error: expect.any(String) });
+      expect(state.changeAddress(a, "http://localhost:4700")).toEqual({ ok: false, error: "esse endereço já está salvo com a mesma conta; esqueça um dos dois antes" });
+      expect(state.changeAddress("nao-existe", "192.168.0.20:4600")).toEqual({ ok: false, error: "esse escritório não está mais na lista" });
+      expect(state.current()).not.toBeNull();
+    });
+  });
+
+  it("close fecha o escritório aberto", () => {
+    const state = fresh();
+    state.openInvite(INVITE, null);
+    state.close();
+    expect(state.current()).toBeNull();
+    expect(state.target()).toBeNull();
+  });
 });

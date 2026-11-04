@@ -311,6 +311,13 @@ async function start(): Promise<void> {
     stopWatching();
     appState.forget(wanted);
   });
+  handle("offices:changeAddress", (id, address) => {
+    const wantedId = text(id);
+    const wantedAddress = text(address);
+    socketRelay.closeAll();
+    stopWatching();
+    return appState.changeAddress(wantedId, wantedAddress);
+  });
   handle("invites:open", (link) => {
     const value = text(link);
     socketRelay.closeAll();

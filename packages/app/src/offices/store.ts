@@ -157,6 +157,16 @@ export class OfficeStore {
     this.persist();
   }
 
+  /** O endereço de um escritório salvo mudou (DHCP, outro IP): conta, token, pino e âncora ficam. */
+  setUrl(id: string, url: string): "ok" | "duplicate" | "missing" {
+    const entry = this.offices.find((e) => e.id === id);
+    if (!entry) return "missing";
+    if (this.offices.some((e) => e.id !== id && e.url === url && e.userName === entry.userName)) return "duplicate";
+    entry.url = url;
+    this.persist();
+    return "ok";
+  }
+
   markUsed(id: string): void {
     if (!this.offices.some((e) => e.id === id)) return;
     this.last = id;

@@ -116,6 +116,25 @@ describe("OfficeStore", () => {
     expect(again.lastUsed()).toBeNull();
   });
 
+  it("trocar o endereço mantém conta, token, pino e âncora, e sobrevive ao recarregar", () => {
+    const store = OfficeStore.load(file, box());
+    const saved = store.saveLogin("https://a.exemplo", "ana", "s1", { pin: "C".repeat(43), anchor: "PEM" });
+    store.setBridgeToken(saved.id, "tok");
+    expect(store.setUrl(saved.id, "https://b.exemplo")).toBe("ok");
+    const expected = { url: "https://b.exemplo", userName: "ana", session: "s1", bridgeToken: "tok", pin: "C".repeat(43), anchor: "PEM" };
+    expect(store.get(saved.id)).toMatchObject(expected);
+    expect(OfficeStore.load(file, box()).get(saved.id)).toMatchObject(expected);
+  });
+
+  it("trocar o endereço para um já salvo com a mesma conta é duplicado; id desconhecido é missing", () => {
+    const store = OfficeStore.load(file, box());
+    store.saveLogin("https://a.exemplo", "ana", "s1", NO_TLS);
+    const other = store.saveLogin("https://b.exemplo", "ana", "s2", NO_TLS);
+    expect(store.setUrl(other.id, "https://a.exemplo")).toBe("duplicate");
+    expect(store.get(other.id)!.url).toBe("https://b.exemplo");
+    expect(store.setUrl("nao-existe", "https://c.exemplo")).toBe("missing");
+  });
+
   it("endereço inválido ou http fora de localhost no arquivo vira lista vazia e uma cópia .bad", () => {
     for (const url of ["x", "http://10.0.0.5"]) {
       rmSync(file + ".bad", { force: true });

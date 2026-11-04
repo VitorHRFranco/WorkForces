@@ -1,4 +1,4 @@
-import type { AppRoute, CurrentOffice, OfficeSummary } from "@workforces/protocol";
+import type { AddressChange, AppRoute, CurrentOffice, OfficeSummary } from "@workforces/protocol";
 import { parseOfficeAddress, type Invite } from "./links.js";
 import type { OfficeStore } from "./offices/store.js";
 
@@ -71,6 +71,22 @@ export class AppState {
     // Fecha antes: se a gravação falhar, o aberto não fica apontando para um escritório esquecido.
     if (this.open_?.officeId === id) this.open_ = null;
     this.store.forget(id);
+  }
+
+  /** Troca o endereço de um escritório salvo; se era o aberto, fecha: ele aponta para o endereço antigo. */
+  changeAddress(id: string, address: string): AddressChange {
+    const parsed = parseOfficeAddress(address);
+    if ("error" in parsed) return { ok: false, error: parsed.error };
+    const result = this.store.setUrl(id, parsed.url);
+    if (result === "missing") return { ok: false, error: "esse escritório não está mais na lista" };
+    if (result === "duplicate") return { ok: false, error: "esse endereço já está salvo com a mesma conta; esqueça um dos dois antes" };
+    if (this.open_?.officeId === id) this.open_ = null;
+    return { ok: true };
+  }
+
+  /** Fecha o escritório aberto (a página volta à tela inicial). */
+  close(): void {
+    this.open_ = null;
   }
 
   list(): OfficeSummary[] {
