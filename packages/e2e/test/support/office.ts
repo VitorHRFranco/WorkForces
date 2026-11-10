@@ -147,6 +147,48 @@ export async function startOffice(): Promise<Office> {
   return new Office(dir, url, port, server, adminCode, map);
 }
 
+/**
+ * Abre o app do build numa pasta de dados própria (uma nova dentro de `dir`, se `options.dataDir` não vier), sem registrar
+ * o `workforces://` no sistema e sem depender de servidor nenhum. No Linux sem chaveiro, `--password-store=basic` deixa o
+ * `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
+ */
+export async function launchApp(dir: string, options: LaunchOptions = {}): Promise<LaunchedApp> {
+  const dataDir = options.dataDir ?? mkdtempSync(join(dir, "app-"));
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+  const app = await _electron.launch({
+    executablePath: ELECTRON,
+    args: [APP_DIR, "--password-store=basic", ...(options.link ? [options.link] : [])],
+    env: { ...env, WF_APP_DATA_DIR: dataDir, WF_APP_NO_PROTOCOL: "1" },
+  });
+  try {
+    const page = await app.firstWindow();
+    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), options.size ?? APP_SIZE);
+    return { app, page, dataDir };
+  } catch (error) {
+    // Quem chamou não recebe o app para fechar depois: sem isto, o processo ficaria rodando até o fim do CI.
+    await closeApp(app);
+    throw error;
+  }
+}
+
+/** Fecha o app (o Playwright pede `app.quit()` e espera o processo sair), com prazo: se vencer, mata o processo. */
+export async function closeApp(app: ElectronApplication): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), APP_CLOSE_MS);
+  });
+  const closed = await Promise.race([app.close().then(() => true, () => false), deadline]);
+  clearTimeout(timer);
+  if (closed) return;
+  const child = app.process();
+  child.kill();
+  if (!(await waitExit(child, 5_000))) {
+    child.kill("SIGKILL");
+    await waitExit(child, 5_000);
+  }
+}
+
 export class Office {
   private readonly agents: IPty[] = [];
   /** O canal local de cada agente (fora do Windows, um socket Unix que sobra no disco se o invólucro for morto). */
@@ -180,42 +222,18 @@ export class Office {
     return account;
   }
 
-  /**
-   * Abre o app do build numa pasta de dados própria, sem registrar o `workforces://` no sistema. No Linux sem chaveiro,
-   * `--password-store=basic` deixa o `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
-   */
+  /** Abre o app do build (`launchApp`) numa pasta de dados dentro da pasta do escritório; o `stop` fecha o que sobrar. */
   async launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
-    const dataDir = options.dataDir ?? mkdtempSync(join(this.dir, "app-"));
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
-    const app = await _electron.launch({
-      executablePath: ELECTRON,
-      args: [APP_DIR, "--password-store=basic", ...(options.link ? [options.link] : [])],
-      env: { ...env, WF_APP_DATA_DIR: dataDir, WF_APP_NO_PROTOCOL: "1" },
-    });
-    this.apps.push(app);
-    const page = await app.firstWindow();
-    await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), options.size ?? APP_SIZE);
-    return { app, page, dataDir };
+    const launched = await launchApp(this.dir, options);
+    this.apps.push(launched.app);
+    return launched;
   }
 
-  /** Fecha o app (o Playwright pede `app.quit()` e espera o processo sair), com prazo: se vencer, mata o processo. */
+  /** Fecha o app (`closeApp`) e o tira da lista que o `stop` fecha. */
   async closeApp(app: ElectronApplication): Promise<void> {
     const index = this.apps.indexOf(app);
     if (index !== -1) this.apps.splice(index, 1);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), APP_CLOSE_MS);
-    });
-    const closed = await Promise.race([app.close().then(() => true, () => false), deadline]);
-    clearTimeout(timer);
-    if (closed) return;
-    const child = app.process();
-    child.kill();
-    if (!(await waitExit(child, 5_000))) {
-      child.kill("SIGKILL");
-      await waitExit(child, 5_000);
-    }
+    await closeApp(app);
   }
 
   /** Abre o app e entra por "Já tenho conta" (endereço do escritório e depois login), e espera o mapa carregar. */
@@ -547,7 +565,8 @@ function waitExit(child: ChildProcess, ms: number): Promise<boolean> {
   });
 }
 
-function freePort(): Promise<number> {
+/** Uma porta livre agora: um servidor de sonda pega uma qualquer em 127.0.0.1 e a solta. */
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createProbe();
     probe.once("error", reject);

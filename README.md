@@ -89,6 +89,25 @@ Os agentes rodam no seu computador, e quem os abre é o app (por enquanto, só n
 - **Acessos:** cada computador entra no escritório com um acesso próprio, que o app cria sozinho. "Computadores", na barra de cima, lista os acessos de cada computador e permite revogar; depois de revogar, o app cria outro na próxima vez que você chamar um agente.
 - **Quem usava a ponte pela linha de comando:** o `~/.workforces/config.json` antigo (`%USERPROFILE%\.workforces\config.json`) ainda guarda o token antigo em texto puro. Apague o arquivo e revogue esse token em "Computadores".
 
+### Criar escritório (neste computador)
+
+O app pode hospedar o escritório no seu próprio computador, sem Docker. Na tela inicial, em "Neste computador", clique em "Criar escritório", escolha o modo e a porta (o padrão é 4600; vale de 1024 a 65535) e clique em "Criar e entrar". Você cria a primeira conta, que é a de admin, e entra.
+
+Abrir o app não liga o escritório: use "Ligar e entrar". Ele fica no ar enquanto o app roda, mesmo com a janela fechada (ela só se esconde na bandeja). "Sair", no ícone da bandeja, desliga o escritório, e ele também cai se o computador desligar; para um escritório sempre ligado, use o servidor da seção abaixo. Para trocar o modo, a porta ou o endereço, use "Configurar": o escritório reinicia em alguns segundos, e quem está dentro reconecta sozinho.
+
+- **Hospedar LAN (o padrão):** entra quem está na mesma rede, ou numa VPN que põe todos numa rede virtual, como Hamachi, Radmin, ZeroTier ou Tailscale. Em "Endereço no convite", escolha a rede que vai no convite: o app sugere o Wi-Fi ou a Ethernet e mostra as VPNs com o nome delas. Não é preciso mexer no roteador.
+- **Hospedar WAN (internet):** entra também quem está fora, pelo seu IP público, na porta escolhida.
+  - O app pede ao roteador, por UPnP, que abra a porta, e a fecha ao desligar. Funciona com a maioria dos roteadores com o UPnP ligado.
+  - Quando o roteador não abre a porta, a tela mostra o passo a passo para abrir à mão, já com o IP deste computador e a porta: reservar esse IP no DHCP do roteador, redirecionar a porta (TCP) para ele e liberar o Node.js no firewall.
+  - O convite leva o IP público que o roteador informa, ou o IP ou nome (DDNS) que você digitar em "Endereço da internet". Sem nenhum dos dois, ele leva o endereço da rede local, e a tela pede o IP público ou o nome.
+  - **CGNAT:** se o IP que o roteador informa não for público (o provedor usa CGNAT, ou há dois roteadores em sequência), quem está fora não chega por ele, e a tela avisa. Peça um IP público ao provedor ou hospede em LAN com uma VPN.
+  - O app não consulta serviço de fora para descobrir o IP nem para testar a porta.
+- **Firewall:** ao ligar pela primeira vez, o Windows pergunta se libera o "Node.js" (o programa que roda o escritório) na rede. Marque redes privadas e também públicas: o Windows trata o Hamachi e outras VPNs como rede pública. Se negou sem querer: Painel de Controle → Firewall do Windows Defender → Permitir um aplicativo → Node.js → marque Privada e Pública.
+- **Convite:** "Gerar convite", na barra de cima do escritório, dá um link `workforces://invite?…` com o pino do certificado do escritório. A pessoa clica no link ou, se o chat não o deixar clicável, cola em "Entrar com convite" no app; no navegador ele não abre. O app confere o pino sozinho: ninguém instala certificado nem vê aviso de segurança.
+- **Trocar endereço:** o endereço muda quando muda o IP deste computador ou o público, ou quando você troca o modo ou a porta; a tela do anfitrião avisa quando o IP muda. Quem já entrou usa "Trocar endereço" no escritório salvo, na tela inicial do app, com o endereço novo. A conta e o pino continuam valendo, e o pino garante que é o mesmo escritório.
+- **Node.js:** por enquanto, o escritório roda no Node.js do computador, e é preciso ter o 22.12 ou mais novo (o mesmo dos agentes: o do `PATH`, ou o `node.exe` indicado em `WF_NODE`).
+- **Dados:** o banco e o certificado ficam na pasta `office`, dentro da pasta de dados do app. Apagar essa pasta gera outro certificado, e quem já entrou precisa de um convite novo.
+
 ### Servidor para um time (Docker + Caddy)
 
 Para outras pessoas entrarem de outros computadores, o servidor precisa ficar numa máquina que todos alcancem, com HTTPS: fora de localhost, servidor e ponte recusam HTTP sem TLS, e o servidor avisa no log quando escuta na rede sem HTTPS. A pasta `deploy/` tem um exemplo com o [Caddy](https://caddyserver.com/) na frente, que gera e renova o certificado sozinho.
