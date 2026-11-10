@@ -63,12 +63,16 @@ function tag(xml: string, name: string): string | null {
 /** O LOCATION de uma resposta SSDP; null se não houver ou se o pacote for grande demais. */
 export function parseSsdpResponse(packet: Buffer): string | null {
   if (packet.length > SSDP_MAX) return null;
-  for (const line of packet.toString("utf8").split("\r\n")) {
+  // A spec pede CRLF, mas há firmware que responde só com LF.
+  for (const line of packet.toString("utf8").split(/\r?\n/)) {
     const found = /^location:\s*(.+)$/i.exec(line);
     if (found) return found[1]!.trim();
   }
   return null;
 }
+
+/** Quantos endereços diferentes uma busca aceita; um roteador de verdade dá um ou dois. */
+const MAX_ANSWERS = 32;
 
 const mSearch = (target: string): Buffer =>
   Buffer.from(`M-SEARCH * HTTP/1.1\r\nHOST: ${SSDP_ADDRESS}:${SSDP_PORT}\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: ${target}\r\n\r\n`);
@@ -89,7 +93,8 @@ export function nodeUpnpTransport(interfaces: () => NodeJS.Dict<NetworkInterface
         socket.on("error", (error) => log(`busca UPnP em ${info.address}: ${error.message}`));
         socket.on("message", (packet, remote) => {
           const location = parseSsdpResponse(packet);
-          if (location === null || seen.has(location)) return;
+          // Um aparelho que inunde a rede com endereços sempre novos não enche a memória do app.
+          if (location === null || seen.has(location) || seen.size >= MAX_ANSWERS) return;
           seen.add(location);
           queue.push({ location, from: remote.address });
           wake?.();

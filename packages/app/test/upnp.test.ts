@@ -127,6 +127,7 @@ describe("parseSsdpResponse", () => {
     expect(parseSsdpResponse(answer("LOCATION:http://192.168.0.1:5000/a.xml\r\n"))).toBe("http://192.168.0.1:5000/a.xml");
     expect(parseSsdpResponse(answer(`LOCATION: http://192.168.0.1:5000/a.xml\r\nX-PAD: ${"a".repeat(9000)}\r\n`))).toBeNull();
     expect(parseSsdpResponse(answer(""))).toBeNull();
+    expect(parseSsdpResponse(Buffer.from("HTTP/1.1 200 OK\nLOCATION: http://192.168.0.1:5000/so-lf.xml\n\n"))).toBe("http://192.168.0.1:5000/so-lf.xml");
   });
 });
 
