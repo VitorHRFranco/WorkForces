@@ -28,9 +28,10 @@ import { AgentRecordStore } from "./agents/records.js";
 import { countOpenAgents } from "./agents/open-agents.js";
 import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
 import { listAddresses } from "./host/addresses.js";
-import { Host, PORT_RANGE_ERROR } from "./host/host.js";
+import { Host, PORT_RANGE_ERROR, WAN_ADDRESS_ERROR } from "./host/host.js";
 import { EmbeddedServer } from "./host/server-process.js";
 import { HostSettingsStore } from "./host/settings.js";
+import { upnpPortMapper } from "./host/wan.js";
 import { findInviteArg } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
@@ -194,6 +195,7 @@ async function start(): Promise<void> {
   const officeHost = new Host({
     settings: HostSettingsStore.load(join(userData, "host.json"), console.warn),
     server: new EmbeddedServer({ log: console.log }),
+    portMapper: upnpPortMapper({ log: console.warn }),
     findNode: () => findNode(),
     addresses: () => listAddresses(),
     entry: fileURLToPath(new URL("../../server/dist/embedded.js", import.meta.url)),
@@ -360,8 +362,9 @@ async function start(): Promise<void> {
   handle("host:configure", async (input): Promise<HostConfigResult> => {
     const parsed = HostSettingsInput.safeParse(input);
     if (!parsed.success) {
-      // A porta vem de um campo que a pessoa digita; o resto, só a própria página monta.
+      // A porta e o endereço da internet vêm de campos que a pessoa digita; o resto, só a própria página monta.
       if (parsed.error.issues.some((issue) => issue.path[0] === "port")) return { ok: false, error: PORT_RANGE_ERROR };
+      if (parsed.error.issues.some((issue) => issue.path[0] === "wanAddress")) return { ok: false, error: WAN_ADDRESS_ERROR };
       throw new Error("argumento inválido");
     }
     const before = officeHost.localUrl();

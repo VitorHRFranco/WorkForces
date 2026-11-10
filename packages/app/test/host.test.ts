@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Host } from "../src/host/host.js";
 import type { ServerLaunch, ServerStart } from "../src/host/server-process.js";
 import { HostSettingsStore } from "../src/host/settings.js";
+import type { MapResult, PortMapper } from "../src/host/wan.js";
 
 const PIN = "P".repeat(43);
 const READY: ServerStart = { ok: true, pin: PIN, anchor: "PEM", adminInvite: "convite-admin" };
@@ -17,6 +18,7 @@ const WIFI_NEW: HostAddressInfo = { address: "192.168.0.20", label: "Wi-Fi · 19
 const HAMACHI: HostAddressInfo = { address: "25.1.2.3", label: "Hamachi · 25.1.2.3", kind: "vpn" };
 
 const LAN: HostSettingsInput = { mode: "lan", port: 4600, lanAddress: "192.168.0.10", wanAddress: null };
+const WAN: HostSettingsInput = { mode: "wan", port: 4600, lanAddress: "192.168.0.10", wanAddress: null };
 
 /** O servidor embutido de mentira: registra o que o `Host` pede e responde o que o teste mandar. */
 class FakeServer {
@@ -57,6 +59,24 @@ class FakeServer {
   }
 }
 
+/** O roteador de mentira: anota "open" e "close" na mesma lista do servidor, para conferir a ordem. */
+class FakePortMapper implements PortMapper {
+  readonly ports: number[] = [];
+  result: MapResult = { ok: true, externalIp: "203.0.113.7" };
+
+  constructor(private readonly calls: string[]) {}
+
+  async open(port: number): Promise<MapResult> {
+    this.calls.push("open");
+    this.ports.push(port);
+    return this.result;
+  }
+
+  async close(): Promise<void> {
+    this.calls.push("close");
+  }
+}
+
 let dir: string;
 let file: string;
 beforeEach(() => {
@@ -67,11 +87,13 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function setup(options: { node?: string | null; addresses?: HostAddressInfo[] } = {}) {
   const server = new FakeServer();
+  const portMapper = new FakePortMapper(server.calls);
   const states: HostState[] = [];
   const network = { list: options.addresses ?? [WIFI, HAMACHI] };
   const host = new Host({
     settings: HostSettingsStore.load(file, () => {}),
     server,
+    portMapper,
     findNode: async () => (options.node === undefined ? NODE : options.node),
     addresses: () => network.list,
     entry: ENTRY,
@@ -79,7 +101,7 @@ function setup(options: { node?: string | null; addresses?: HostAddressInfo[] } 
     emit: (status) => states.push(status.state),
     log: () => {},
   });
-  return { host, server, states, network };
+  return { host, server, portMapper, states, network };
 }
 
 const saved = () => HostSettingsStore.load(file, () => {}).get();
@@ -214,5 +236,97 @@ describe("Host", () => {
     await host.turnOn();
     await host.turnOff();
     expect(states).toEqual(["starting", "on", "stopping", "off"]);
+  });
+});
+
+describe("Host em WAN", () => {
+  it("porta aberta com IP público: abre antes de subir e o convite leva o IP público", async () => {
+    const { host, server, portMapper } = setup();
+    await host.configure(WAN);
+    expect((await host.turnOn()).ok).toBe(true);
+    expect(server.calls).toEqual(["open", "start"]);
+    expect(portMapper.ports).toEqual([4600]);
+    expect(server.launches[0]!.publicUrl).toBe("https://203.0.113.7:4600");
+    expect(host.status()).toMatchObject({
+      state: "on",
+      inviteOrigin: "https://203.0.113.7:4600",
+      usingLanFallback: false,
+      wan: { mapping: "mapped", externalIp: "203.0.113.7", notPublic: false, localIp: "192.168.0.10" },
+    });
+  });
+
+  it("o endereço da internet digitado vence o IP do roteador", async () => {
+    const { host, server } = setup();
+    await host.configure({ ...WAN, wanAddress: "escritorio.ddns.net" });
+    await host.turnOn();
+    expect(server.launches[0]!.publicUrl).toBe("https://escritorio.ddns.net:4600");
+    expect(host.status()).toMatchObject({ inviteOrigin: "https://escritorio.ddns.net:4600", usingLanFallback: false });
+  });
+
+  it("o roteador informa 100.70.1.2 (CGNAT): avisa que não é público, o convite cai na LAN e o servidor sobe", async () => {
+    const { host, server, portMapper } = setup();
+    portMapper.result = { ok: true, externalIp: "100.70.1.2" };
+    await host.configure(WAN);
+    expect((await host.turnOn()).ok).toBe(true);
+    expect(server.launches[0]!.publicUrl).toBe("https://192.168.0.10:4600");
+    expect(host.status()).toMatchObject({
+      state: "on",
+      inviteOrigin: "https://192.168.0.10:4600",
+      usingLanFallback: true,
+      wan: { mapping: "mapped", externalIp: "100.70.1.2", notPublic: true },
+    });
+  });
+
+  it.each(["no-gateway", "refused"] as const)("sem a porta aberta (%s): sobe pela LAN e a tela tem o IP local para o passo a passo", async (reason) => {
+    const { host, server, portMapper } = setup();
+    portMapper.result = { ok: false, reason };
+    await host.configure(WAN);
+    expect((await host.turnOn()).ok).toBe(true);
+    expect(server.launches[0]!.publicUrl).toBe("https://192.168.0.10:4600");
+    expect(host.status()).toMatchObject({
+      state: "on",
+      inviteOrigin: "https://192.168.0.10:4600",
+      usingLanFallback: true,
+      wan: { mapping: reason, externalIp: null, notPublic: false, localIp: "192.168.0.10" },
+    });
+    // Com o endereço da internet digitado, o convite leva ele mesmo sem a porta aberta.
+    await host.configure({ ...WAN, wanAddress: "203.0.113.9" });
+    expect(host.status()).toMatchObject({ inviteOrigin: "https://203.0.113.9:4600", usingLanFallback: false, wan: { mapping: reason } });
+  });
+
+  it("desligar fecha a porta no roteador depois de parar o servidor", async () => {
+    const { host, server } = setup();
+    await host.configure(WAN);
+    await host.turnOn();
+    await host.turnOff();
+    expect(server.calls).toEqual(["open", "start", "stop", "close"]);
+    expect(host.status()).toMatchObject({ state: "off", wan: null, usingLanFallback: false });
+  });
+
+  it("trocar de WAN para LAN com o escritório ligado fecha a porta no roteador", async () => {
+    const { host, server } = setup();
+    await host.configure(WAN);
+    await host.turnOn();
+    await host.configure(LAN);
+    expect(server.calls).toEqual(["open", "start", "stop", "close", "start"]);
+    expect(host.status()).toMatchObject({ state: "on", inviteOrigin: "https://192.168.0.10:4600", wan: null, usingLanFallback: false });
+  });
+
+  it("em LAN o roteador não é tocado", async () => {
+    const { host, server, portMapper } = setup();
+    await host.configure(LAN);
+    await host.turnOn();
+    await host.configure({ ...LAN, port: 4700 });
+    await host.turnOff();
+    expect(server.calls).toEqual(["start", "stop", "start", "stop"]);
+    expect(portMapper.ports).toEqual([]);
+  });
+
+  it("configure recusa endereço da internet com esquema ou porta e diz como escrever", async () => {
+    const { host } = setup();
+    const error = "use um IP (como 203.0.113.7) ou um nome (como escritorio.ddns.net), sem https:// e sem porta";
+    expect(await host.configure({ ...WAN, wanAddress: "https://escritorio.ddns.net" })).toEqual({ ok: false, error });
+    expect(await host.configure({ ...WAN, wanAddress: "203.0.113.7:4600" })).toEqual({ ok: false, error });
+    expect(existsSync(file)).toBe(false);
   });
 });

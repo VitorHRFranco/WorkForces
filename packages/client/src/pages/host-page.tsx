@@ -1,4 +1,4 @@
-import type { AppRoute, HostAddressInfo, HostSettingsInput, HostStatus } from "@workforces/protocol";
+import type { AppRoute, HostAddressInfo, HostSettingsInput, HostStatus, WanStatus } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import { navigate, routePath } from "../router";
@@ -44,10 +44,45 @@ export function useHostStatus(onFirst: (status: HostStatus) => void, onError: ()
 /** A sugestão: o Wi-Fi ou a Ethernet antes da VPN. */
 const suggestion = (addresses: HostAddressInfo[]): HostAddressInfo | undefined => addresses.find((info) => info.kind === "lan") ?? addresses[0];
 
+/** Com a WAN ligada: o que o roteador fez com a porta e, se não abriu, o passo a passo com os valores deste computador. */
+function WanReport({ status, wan }: { status: HostStatus; wan: WanStatus }) {
+  const port = status.settings?.port;
+  return (
+    <>
+      {wan.mapping === "mapped" ? (
+        <p class="notice" role="status">{`porta ${port} aberta no roteador (UPnP)`}</p>
+      ) : (
+        // Sem IP local não há para onde redirecionar: o aviso de "Nenhuma rede encontrada" já diz o que fazer.
+        wan.localIp !== null && (
+          <>
+            <p>o roteador não abriu a porta sozinho; veja como abrir à mão:</p>
+            <ol>
+              <li>{`Deixe o IP deste computador fixo na rede: no roteador, reserve o IP ${wan.localIp} para este computador (reserva de DHCP).`}</li>
+              <li>{`Redirecione a porta ${port} (TCP) para ${wan.localIp}.`}</li>
+              <li>Libere o Node.js no Firewall do Windows (redes privadas e públicas).</li>
+            </ol>
+          </>
+        )
+      )}
+      {wan.notPublic && (
+        <p class="notice" role="status">
+          {`O IP que o roteador informa (${wan.externalIp}) não é público: o provedor usa CGNAT, ou há dois roteadores em sequência. Gente de fora não chega por ele. Peça um IP público ao provedor ou hospede em LAN com uma VPN como o Hamachi.`}
+        </p>
+      )}
+      {status.usingLanFallback && (
+        <p class="notice" role="status">
+          {`Sem o endereço da internet, os convites levam o endereço da rede local (${status.inviteOrigin}). Digite o IP público ou um nome (DDNS) acima.`}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function HostPage() {
   const [mode, setMode] = useState<HostSettingsInput["mode"]>("lan");
   const [port, setPort] = useState("4600");
   const [address, setAddress] = useState("");
+  const [wanAddress, setWanAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useHostStatus(
@@ -56,6 +91,7 @@ export function HostPage() {
       if (first.settings) {
         setMode(first.settings.mode);
         setPort(String(first.settings.port));
+        setWanAddress(first.settings.wanAddress ?? "");
       }
       const saved = first.addresses.find((info) => info.address === first.settings?.lanAddress);
       setAddress((saved ?? suggestion(first.addresses))?.address ?? "");
@@ -82,7 +118,10 @@ export function HostPage() {
   };
 
   const save = async (): Promise<boolean> => {
-    const input: HostSettingsInput = { mode, port: Number(port), lanAddress: address === "" ? null : address, wanAddress: status?.settings?.wanAddress ?? null };
+    // O endereço da internet só vale na WAN; na LAN, o salvo fica como está. Campo vazio é "sem endereço".
+    const typed = wanAddress.trim();
+    const wan = mode === "wan" ? (typed === "" ? null : typed) : (status?.settings?.wanAddress ?? null);
+    const input: HostSettingsInput = { mode, port: Number(port), lanAddress: address === "" ? null : address, wanAddress: wan };
     const result = await bridge.host.configure(input);
     if (!result.ok) {
       setError(result.error);
@@ -139,27 +178,31 @@ export function HostPage() {
               </span>
             </label>
           </div>
+          <label>
+            Porta
+            <input type="number" min={1024} max={65535} value={port} onInput={(e) => setPort(e.currentTarget.value)} required />
+          </label>
           {mode === "wan" ? (
-            <p class="muted">em breve</p>
-          ) : (
             <>
               <label>
-                Porta
-                <input type="number" min={1024} max={65535} value={port} onInput={(e) => setPort(e.currentTarget.value)} required />
+                Endereço da internet (opcional): IP público ou nome (DDNS)
+                <input value={wanAddress} onInput={(e) => setWanAddress(e.currentTarget.value)} autocapitalize="none" spellcheck={false} maxLength={253} />
               </label>
-              <label>
-                Endereço no convite
-                <select value={address} onChange={(e) => setAddress(e.currentTarget.value)}>
-                  {status.addresses.map((info) => (
-                    <option key={info.address} value={info.address}>
-                      {info.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {status.addresses.length === 0 && <p class="muted">Nenhuma rede encontrada: conecte este computador ao Wi-Fi, ao cabo ou à VPN para outras pessoas entrarem.</p>}
+              {status.state === "on" && status.wan && <WanReport status={status} wan={status.wan} />}
             </>
+          ) : (
+            <label>
+              Endereço no convite
+              <select value={address} onChange={(e) => setAddress(e.currentTarget.value)}>
+                {status.addresses.map((info) => (
+                  <option key={info.address} value={info.address}>
+                    {info.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
+          {status.addresses.length === 0 && <p class="muted">Nenhuma rede encontrada: conecte este computador ao Wi-Fi, ao cabo ou à VPN para outras pessoas entrarem.</p>}
           <p class="muted">{FIREWALL}</p>
           <details>
             <summary>Negou sem querer?</summary>
@@ -167,7 +210,7 @@ export function HostPage() {
           </details>
           {status.created ? (
             <>
-              <button type="submit" disabled={busy || mode === "wan"}>
+              <button type="submit" disabled={busy}>
                 Salvar
               </button>
               <button type="button" disabled={busy || status.state === "starting" || status.state === "stopping"} onClick={enter}>
@@ -180,7 +223,7 @@ export function HostPage() {
               )}
             </>
           ) : (
-            <button type="submit" disabled={busy || mode === "wan"}>
+            <button type="submit" disabled={busy}>
               Criar e entrar
             </button>
           )}

@@ -1,9 +1,11 @@
-import type { HostAddressInfo, HostConfigResult, HostSettingsInput, HostState, HostStatus } from "@workforces/protocol";
+import type { HostAddressInfo, HostConfigResult, HostSettingsInput, HostState, HostStatus, WanStatus } from "@workforces/protocol";
 import { suggestAddress } from "./addresses.js";
 import type { EmbeddedServer } from "./server-process.js";
 import type { HostSettings, HostSettingsStore } from "./settings.js";
+import { classifyIp, isWanAddress, type MapResult, type PortMapper } from "./wan.js";
 
 export const PORT_RANGE_ERROR = "a porta precisa ser um número de 1024 a 65535";
+export const WAN_ADDRESS_ERROR = "use um IP (como 203.0.113.7) ou um nome (como escritorio.ddns.net), sem https:// e sem porta";
 const NOT_CREATED = "crie o escritório primeiro";
 const UNKNOWN_ADDRESS = "esse endereço não é de nenhuma rede deste computador; escolha um da lista";
 const NO_NODE = "para hospedar, instale o Node.js 22.12 ou mais novo (o mesmo que os agentes usam) e tente de novo";
@@ -20,6 +22,8 @@ export type HostTurnOn = { ok: true; pin: string; anchor: string; adminInvite: s
 export interface HostDeps {
   settings: HostSettingsStore;
   server: Pick<EmbeddedServer, "start" | "stop" | "onExit">;
+  /** Na WAN, abre a porta no roteador (UPnP) antes de o servidor subir. */
+  portMapper: PortMapper;
   findNode(): Promise<string | null>;
   addresses(): HostAddressInfo[];
   /** O `embedded.js` do servidor. */
@@ -32,12 +36,20 @@ export interface HostDeps {
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** O host que vai no convite; `loopback` é o próprio computador (sem rede) e `lanFallback`, a LAN no lugar da internet. */
+type InviteHost = { host: string; loopback: boolean; lanFallback: boolean };
+
 /** O escritório deste computador: as escolhas, o servidor embutido e o estado que a tela mostra. */
 export class Host {
   private state: HostState = "off";
   private error: string | null = null;
   private inviteOrigin: string | null = null;
   private addressChanged: { from: string; to: string } | null = null;
+  /** Na WAN ligada: o que o roteador respondeu e se os convites caíram na LAN. */
+  private wan: WanStatus | null = null;
+  private usingLanFallback = false;
+  /** O `portMapper` foi chamado para abrir e ainda não foi fechado. */
+  private portOpen = false;
   /** O que o servidor no ar respondeu no ready. */
   private live: { pin: string; anchor: string; adminInvite: string | null } | null = null;
   /** Ligar, desligar e reiniciar rodam um de cada vez, na ordem dos pedidos. */
@@ -47,9 +59,10 @@ export class Host {
 
   constructor(private readonly deps: HostDeps) {
     deps.server.onExit(() => {
-      this.live = null;
-      this.inviteOrigin = null;
+      this.clearLive();
       this.change("off", STOPPED_ALONE);
+      // Sem servidor, a porta no roteador não leva a nada: desfaz na vez dela, antes de um novo ligar.
+      void this.serial(() => this.closeMapping());
     });
   }
 
@@ -62,8 +75,8 @@ export class Host {
       inviteOrigin: this.inviteOrigin,
       addresses: this.deps.addresses(),
       addressChanged: this.addressChanged,
-      usingLanFallback: false,
-      wan: null,
+      usingLanFallback: this.usingLanFallback,
+      wan: this.wan,
       error: this.error,
     };
   }
@@ -72,6 +85,7 @@ export class Host {
   async configure(input: HostSettingsInput): Promise<HostConfigResult> {
     if (!Number.isInteger(input.port) || input.port < 1024 || input.port > 65535) return { ok: false, error: PORT_RANGE_ERROR };
     if (input.lanAddress !== null && !this.deps.addresses().some((info) => info.address === input.lanAddress)) return { ok: false, error: UNKNOWN_ADDRESS };
+    if (input.wanAddress !== null && !isWanAddress(input.wanAddress)) return { ok: false, error: WAN_ADDRESS_ERROR };
     const previous = this.deps.settings.get();
     try {
       this.deps.settings.save({
@@ -144,19 +158,59 @@ export class Host {
     this.deps.emit(this.status());
   }
 
-  private failed(error: string): HostTurnOn {
+  /** O que só vale com o servidor no ar. */
+  private clearLive(): void {
     this.live = null;
     this.inviteOrigin = null;
+    this.wan = null;
+    this.usingLanFallback = false;
+  }
+
+  private async failed(error: string): Promise<HostTurnOn> {
+    // Sem servidor, a porta aberta no roteador não leva a nada.
+    await this.closeMapping();
+    this.clearLive();
     this.change("off", error);
     return { ok: false, error };
   }
 
-  /** O endereço do convite: o escolhido ou, se ele sumiu, a sugestão; sem rede nenhuma, o próprio computador. */
-  private inviteHost(settings: HostSettings): { host: string; loopback: boolean } {
-    // Por enquanto os dois modos levam o endereço da rede local no convite.
+  /** Desfaz a porta no roteador, se este escritório pediu uma; nunca falha (o roteador pode nem responder). */
+  private async closeMapping(): Promise<void> {
+    if (!this.portOpen) return;
+    this.portOpen = false;
+    try {
+      await this.deps.portMapper.close();
+    } catch (error) {
+      this.deps.log(`não consegui desfazer a porta no roteador (${errorText(error)})`);
+    }
+  }
+
+  /** O endereço da rede local: o escolhido ou, se ele sumiu, a sugestão; sem rede nenhuma, o próprio computador. */
+  private lanHost(settings: HostSettings): InviteHost {
     const list = this.deps.addresses();
     const chosen = list.find((info) => info.address === settings.lanAddress) ?? suggestAddress(list);
-    return chosen ? { host: chosen.address, loopback: false } : { host: LOOPBACK, loopback: true };
+    return chosen ? { host: chosen.address, loopback: false, lanFallback: false } : { host: LOOPBACK, loopback: true, lanFallback: false };
+  }
+
+  /** O endereço do convite. Na WAN: o digitado, depois o IP público do roteador e, sem nenhum dos dois, o da rede local. */
+  private inviteHost(settings: HostSettings, mapped: MapResult | null): InviteHost {
+    if (settings.mode === "lan") return this.lanHost(settings);
+    if (settings.wanAddress !== null) return { host: settings.wanAddress, loopback: false, lanFallback: false };
+    const externalIp = mapped?.ok ? mapped.externalIp : null;
+    if (externalIp !== null && classifyIp(externalIp) === "public") return { host: externalIp, loopback: false, lanFallback: false };
+    return { ...this.lanHost(settings), lanFallback: true };
+  }
+
+  /** O que a tela mostra da WAN: a porta no roteador, o IP que ele informa e o IP local para o passo a passo. */
+  private wanStatus(mapped: MapResult): WanStatus {
+    const externalIp = mapped.ok ? mapped.externalIp : null;
+    return {
+      mapping: mapped.ok ? "mapped" : mapped.reason,
+      externalIp,
+      notPublic: externalIp !== null && classifyIp(externalIp) !== "public",
+      // O passo a passo vale para o Wi-Fi ou a Ethernet (a rede do roteador), não para a VPN.
+      localIp: suggestAddress(this.deps.addresses())?.address ?? null,
+    };
   }
 
   private async startNow(): Promise<HostTurnOn> {
@@ -167,11 +221,17 @@ export class Host {
     this.change("starting", null);
     try {
       const node = await this.deps.findNode();
-      if (!node) return this.failed(NO_NODE);
-      const invite = this.inviteHost(settings);
+      if (!node) return await this.failed(NO_NODE);
+      // Na WAN, a porta abre no roteador antes de o servidor subir: o convite já sai com o IP público.
+      let mapped: MapResult | null = null;
+      if (settings.mode === "wan") {
+        this.portOpen = true;
+        mapped = await this.deps.portMapper.open(settings.port);
+      }
+      const invite = this.inviteHost(settings, mapped);
       const publicUrl = `https://${invite.host}:${settings.port}`;
       const started = await this.deps.server.start({ node, entry: this.deps.entry, host: "0.0.0.0", port: settings.port, publicUrl, dataDir: this.deps.dataDir });
-      if (!started.ok) return this.failed(started.error === "port-in-use" ? portInUse(settings.port) : started.error === "timeout" ? START_TIMEOUT : START_FAILED);
+      if (!started.ok) return await this.failed(started.error === "port-in-use" ? portInUse(settings.port) : started.error === "timeout" ? START_TIMEOUT : START_FAILED);
       const { pin, anchor, adminInvite } = started;
       const before = settings.lastInviteHost;
       // Sem rede, o 127.0.0.1 não é o endereço de ninguém: o último endereço de verdade continua valendo para comparar.
@@ -185,11 +245,13 @@ export class Host {
       this.addressChanged = !invite.loopback && before !== null && before !== invite.host ? { from: before, to: invite.host } : null;
       this.live = { pin, anchor, adminInvite };
       this.inviteOrigin = publicUrl;
+      this.wan = mapped ? this.wanStatus(mapped) : null;
+      this.usingLanFallback = invite.lanFallback;
       this.change("on", invite.loopback ? NO_NETWORK : null);
       return { ok: true, pin, anchor, adminInvite };
     } catch (error) {
       this.deps.log(`não consegui ligar o escritório (${errorText(error)})`);
-      return this.failed(START_FAILED);
+      return await this.failed(START_FAILED);
     }
   }
 
@@ -199,8 +261,9 @@ export class Host {
     try {
       await this.deps.server.stop();
     } finally {
-      this.live = null;
-      this.inviteOrigin = null;
+      // A porta no roteador fecha depois de o servidor parar: a ordem inversa de ligar.
+      await this.closeMapping();
+      this.clearLive();
       this.change("off", null);
     }
   }
