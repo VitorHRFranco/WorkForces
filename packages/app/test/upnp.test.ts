@@ -58,11 +58,19 @@ afterEach(() => {
   }
 });
 
-/** O roteador de mentira em 127.0.0.1: serve a descrição em qualquer caminho e responde ao SOAP, anotando cada pedido. */
+/**
+ * O roteador de mentira em 127.0.0.1: serve a descrição em qualquer caminho e responde ao SOAP, anotando cada pedido.
+ * `answered` é a ordem em que ele atendeu (aplicou) cada ação; uma resposta segurada só é aplicada quando o teste solta.
+ */
 async function startRouter(
-  options: { description?(origin: string): string; descPath?: string; reply?(action: string | null, count: number): Reply | undefined } = {},
+  options: {
+    description?(origin: string): string;
+    descPath?: string;
+    reply?(action: string | null, count: number): Reply | Promise<Reply> | undefined;
+  } = {},
 ) {
   const calls: Call[] = [];
+  const answered: string[] = [];
   let origin = "";
   const server = createServer((req, res) => {
     let body = "";
@@ -78,17 +86,20 @@ async function startRouter(
         return;
       }
       const count = calls.filter((call) => call.action === action).length;
-      const reply = options.reply?.(action, count) ?? defaultReply(action);
-      if (reply === "hang") return;
-      res.writeHead(reply.status, { "Content-Type": 'text/xml; charset="utf-8"' });
-      res.end(reply.body);
+      void Promise.resolve(options.reply?.(action, count)).then((custom) => {
+        const reply = custom ?? defaultReply(action);
+        if (reply === "hang") return;
+        answered.push(action ?? "");
+        res.writeHead(reply.status, { "Content-Type": 'text/xml; charset="utf-8"' });
+        res.end(reply.body);
+      });
     });
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const soapCalls = (action?: string) => calls.filter((call) => call.method === "POST" && (action === undefined || call.action === action));
-  return { origin, calls, soapCalls, location: `${origin}${options.descPath ?? "/desc.xml"}` };
+  return { origin, calls, answered, soapCalls, location: `${origin}${options.descPath ?? "/desc.xml"}` };
 }
 
 /** A busca de mentira entrega as respostas dadas; os pedidos HTTP são os de verdade. */
@@ -260,5 +271,33 @@ describe("upnpPortMapper sobre o cliente IGD", () => {
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(permanent.soapCalls("AddPortMapping")).toHaveLength(2);
+  });
+
+  it("close() durante uma renovação: espera ela assentar e só então desfaz a porta; nenhuma renovação depois", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    // A renovação (o segundo AddPortMapping) fica presa no roteador até o teste soltar.
+    const router = await startRouter({ reply: (action, count) => (action === "AddPortMapping" && count === 2 ? held.then(() => ok(action)) : undefined) });
+    const mapper = mapperFor(at(router.location));
+    await mapper.open(4600);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    await vi.waitFor(() => expect(router.soapCalls("AddPortMapping")).toHaveLength(2));
+
+    let closed = false;
+    const closing = mapper.close().then(() => (closed = true));
+    // Tempo de sobra para um DeletePortMapping apressado chegar ao roteador local.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(router.soapCalls("DeletePortMapping")).toEqual([]);
+
+    release();
+    await closing;
+    expect(closed).toBe(true);
+    // A ordem só vale depois de o roteador aplicar a renovação solta.
+    await vi.waitFor(() => expect(router.answered.filter((action) => action === "AddPortMapping")).toHaveLength(2));
+    expect(router.answered.at(-1)).toBe("DeletePortMapping");
+    expect(router.answered.lastIndexOf("AddPortMapping")).toBeLessThan(router.answered.lastIndexOf("DeletePortMapping"));
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(router.soapCalls("AddPortMapping")).toHaveLength(2);
   });
 });

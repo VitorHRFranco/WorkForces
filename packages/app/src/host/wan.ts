@@ -21,6 +21,17 @@ export interface PortMapper {
   close(): Promise<void>;
 }
 
+/** Uma porta aberta no roteador e a renovação dela. */
+interface OpenPort {
+  service: IgdService;
+  port: number;
+  renew: ReturnType<typeof setInterval> | null;
+  /** A renovação que já saiu e ainda não teve resposta (nunca rejeita). */
+  renewing: Promise<void> | null;
+  /** O `close` começou: nenhuma renovação sai mais. */
+  closed: boolean;
+}
+
 /** O IPv4 como número de 32 bits; null se não for um IPv4. */
 function ipNumber(ip: string): number | null {
   if (!isIPv4(ip)) return null;
@@ -86,8 +97,8 @@ export function upnpPortMapper(
   const interfaces = deps.interfaces ?? (() => networkInterfaces());
   const log = (m: string): void => deps.log?.(m);
   const transport = deps.transport ?? nodeUpnpTransport(interfaces, log);
-  /** A porta aberta: o `close` a desfaz no mesmo serviço e para a renovação. */
-  let current: { service: IgdService; port: number; renew: ReturnType<typeof setInterval> | null } | null = null;
+  /** A porta aberta: o `close` para a renovação e a desfaz no mesmo serviço. */
+  let current: OpenPort | null = null;
 
   const addPortMapping = (service: IgdService, port: number, localIp: string, lease: number) =>
     soap(
@@ -107,11 +118,27 @@ export function upnpPortMapper(
       AbortSignal.timeout(ANSWER_MS),
     );
 
+  /** Renova a porta, uma vez por tique; o tique que corra com o `close` é descartado. */
+  const renewOnce = (open: OpenPort, localIp: string, lease: number): void => {
+    if (open.closed || open.renewing) return;
+    open.renewing = addPortMapping(open.service, open.port, localIp, lease)
+      .then((result) => {
+        if (!result.ok) log(`não consegui renovar a porta ${open.port} no roteador (${result.detail})`);
+      })
+      .finally(() => {
+        open.renewing = null;
+      });
+  };
+
   async function close(): Promise<void> {
     const open = current;
     current = null;
     if (!open) return;
+    // Nenhuma renovação nova a partir daqui.
+    open.closed = true;
     if (open.renew) clearInterval(open.renew);
+    // Um prazo só para tudo: esperar a renovação que já saiu e desfazer a porta.
+    const budget = AbortSignal.timeout(STOP_MS);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => {
       timer = setTimeout(() => {
@@ -119,21 +146,26 @@ export function upnpPortMapper(
         resolve();
       }, STOP_MS);
     });
-    const deleting = soap(
-      transport,
-      open.service,
-      "DeletePortMapping",
-      [
-        ["NewRemoteHost", ""],
-        ["NewExternalPort", open.port],
-        ["NewProtocol", "TCP"],
-      ],
-      AbortSignal.timeout(STOP_MS),
-    ).then((result) => {
+    const undo = (async () => {
+      // A renovação que já saiu assenta antes: senão ela chegaria ao roteador depois e reabriria a porta por até uma hora.
+      await open.renewing;
+      // Passado o prazo, nada sai mais: um pedido atrasado poderia apagar a porta que uma nova ligada já abriu.
+      if (budget.aborted) return;
+      const result = await soap(
+        transport,
+        open.service,
+        "DeletePortMapping",
+        [
+          ["NewRemoteHost", ""],
+          ["NewExternalPort", open.port],
+          ["NewProtocol", "TCP"],
+        ],
+        budget,
+      );
       if (!result.ok) log(`não consegui desfazer a porta ${open.port} no roteador (${result.detail})`);
-    });
+    })();
     try {
-      await Promise.race([deleting, deadline]);
+      await Promise.race([undo, deadline]);
     } finally {
       clearTimeout(timer);
     }
@@ -158,17 +190,13 @@ export function upnpPortMapper(
       log(`o roteador não abriu a porta ${port} (${added.detail})`);
       return { ok: false, reason: "refused" };
     }
-    let renew: ReturnType<typeof setInterval> | null = null;
+    const opened: OpenPort = { service, port, renew: null, renewing: null, closed: false };
     if (lease > 0) {
-      renew = setInterval(() => {
-        void addPortMapping(service, port, localIp, lease).then((result) => {
-          if (!result.ok) log(`não consegui renovar a porta ${port} no roteador (${result.detail})`);
-        });
-      }, RENEW_MS);
+      opened.renew = setInterval(() => renewOnce(opened, localIp, lease), RENEW_MS);
       // A renovação não segura o app aberto.
-      renew.unref();
+      opened.renew.unref();
     }
-    current = { service, port, renew };
+    current = opened;
     const answer = await soap(transport, service, "GetExternalIPAddress", [], AbortSignal.timeout(ANSWER_MS));
     if (!answer.ok) {
       log(`o roteador abriu a porta, mas não disse o IP público (${answer.detail})`);
