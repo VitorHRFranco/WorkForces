@@ -132,7 +132,7 @@ describe("forwardToOffice", () => {
     }
   });
 
-  it("com âncora, erro de certificado diz que o certificado mudou e pede convite novo; sem âncora, a mensagem de sempre", async () => {
+  it("com âncora, erro de certificado diz que o certificado mudou e pede convite novo; sem âncora, pede o convite com o link workforces://", async () => {
     const rejecting = (async () => {
       throw new TypeError("fetch failed", { cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" } });
     }) as typeof fetch;
@@ -141,7 +141,9 @@ describe("forwardToOffice", () => {
     expect(pinned.response.status).toBe(502);
     expect(await pinned.response.json()).toEqual({ error: "o certificado de escritorio.exemplo mudou desde que você entrou; peça um convite novo a quem administra o escritório" });
     const plain = await forwardToOffice({ url: "https://escritorio.exemplo", session: "s1", anchor: null }, request(), rejecting);
-    expect(((await plain.response.json()) as { error: string }).error).toContain("não é confiável neste computador");
+    expect(await plain.response.json()).toEqual({
+      error: "o certificado de escritorio.exemplo não é confiável neste computador; peça um convite novo (o link workforces://) a quem administra o escritório",
+    });
   });
 
   it("resposta grande demais dá 502, pelo content-length ou pelo que chegou", async () => {

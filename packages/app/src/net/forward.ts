@@ -110,7 +110,7 @@ export async function forwardToOffice(target: ForwardTarget, request: Request, f
       if (target.anchor !== null) {
         return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} mudou desde que você entrou; peça um convite novo a quem administra o escritório`));
       }
-      return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} não é confiável neste computador; peça a quem administra o escritório o certificado da rede interna`));
+      return failed(jsonError(BAD_GATEWAY, `o certificado de ${url.host} não é confiável neste computador; peça um convite novo (o link workforces://) a quem administra o escritório`));
     }
     return failed(jsonError(BAD_GATEWAY, `não consegui falar com ${url.host}; confira a internet ou a VPN e tente de novo`));
   }
