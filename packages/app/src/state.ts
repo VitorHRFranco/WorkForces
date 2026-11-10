@@ -38,10 +38,14 @@ export class AppState {
     private readonly hostedPin: () => string | null = () => null,
   ) {}
 
-  /** Primeira tela: o último escritório com sessão, ou a tela inicial (com o aviso do perfil ilegível, se houver). */
+  /**
+   * Primeira tela: o último escritório com sessão, ou a tela inicial (com o aviso do perfil ilegível, se houver).
+   * O escritório deste computador nunca abre sozinho: ele começa desligado, e a tela inicial tem o "Ligar e entrar".
+   */
   startup(): AppRoute {
     const last = this.store.lastUsed();
-    if (last && last.session !== null) {
+    const hosted = this.hostedPin();
+    if (last && last.session !== null && (hosted === null || last.pin !== hosted)) {
       this.open_ = { url: last.url, officeId: last.id, userName: last.userName, session: last.session, bridgeToken: last.bridgeToken, pin: last.pin, anchor: last.anchor, sessionExpired: false };
       return { page: "office" };
     }

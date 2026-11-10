@@ -233,5 +233,15 @@ describe("AppState", () => {
       expect(OfficeStore.load(file, box).list()).toEqual([expect.objectContaining({ url: LOCAL, pin: HOSTED_PIN, anchor: "PEM" })]);
       expect(state.findHosted()).toBe(state.current()!.id);
     });
+
+    it("abrir o app com o escritório deste computador como último usado vai à tela inicial, não para dentro dele", () => {
+      const state = new AppState(OfficeStore.load(file, box), () => HOSTED_PIN);
+      state.openInvite({ server: "https://outro.exemplo", code: "abc", pin: "O".repeat(43) }, "OUTRA");
+      state.applyAuth({ session: "s2", userName: "ana" });
+      state.openInvite({ server: LOCAL, code: "abc", pin: HOSTED_PIN }, "PEM");
+      state.applyAuth({ session: "s1", userName: "ana" });
+      expect(new AppState(OfficeStore.load(file, box), () => HOSTED_PIN).startup()).toEqual({ page: "launcher" });
+      expect(new AppState(OfficeStore.load(file, box), () => null).startup()).toEqual({ page: "office" });
+    });
   });
 });
