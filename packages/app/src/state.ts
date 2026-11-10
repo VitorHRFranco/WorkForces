@@ -2,6 +2,8 @@ import type { AddressChange, AppRoute, CurrentOffice, OfficeSummary } from "@wor
 import { parseOfficeAddress, type Invite } from "./links.js";
 import type { OfficeStore } from "./offices/store.js";
 
+const MISSING = "esse escritório não está mais na lista";
+
 export interface ForwardTarget {
   url: string;
   session: string | null;
@@ -75,7 +77,7 @@ export class AppState {
 
   open(id: string): AppRoute {
     const entry = this.store.get(id);
-    if (!entry) return { page: "launcher", notice: "esse escritório não está mais na lista" };
+    if (!entry) return { page: "launcher", notice: MISSING };
     this.open_ = { url: entry.url, officeId: entry.id, userName: entry.userName, session: entry.session, bridgeToken: entry.bridgeToken, pin: entry.pin, anchor: entry.anchor, sessionExpired: false };
     this.store.markUsed(id);
     return entry.session !== null ? { page: "office" } : { page: "login" };
@@ -87,12 +89,19 @@ export class AppState {
     this.store.forget(id);
   }
 
-  /** Troca o endereço de um escritório salvo; se era o aberto, fecha: ele aponta para o endereço antigo. */
+  /**
+   * Troca o endereço de um escritório salvo; se era o aberto, fecha: ele aponta para o endereço antigo. Só com pino e
+   * https: é o pino que garante que o endereço novo é o mesmo escritório, e a sessão e o token da ponte vão junto.
+   */
   changeAddress(id: string, address: string): AddressChange {
+    const entry = this.store.get(id);
+    if (!entry) return { ok: false, error: MISSING };
+    if (entry.pin === null) return { ok: false, error: "esse escritório não tem pino: para mudar o endereço, peça um convite novo a quem cuida dele" };
     const parsed = parseOfficeAddress(address);
     if ("error" in parsed) return { ok: false, error: parsed.error };
+    if (new URL(parsed.url).protocol !== "https:") return { ok: false, error: "use um endereço https:// (o pino só vale com https)" };
     const result = this.store.setUrl(id, parsed.url);
-    if (result === "missing") return { ok: false, error: "esse escritório não está mais na lista" };
+    if (result === "missing") return { ok: false, error: MISSING };
     if (result === "duplicate") return { ok: false, error: "esse endereço já está salvo com a mesma conta; esqueça um dos dois antes" };
     if (this.open_?.officeId === id) this.open_ = null;
     return { ok: true };
@@ -112,6 +121,7 @@ export class AppState {
       userName: entry.userName,
       loggedIn: entry.session !== null,
       hosted: hostedPin !== null && entry.pin === hostedPin,
+      pinned: entry.pin !== null,
     }));
   }
 

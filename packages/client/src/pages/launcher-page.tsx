@@ -3,11 +3,15 @@ import { useEffect, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import { takeFlash } from "../flash";
 import { navigate, routePath } from "../router";
-import { hostStateText, useHostStatus } from "./host-page";
+import { AddressChangedNotice, hostStateText, useHostStatus } from "./host-page";
 
 type Reach = "checking" | "up" | "down";
 
-const reachText: Record<Reach, string> = { checking: "conferindo…", up: "no ar", down: "fora do ar · se o endereço mudou, use \"Trocar endereço\"" };
+const reachText: Record<Reach, string> = { checking: "conferindo…", up: "no ar", down: "fora do ar" };
+
+/** A dica de trocar o endereço só vale para escritório com pino: sem ele, o app não deixa trocar. */
+const reachLine = (reach: Reach, pinned: boolean): string =>
+  reach === "down" && pinned ? `${reachText.down} · se o endereço mudou, use "Trocar endereço"` : reachText[reach];
 
 export function LauncherPage() {
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
@@ -150,6 +154,7 @@ export function LauncherPage() {
           </li>
         </ul>
       )}
+      {host && <AddressChangedNotice status={host} />}
       <h2>Seus escritórios</h2>
       {common && common.length === 0 && <p class="muted">Nenhum escritório ainda. Entre com o convite que você recebeu.</p>}
       <ul class="offices">
@@ -158,7 +163,7 @@ export function LauncherPage() {
             <div>
               <strong>{office.host}</strong>
               <span class="muted">{office.userName ? `como ${office.userName}` : "sem conta salva"}</span>
-              <span class="muted">{reachText[reach[office.id] ?? "checking"]}</span>
+              <span class="muted">{reachLine(reach[office.id] ?? "checking", office.pinned)}</span>
             </div>
             <button type="button" aria-label={`Entrar em ${office.host}`} disabled={busy} onClick={() => void run(() => bridge.offices.open(office.id))}>
               Entrar
@@ -166,17 +171,20 @@ export function LauncherPage() {
             <button type="button" aria-label={`Esquecer ${office.host}`} onClick={() => void forget(office)}>
               Esquecer
             </button>
-            <button
-              type="button"
-              aria-label={`Trocar o endereço de ${office.host}`}
-              onClick={() => {
-                setNewAddress("");
-                setChanging(office.id);
-              }}
-            >
-              Trocar endereço
-            </button>
-            {changing === office.id && (
+            {/* Sem pino, nada prova que o endereço novo é o mesmo escritório: a sessão e o token iriam para qualquer um. */}
+            {office.pinned && (
+              <button
+                type="button"
+                aria-label={`Trocar o endereço de ${office.host}`}
+                onClick={() => {
+                  setNewAddress("");
+                  setChanging(office.id);
+                }}
+              >
+                Trocar endereço
+              </button>
+            )}
+            {office.pinned && changing === office.id && (
               <form onSubmit={(event) => void submitChange(event, office)}>
                 <label>
                   Novo endereço

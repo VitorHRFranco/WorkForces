@@ -23,6 +23,16 @@ export function hostStateText(status: HostStatus): string {
   }
 }
 
+/** O endereço do convite mudou desde a última vez que o escritório ligou; a tela inicial e a do anfitrião mostram. */
+export function AddressChangedNotice({ status }: { status: HostStatus }) {
+  if (!status.addressChanged) return null;
+  return (
+    <p class="notice" role="status">
+      {`o endereço deste computador mudou de ${status.addressChanged.from} para ${status.addressChanged.to}; quem já entrou precisa usar "Trocar endereço" no app`}
+    </p>
+  );
+}
+
 /** Ouve o estado do escritório deste computador; o que chega pelo aviso vale mais que a primeira leitura. */
 export function useHostStatus(onFirst: (status: HostStatus) => void, onError: () => void): [HostStatus | null, (status: HostStatus) => void] {
   const [status, setStatus] = useState<HostStatus | null>(null);
@@ -165,11 +175,7 @@ export function HostPage() {
           {text}
         </p>
       ))}
-      {status?.addressChanged && (
-        <p class="notice" role="status">
-          {`o endereço deste computador mudou de ${status.addressChanged.from} para ${status.addressChanged.to}; quem já entrou precisa usar "Trocar endereço" no app`}
-        </p>
-      )}
+      {status && <AddressChangedNotice status={status} />}
       {status && (
         <form onSubmit={submit}>
           <div role="radiogroup" aria-label="Modo">

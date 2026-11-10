@@ -127,13 +127,22 @@ export class OfficeStore {
     return this.last === null ? null : this.get(this.last);
   }
 
-  /** Mesmo endereço e mesmo nome atualizam a entrada; senão, cria outra. Vira o último usado. */
+  /**
+   * Mesmo endereço, mesmo nome e o mesmo pino (ou a entrada sem pino que ganha um) atualizam a entrada; senão, cria
+   * outra. Vira o último usado.
+   */
   saveLogin(url: string, userName: string, session: string, tls: { pin: string | null; anchor: string | null }): StoredOffice {
-    let entry = this.offices.find((e) => e.url === url && e.userName === userName);
+    // Com pino, o mesmo IP de rede local se repete entre escritórios: o pino é que diz se é o mesmo. Juntar dois
+    // levaria a sessão e o token da ponte de um para o outro.
+    const same = this.offices.filter((e) => e.url === url && e.userName === userName);
+    let entry = same.find((e) => e.pin === tls.pin) ?? (tls.pin !== null ? same.find((e) => e.pin === null) : undefined);
     if (entry) {
       entry.session = session;
-      entry.pin = tls.pin;
-      entry.anchor = tls.anchor;
+      // Sem pino para com pino: o mesmo endereço passou a ser conferido pelo certificado do convite.
+      if (entry.pin === null) {
+        entry.pin = tls.pin;
+        entry.anchor = tls.anchor;
+      }
     } else {
       entry = { id: randomUUID(), url, userName, session, bridgeToken: null, pin: tls.pin, anchor: tls.anchor };
       this.offices.push(entry);
@@ -161,7 +170,8 @@ export class OfficeStore {
   setUrl(id: string, url: string): "ok" | "duplicate" | "missing" {
     const entry = this.offices.find((e) => e.id === id);
     if (!entry) return "missing";
-    if (this.offices.some((e) => e.id !== id && e.url === url && e.userName === entry.userName)) return "duplicate";
+    // Outro pino no mesmo endereço é outro escritório (como no `saveLogin`): só a mesma conta no mesmo escritório duplica.
+    if (this.offices.some((e) => e.id !== id && e.url === url && e.userName === entry.userName && e.pin === entry.pin)) return "duplicate";
     entry.url = url;
     this.persist();
     return "ok";

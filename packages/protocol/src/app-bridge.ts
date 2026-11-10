@@ -12,6 +12,8 @@ export interface OfficeSummary {
   loggedIn: boolean;
   /** É o escritório deste computador (o pino é o dele): a tela inicial o mostra em "Neste computador". */
   hosted: boolean;
+  /** Tem pino (não é segredo): só assim o app aceita trocar o endereço, porque o pino prova que é o mesmo escritório. */
+  pinned: boolean;
 }
 
 /** O escritório aberto agora; `id` é null até a conta ser criada ou o login ser feito. */

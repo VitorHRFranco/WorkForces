@@ -96,6 +96,57 @@ describe("OfficeStore", () => {
     expect(OfficeStore.load(file, box()).list()).toEqual([expect.objectContaining({ pin, anchor: "PEM" })]);
   });
 
+  describe("saveLogin com pino", () => {
+    const URL_LAN = "https://192.168.0.10:4600";
+    const A = { pin: "A".repeat(43), anchor: "PEM-A" };
+    const B = { pin: "B".repeat(43), anchor: "PEM-B" };
+
+    it("pinos diferentes no mesmo endereço e nome são escritórios diferentes: a entrada antiga fica como estava", () => {
+      const store = OfficeStore.load(file, box());
+      const a = store.saveLogin(URL_LAN, "ana", "s-a", A);
+      store.setBridgeToken(a.id, "token-de-a");
+      const b = store.saveLogin(URL_LAN, "ana", "s-b", B);
+      expect(b.id).not.toBe(a.id);
+      expect(b).toMatchObject({ session: "s-b", bridgeToken: null, ...B });
+      const reloaded = OfficeStore.load(file, box());
+      expect(reloaded.list()).toHaveLength(2);
+      expect(reloaded.get(a.id)).toMatchObject({ session: "s-a", bridgeToken: "token-de-a", ...A });
+      expect(reloaded.get(b.id)).toMatchObject({ session: "s-b", bridgeToken: null, ...B });
+      expect(reloaded.lastUsed()!.id).toBe(b.id);
+    });
+
+    it("mesmo pino atualiza a sessão da mesma entrada", () => {
+      const store = OfficeStore.load(file, box());
+      const first = store.saveLogin(URL_LAN, "ana", "s1", A);
+      store.setBridgeToken(first.id, "tok");
+      const again = store.saveLogin(URL_LAN, "ana", "s2", A);
+      expect(again.id).toBe(first.id);
+      expect(store.list()).toHaveLength(1);
+      expect(store.get(first.id)).toMatchObject({ session: "s2", bridgeToken: "tok", ...A });
+    });
+
+    it("login sem pino no endereço de uma entrada com pino cria outra; a com pino continua com ele", () => {
+      const store = OfficeStore.load(file, box());
+      const pinned = store.saveLogin(URL_LAN, "ana", "s1", A);
+      store.setBridgeToken(pinned.id, "tok");
+      const plain = store.saveLogin(URL_LAN, "ana", "s2", NO_TLS);
+      expect(plain.id).not.toBe(pinned.id);
+      expect(plain).toMatchObject({ session: "s2", bridgeToken: null, pin: null, anchor: null });
+      expect(store.get(pinned.id)).toMatchObject({ session: "s1", bridgeToken: "tok", ...A });
+    });
+
+    it("trocar o endereço é duplicado só quando a outra entrada tem também o mesmo pino", () => {
+      const store = OfficeStore.load(file, box());
+      const a = store.saveLogin("https://a.exemplo", "ana", "s1", A);
+      store.saveLogin("https://b.exemplo", "ana", "s2", A);
+      store.saveLogin("https://c.exemplo", "ana", "s3", B);
+      expect(store.setUrl(a.id, "https://b.exemplo")).toBe("duplicate");
+      expect(store.get(a.id)!.url).toBe("https://a.exemplo");
+      expect(store.setUrl(a.id, "https://c.exemplo")).toBe("ok");
+      expect(store.get(a.id)).toMatchObject({ url: "https://c.exemplo", ...A });
+    });
+  });
+
   it("pin sem anchor, ou o contrário, deixa o arquivo ilegível", () => {
     for (const tls of [{ pin: "C".repeat(43), anchor: null }, { pin: null, anchor: "PEM" }]) {
       rmSync(file + ".bad", { force: true });

@@ -162,15 +162,17 @@ describe("AppState", () => {
     expect(OfficeStore.load(file, box).get(b.id)).toMatchObject({ bridgeToken: null });
   });
   describe("changeAddress", () => {
-    const saved = (state: AppState, server: string, name: string) => {
-      state.openInvite({ server, code: "abc", pin: null }, null);
+    const PIN = "C".repeat(43);
+    /** Só o escritório com pino troca de endereço: o pino prova que o endereço novo é o mesmo escritório. */
+    const saved = (state: AppState, server: string, name: string, pin: string | null = PIN) => {
+      state.openInvite({ server, code: "abc", pin }, pin === null ? null : "PEM");
       state.applyAuth({ session: `s-${name}`, userName: name });
       return state.agentOffice()!.id;
     };
 
     it("aceita endereço sem https:// e fecha o escritório trocado se era o aberto", () => {
       const state = fresh();
-      const id = saved(state, "http://localhost:4600", "ana");
+      const id = saved(state, "https://192.168.0.10:4600", "ana");
       expect(state.changeAddress(id, "192.168.0.20:4600")).toEqual({ ok: true });
       expect(state.list()[0]!.url).toBe("https://192.168.0.20:4600");
       expect(state.current()).toBeNull();
@@ -178,20 +180,50 @@ describe("AppState", () => {
 
     it("não fecha o aberto quando troca o endereço de outro", () => {
       const state = fresh();
-      const a = saved(state, "http://localhost:4600", "ana");
-      saved(state, "http://localhost:4700", "bia");
+      const a = saved(state, "https://192.168.0.10:4600", "ana");
+      saved(state, "https://192.168.0.10:4700", "bia");
       expect(state.changeAddress(a, "192.168.0.20:4600")).toEqual({ ok: true });
       expect(state.current()).not.toBeNull();
     });
 
     it("recusa endereço inválido, duplicado e id sumido, com a mensagem de cada caso", () => {
       const state = fresh();
-      const a = saved(state, "http://localhost:4600", "ana");
-      saved(state, "http://localhost:4700", "ana");
+      const a = saved(state, "https://192.168.0.10:4600", "ana");
+      saved(state, "https://192.168.0.10:4700", "ana");
       expect(state.changeAddress(a, "")).toEqual({ ok: false, error: expect.any(String) });
-      expect(state.changeAddress(a, "http://localhost:4700")).toEqual({ ok: false, error: "esse endereço já está salvo com a mesma conta; esqueça um dos dois antes" });
+      expect(state.changeAddress(a, "https://192.168.0.10:4700")).toEqual({ ok: false, error: "esse endereço já está salvo com a mesma conta; esqueça um dos dois antes" });
       expect(state.changeAddress("nao-existe", "192.168.0.20:4600")).toEqual({ ok: false, error: "esse escritório não está mais na lista" });
       expect(state.current()).not.toBeNull();
+    });
+
+    it("escritório sem pino não troca de endereço: pede um convite novo, e o endereço fica", () => {
+      const state = fresh();
+      const id = saved(state, "https://escritorio.exemplo", "ana", null);
+      expect(state.changeAddress(id, "https://golpe.exemplo")).toEqual({
+        ok: false,
+        error: "esse escritório não tem pino: para mudar o endereço, peça um convite novo a quem cuida dele",
+      });
+      expect(state.list()[0]!.url).toBe("https://escritorio.exemplo");
+      expect(state.current()).not.toBeNull();
+    });
+
+    it("com pino, o endereço novo precisa ser https: o pino não vale em http", () => {
+      const state = fresh();
+      const id = saved(state, "https://192.168.0.10:4600", "ana");
+      expect(state.changeAddress(id, "http://127.0.0.1:4600")).toEqual({ ok: false, error: "use um endereço https:// (o pino só vale com https)" });
+      expect(state.list()[0]!.url).toBe("https://192.168.0.10:4600");
+      expect(state.changeAddress(id, "https://127.0.0.1:4600")).toEqual({ ok: true });
+      expect(state.list()[0]!.url).toBe("https://127.0.0.1:4600");
+    });
+
+    it("list diz quais escritórios têm pino", () => {
+      const state = fresh();
+      saved(state, "https://192.168.0.10:4600", "ana");
+      saved(state, "https://escritorio.exemplo", "ana", null);
+      expect(state.list().map((office) => [office.url, office.pinned])).toEqual([
+        ["https://192.168.0.10:4600", true],
+        ["https://escritorio.exemplo", false],
+      ]);
     });
   });
 
