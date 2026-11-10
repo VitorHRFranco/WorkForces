@@ -141,6 +141,9 @@ test("o anfitrião cria o escritório neste computador, o convidado entra pelo p
   await guest.page.getByRole("button", { name: `Entrar em 127.0.0.1:${port}` }).click();
   // Direto no escritório, ainda como bruno: sem login de novo e sem convite novo.
   await expect(guest.page.locator(".topbar .who")).toHaveText("bruno", { timeout: PAGE_MS });
+  // A mesma entrada, com o endereço novo e o mesmo pino.
+  const moved = JSON.parse(readFileSync(join(guest.dataDir, "offices.json"), "utf8")) as { offices: { url: string; pin: string | null }[] };
+  expect(moved.offices.map((office) => [office.url, office.pin])).toEqual([[`https://127.0.0.1:${port}`, saved.pin]]);
 
   // 5. WAN sem roteador: o runner não tem UPnP. A tela ensina a abrir a porta à mão, e o convite fica com a rede local.
   await host.page.getByRole("button", { name: "Escritórios", exact: true }).click();
