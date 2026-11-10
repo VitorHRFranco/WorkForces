@@ -49,6 +49,11 @@ function WanReport({ status, wan }: { status: HostStatus; wan: WanStatus }) {
   const port = status.settings?.port;
   return (
     <>
+      {wan.mapping === "port-taken" && (
+        <p class="notice" role="status">
+          {`o roteador diz que a porta ${port} já está redirecionada para outro aparelho: escolha outra porta em Porta ou apague o redirecionamento antigo no roteador.`}
+        </p>
+      )}
       {wan.mapping === "mapped" ? (
         <p class="notice" role="status">{`porta ${port} aberta no roteador (UPnP)`}</p>
       ) : (
@@ -121,7 +126,10 @@ export function HostPage() {
     // O endereço da internet só vale na WAN; na LAN, o salvo fica como está. Campo vazio é "sem endereço".
     const typed = wanAddress.trim();
     const wan = mode === "wan" ? (typed === "" ? null : typed) : (status?.settings?.wanAddress ?? null);
-    const input: HostSettingsInput = { mode, port: Number(port), lanAddress: address === "" ? null : address, wanAddress: wan };
+    // Na WAN o seletor de rede fica escondido: null deixa o app usar a sugestão do momento, e uma rede que sumiu com a tela
+    // aberta não vira "escolha um da lista" num campo que a pessoa nem vê.
+    const lan = mode === "wan" || address === "" ? null : address;
+    const input: HostSettingsInput = { mode, port: Number(port), lanAddress: lan, wanAddress: wan };
     const result = await bridge.host.configure(input);
     if (!result.ok) {
       setError(result.error);

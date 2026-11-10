@@ -1,3 +1,4 @@
+import { isIPv4 } from "node:net";
 import type { HostAddressInfo, HostConfigResult, HostSettingsInput, HostState, HostStatus, WanStatus } from "@workforces/protocol";
 import { suggestAddress } from "./addresses.js";
 import type { EmbeddedServer } from "./server-process.js";
@@ -38,6 +39,9 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 
 /** O host que vai no convite; `loopback` é o próprio computador (sem rede) e `lanFallback`, a LAN no lugar da internet. */
 type InviteHost = { host: string; loopback: boolean; lanFallback: boolean };
+
+/** O que vem do roteador não é confiável: só um IPv4 vale como IP público (nem aviso, nem convite com o resto). */
+const onlyIPv4 = (mapped: MapResult): MapResult => (mapped.ok && mapped.externalIp !== null && !isIPv4(mapped.externalIp) ? { ok: true, externalIp: null } : mapped);
 
 /** O escritório deste computador: as escolhas, o servidor embutido e o estado que a tela mostra. */
 export class Host {
@@ -198,7 +202,9 @@ export class Host {
     if (settings.wanAddress !== null) return { host: settings.wanAddress, loopback: false, lanFallback: false };
     const externalIp = mapped?.ok ? mapped.externalIp : null;
     if (externalIp !== null && classifyIp(externalIp) === "public") return { host: externalIp, loopback: false, lanFallback: false };
-    return { ...this.lanHost(settings), lanFallback: true };
+    // Sem rede nenhuma, o 127.0.0.1 não é "o endereço da rede local": o aviso de nenhuma rede já cobre esse caso.
+    const lan = this.lanHost(settings);
+    return { ...lan, lanFallback: !lan.loopback };
   }
 
   /** O que a tela mostra da WAN: a porta no roteador, o IP que ele informa e o IP local para o passo a passo. */
@@ -226,7 +232,7 @@ export class Host {
       let mapped: MapResult | null = null;
       if (settings.mode === "wan") {
         this.portOpen = true;
-        mapped = await this.deps.portMapper.open(settings.port);
+        mapped = onlyIPv4(await this.deps.portMapper.open(settings.port));
       }
       const invite = this.inviteHost(settings, mapped);
       const publicUrl = `https://${invite.host}:${settings.port}`;

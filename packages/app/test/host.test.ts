@@ -322,6 +322,46 @@ describe("Host em WAN", () => {
     expect(portMapper.ports).toEqual([]);
   });
 
+  it("sem rede nenhuma: o convite em 127.0.0.1 não é chamado de endereço da rede local", async () => {
+    const { host, portMapper } = setup({ addresses: [] });
+    portMapper.result = { ok: false, reason: "no-gateway" };
+    await host.configure({ ...WAN, lanAddress: null });
+    expect((await host.turnOn()).ok).toBe(true);
+    expect(host.status()).toMatchObject({
+      state: "on",
+      inviteOrigin: "https://127.0.0.1:4600",
+      usingLanFallback: false,
+      error: "este computador não está em nenhuma rede: só ele alcança o escritório",
+    });
+  });
+
+  it("o roteador informa algo que não é IPv4: não vira aviso de CGNAT nem vai no convite", async () => {
+    const { host, server, portMapper } = setup();
+    portMapper.result = { ok: true, externalIp: "<b>203.0.113.7</b>" };
+    await host.configure(WAN);
+    await host.turnOn();
+    expect(server.launches[0]!.publicUrl).toBe("https://192.168.0.10:4600");
+    expect(host.status()).toMatchObject({ usingLanFallback: true, wan: { mapping: "mapped", externalIp: null, notPublic: false } });
+  });
+
+  it.each(["port-in-use", "timeout"] as const)("o servidor não sobe (%s): a porta no roteador é desfeita", async (error) => {
+    const { host, server } = setup();
+    await host.configure(WAN);
+    server.results.push({ ok: false, error });
+    expect((await host.turnOn()).ok).toBe(false);
+    expect(server.calls).toEqual(["open", "start", "close"]);
+    expect(host.status()).toMatchObject({ state: "off", wan: null, usingLanFallback: false });
+  });
+
+  it("o servidor saiu sozinho: a porta no roteador é desfeita", async () => {
+    const { host, server } = setup();
+    await host.configure(WAN);
+    await host.turnOn();
+    server.crash();
+    await vi.waitFor(() => expect(server.calls).toEqual(["open", "start", "close"]));
+    expect(host.status()).toMatchObject({ state: "off", wan: null });
+  });
+
   it("configure recusa endereço da internet com esquema ou porta e diz como escrever", async () => {
     const { host } = setup();
     const error = "use um IP (como 203.0.113.7) ou um nome (como escritorio.ddns.net), sem https:// e sem porta";

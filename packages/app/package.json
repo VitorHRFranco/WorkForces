@@ -9,7 +9,6 @@
     "start": "electron ."
   },
   "dependencies": {
-    "@achingbrain/nat-port-mapper": "4.0.5",
     "@workforces/bridge": "workspace:*",
     "@workforces/protocol": "workspace:*",
     "@workforces/server": "workspace:*",
