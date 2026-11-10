@@ -1,4 +1,4 @@
-import { fork as nodeFork } from "node:child_process";
+import { fork as nodeFork, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer as netServer, connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -54,14 +54,19 @@ const launchFor = (entry: string, port: number): ServerLaunch => ({
   dataDir: dir,
 });
 
-function fakeServer(mode: string, extra: { readyTimeoutMs?: number; envSeen?: NodeJS.ProcessEnv[] } = {}) {
+/** `mode` em lista: um modo por filho, na ordem dos `start`. */
+function fakeServer(mode: string | string[], extra: { readyTimeoutMs?: number; envSeen?: NodeJS.ProcessEnv[]; children?: ChildProcess[] } = {}) {
   const logs: string[] = [];
+  const modes = typeof mode === "string" ? [] : [...mode];
+  const next = (): string => (typeof mode === "string" ? mode : (modes.shift() ?? "ready"));
   const server = new EmbeddedServer({
     log: (message) => logs.push(message),
     readyTimeoutMs: extra.readyTimeoutMs,
     fork: ((entry, args, options) => {
       extra.envSeen?.push(options?.env ?? {});
-      return nodeFork(entry, args, { ...options, env: { ...options?.env, FAKE_MODE: mode } });
+      const child = nodeFork(entry, args, { ...options, env: { ...options?.env, FAKE_MODE: next() } });
+      extra.children?.push(child);
+      return child;
     }) as typeof nodeFork,
   });
   servers.push(server);
@@ -88,6 +93,16 @@ describe("EmbeddedServer com o dublê", () => {
     const { server } = fakeServer("silent", { readyTimeoutMs: 500 });
     expect(await server.start(launchFor(fakeEntry, 4700))).toEqual({ ok: false, error: "timeout" });
     await expect.poll(() => server.running(), { timeout: 3000 }).toBe(false);
+  });
+
+  it("filho preso na subida (ignora o SIGTERM e o stop) some no prazo, e o start seguinte funciona", async () => {
+    const children: ChildProcess[] = [];
+    const { server } = fakeServer(["hung", "ready"], { readyTimeoutMs: 500, children });
+    expect(await server.start(launchFor(fakeEntry, 4700))).toEqual({ ok: false, error: "timeout" });
+    // Logo depois do prazo, sem esperar: o filho preso não pode travar a próxima tentativa.
+    expect((await server.start(launchFor(fakeEntry, 4700))).ok).toBe(true);
+    const hung = children[0]!;
+    await expect.poll(() => hung.exitCode !== null || hung.signalCode !== null, { timeout: 3000 }).toBe(true);
   });
 
   it("saída que ninguém pediu chama onExit", async () => {

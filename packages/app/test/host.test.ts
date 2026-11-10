@@ -85,23 +85,29 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-function setup(options: { node?: string | null; addresses?: HostAddressInfo[] } = {}) {
+function setup(options: { node?: string | null; addresses?: HostAddressInfo[]; local?: boolean } = {}) {
   const server = new FakeServer();
   const portMapper = new FakePortMapper(server.calls);
   const states: HostState[] = [];
   const network = { list: options.addresses ?? [WIFI, HAMACHI] };
+  /** O que o `Host` conferiu em 127.0.0.1: o endereço e o pino. */
+  const confirmed: Array<[string, string]> = [];
   const host = new Host({
     settings: HostSettingsStore.load(file, () => {}),
     server,
     portMapper,
     findNode: async () => (options.node === undefined ? NODE : options.node),
     addresses: () => network.list,
+    confirmLocal: async (url, pin) => {
+      confirmed.push([url, pin]);
+      return options.local ?? true;
+    },
     entry: ENTRY,
     dataDir: join(dir, "office"),
     emit: (status) => states.push(status.state),
     log: () => {},
   });
-  return { host, server, portMapper, states, network };
+  return { host, server, portMapper, states, network, confirmed };
 }
 
 const saved = () => HostSettingsStore.load(file, () => {}).get();
@@ -150,6 +156,27 @@ describe("Host", () => {
     const error = 'a porta 4600 já está em uso por outro programa; escolha outra em "Porta"';
     expect(await host.turnOn()).toEqual({ ok: false, error });
     expect(host.status()).toMatchObject({ state: "off", error, inviteOrigin: null });
+  });
+
+  it("outro programa só em 127.0.0.1 na porta (Windows deixa o bind em 0.0.0.0): o servidor para e a tela diz porta em uso", async () => {
+    const { host, server, confirmed } = setup({ local: false });
+    await host.configure(LAN);
+    const error = 'a porta 4600 já está em uso por outro programa; escolha outra em "Porta"';
+    expect(await host.turnOn()).toEqual({ ok: false, error });
+    expect(confirmed).toEqual([["https://127.0.0.1:4600", PIN]]);
+    expect(server.calls).toEqual(["start", "stop"]);
+    expect(host.status()).toMatchObject({ state: "off", error, inviteOrigin: null });
+    // Nada fica valendo de um servidor que o anfitrião não alcança.
+    expect(saved()).toMatchObject({ pin: null, lastInviteHost: null });
+  });
+
+  it("o loopback confere com o pino: liga como sempre", async () => {
+    const { host, server, confirmed } = setup();
+    await host.configure(LAN);
+    expect(await host.turnOn()).toEqual({ ok: true, pin: PIN, anchor: "PEM", adminInvite: "convite-admin" });
+    expect(confirmed).toEqual([["https://127.0.0.1:4600", PIN]]);
+    expect(server.calls).toEqual(["start"]);
+    expect(host.status()).toMatchObject({ state: "on", inviteOrigin: "https://192.168.0.10:4600", error: null });
   });
 
   it("LAN: o convite leva o endereço escolhido; o pino e o endereço são gravados depois do ready", async () => {
@@ -351,6 +378,15 @@ describe("Host em WAN", () => {
     expect((await host.turnOn()).ok).toBe(false);
     expect(server.calls).toEqual(["open", "start", "close"]);
     expect(host.status()).toMatchObject({ state: "off", wan: null, usingLanFallback: false });
+  });
+
+  it("o loopback não confere: para o servidor, desfaz a porta no roteador e fica a porta em uso", async () => {
+    const { host, server } = setup({ local: false });
+    await host.configure(WAN);
+    const error = 'a porta 4600 já está em uso por outro programa; escolha outra em "Porta"';
+    expect(await host.turnOn()).toEqual({ ok: false, error });
+    expect(server.calls).toEqual(["open", "start", "stop", "close"]);
+    expect(host.status()).toMatchObject({ state: "off", error, inviteOrigin: null, wan: null, usingLanFallback: false });
   });
 
   it("o servidor saiu sozinho: a porta no roteador é desfeita", async () => {

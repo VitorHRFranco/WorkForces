@@ -71,8 +71,11 @@ export class EmbeddedServer {
       };
       const timer = setTimeout(() => {
         expected = true;
+        // SIGKILL, como no prazo do `stop`: o filho que não respondeu pode estar preso na subida, e o SIGTERM cairia no
+        // fechamento dele, que espera a subida. Solto já, para a próxima tentativa não esbarrar nele.
+        child.kill("SIGKILL");
+        if (this.child === child) this.child = null;
         settle({ ok: false, error: "timeout" });
-        child.kill();
       }, this.readyTimeoutMs);
       child.on("message", (message: EmbeddedToHost) => {
         if (settled) return;

@@ -35,7 +35,7 @@ import { upnpPortMapper } from "./host/wan.js";
 import { findInviteArg } from "./links.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
-import { officeFetch } from "./net/pinned.js";
+import { fetchAnchor, officeFetch } from "./net/pinned.js";
 import { prepareInvite } from "./offices/join.js";
 import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
@@ -102,6 +102,8 @@ async function start(): Promise<void> {
   let host: Host | null = null;
   /** O escritório deste computador já foi desligado na saída: o próximo `before-quit` sai de vez. */
   let hostOff = false;
+  /** A saída já pediu o desligar (uma vez só; outro "Sair" no meio só espera o mesmo). */
+  let hostStopping = false;
   /** Os agentes que a página está assistindo: ao trocar de escritório, o app para de assistir todos (eles continuam rodando). */
   const watched = new Set<string>();
   const stopWatching = (): void => {
@@ -150,13 +152,19 @@ async function start(): Promise<void> {
     relay?.closeAll();
     // Só solta os canais: os agentes continuam rodando nas janelas deles, e o app os acha de novo ao reabrir.
     localAgents?.closeAll();
-    // O escritório deste computador desliga antes de o app sair (o servidor fecha o banco e solta a porta); depois, sai de vez.
-    if (host && !hostOff && host.status().state !== "off") {
+    // O escritório deste computador desliga antes de o app sair (o servidor fecha o banco e solta a porta); depois, sai de
+    // vez. Desligado, espera assim mesmo: uma queda logo antes deixa o fechamento da porta no roteador na fila.
+    if (host && !hostOff) {
       event.preventDefault();
-      void host.turnOff().finally(() => {
-        hostOff = true;
-        app.quit();
-      });
+      if (hostStopping) return;
+      hostStopping = true;
+      void host
+        .turnOff()
+        .catch((error: unknown) => console.warn("não consegui desligar o escritório ao sair", error))
+        .finally(() => {
+          hostOff = true;
+          app.quit();
+        });
     }
   });
 
@@ -198,6 +206,7 @@ async function start(): Promise<void> {
     portMapper: upnpPortMapper({ log: console.warn }),
     findNode: () => findNode(),
     addresses: () => listAddresses(),
+    confirmLocal: async (url, pin) => (await fetchAnchor(url, pin)).ok,
     entry: fileURLToPath(new URL("../../server/dist/embedded.js", import.meta.url)),
     dataDir: join(userData, "office"),
     emit: (status) => sendToPage("host:status", status),
@@ -367,6 +376,8 @@ async function start(): Promise<void> {
       if (parsed.error.issues.some((issue) => issue.path[0] === "wanAddress")) return { ok: false, error: WAN_ADDRESS_ERROR };
       throw new Error("argumento inválido");
     }
+    // Saindo, o escritório está desligando: nada aqui pode religá-lo depois do desligar da saída.
+    if (quitting) return { ok: false, error: "o WorkForces está fechando; abra de novo para mudar o escritório" };
     const before = officeHost.localUrl();
     const result = await officeHost.configure(parsed.data);
     const after = officeHost.localUrl();
@@ -381,6 +392,8 @@ async function start(): Promise<void> {
     return result;
   });
   handle("host:enter", async (): Promise<AppRoute> => {
+    // Um "Ligar e entrar" no meio da saída religaria o servidor depois do desligar, e o app sairia com ele no ar.
+    if (quitting) return { page: "launcher" };
     socketRelay.closeAll();
     stopWatching();
     const on = await officeHost.turnOn();

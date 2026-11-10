@@ -2,7 +2,7 @@
 const mode = process.env.FAKE_MODE;
 const ready = { type: "ready", pin: "p".repeat(43), anchor: "ANCHOR", adminInvite: null };
 process.on("message", (message) => {
-  if (message?.type === "stop" && mode !== "stubborn") process.exit(0);
+  if (message?.type === "stop" && mode !== "stubborn" && mode !== "hung") process.exit(0);
 });
 if (mode === "output") {
   console.log("linha-stdout");
@@ -15,6 +15,9 @@ if (mode === "output") {
 } else if (mode === "crash") {
   process.send(ready);
   setTimeout(() => process.exit(3), 200);
+} else if (mode === "hung") {
+  // Preso na subida: nunca fica pronto e ignora o SIGTERM e o stop (fora do Windows, o SIGTERM chega aqui).
+  process.on("SIGTERM", () => {});
 }
 // silent: não manda nada e fica vivo
 setInterval(() => {}, 1000);

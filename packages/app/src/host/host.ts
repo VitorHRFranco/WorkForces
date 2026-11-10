@@ -27,6 +27,8 @@ export interface HostDeps {
   portMapper: PortMapper;
   findNode(): Promise<string | null>;
   addresses(): HostAddressInfo[];
+  /** true quando quem responde em `url` tem o certificado deste `pin` (é o servidor que acabou de subir). */
+  confirmLocal(url: string, pin: string): Promise<boolean>;
   /** O `embedded.js` do servidor. */
   entry: string;
   /** Onde o escritório guarda o banco e o certificado. */
@@ -239,6 +241,13 @@ export class Host {
       const started = await this.deps.server.start({ node, entry: this.deps.entry, host: "0.0.0.0", port: settings.port, publicUrl, dataDir: this.deps.dataDir });
       if (!started.ok) return await this.failed(started.error === "port-in-use" ? portInUse(settings.port) : started.error === "timeout" ? START_TIMEOUT : START_FAILED);
       const { pin, anchor, adminInvite } = started;
+      // No Windows, o bind em 0.0.0.0 dá certo mesmo com outro programa só em 127.0.0.1 na porta, e o anfitrião cairia
+      // nele: quem responde no loopback precisa ter o pino deste servidor.
+      const local = await this.deps.confirmLocal(`https://${LOOPBACK}:${settings.port}`, pin).catch(() => false);
+      if (!local) {
+        await this.deps.server.stop();
+        return await this.failed(portInUse(settings.port));
+      }
       const before = settings.lastInviteHost;
       // Sem rede, o 127.0.0.1 não é o endereço de ninguém: o último endereço de verdade continua valendo para comparar.
       const lastInviteHost = invite.loopback ? before : invite.host;
