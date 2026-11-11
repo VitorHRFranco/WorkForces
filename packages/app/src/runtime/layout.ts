@@ -18,15 +18,18 @@ export function runtimeRootDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform
 export interface RuntimeSource {
   node: string;
   nodeVersion: string;
+  /** O carimbo da montagem (12 hex): muda com qualquer arquivo do servidor ou da ponte, mesmo sem mudar a versão. */
+  build: string;
   serverDir: string;
   bridgeDir: string;
 }
 
 export function packagedSource(resourcesPath: string): RuntimeSource {
   const dir = join(resourcesPath, "runtime");
-  const info = JSON.parse(readFileSync(join(dir, "runtime.json"), "utf8")) as { node?: unknown };
+  const info = JSON.parse(readFileSync(join(dir, "runtime.json"), "utf8")) as { node?: unknown; build?: unknown };
   if (typeof info.node !== "string" || !info.node) throw new Error("runtime.json sem a versão do Node");
-  return { node: join(dir, "node", "node.exe"), nodeVersion: info.node, serverDir: join(dir, "server"), bridgeDir: join(dir, "bridge") };
+  if (typeof info.build !== "string" || !/^[0-9a-f]{12}$/.test(info.build)) throw new Error("runtime.json sem o carimbo da montagem");
+  return { node: join(dir, "node", "node.exe"), nodeVersion: info.node, build: info.build, serverDir: join(dir, "server"), bridgeDir: join(dir, "bridge") };
 }
 
 /** Os caminhos que o app usa para subir o servidor e o invólucro (já na cópia, nunca na instalação). */
@@ -36,6 +39,8 @@ export interface Runtime {
   serverEntry: string;
   mapFile: string;
   bridgeCli: string;
+  /** As pastas de `root` em uso por este app (o Node e a app); a limpeza apaga as outras. */
+  keep: string[];
 }
 
 /** As telas: empacotado, ao lado do `main.js`; em desenvolvimento, nos pacotes do repositório. */

@@ -213,7 +213,7 @@ async function start(): Promise<void> {
     try {
       const source = packagedSource(process.resourcesPath);
       runtime = await ensureRuntime(source, root, app.getVersion());
-      void cleanupRuntimes(root, [`node-${source.nodeVersion}`, `app-${app.getVersion()}`]).catch((error: unknown) => console.warn("não consegui limpar o runtime antigo", error));
+      void cleanupRuntimes(root, runtime.keep).catch((error: unknown) => console.warn("não consegui limpar o runtime antigo", error));
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       dialog.showErrorBox("WorkForces", `não consegui preparar os arquivos do WorkForces em ${root} (${reason}). Libere espaço no disco e abra o app de novo.`);

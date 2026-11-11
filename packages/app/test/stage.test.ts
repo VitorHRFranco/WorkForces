@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as netServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EmbeddedServer } from "../src/host/server-process.js";
-import { bundle, copyPackage, markAsModule, nodeUrl, packageDir, sha256, stagedPackageJson, stageNode } from "../release/stage.js";
+import { bundle, copyPackage, markAsModule, nodeUrl, packageDir, runtimeBuild, sha256, stagedPackageJson, stageNode, writeRuntimeInfo } from "../release/stage.js";
 
 const repo = (path: string): string => fileURLToPath(new URL(`../../../${path}`, import.meta.url));
 const target = `${process.platform}-${process.arch}`;
@@ -64,11 +64,69 @@ describe("o node.exe conferido", () => {
     expect(existsSync(join(runtime, "node"))).toBe(false);
   });
 
-  it("hash igual: grava o node.exe e o runtime.json", async () => {
+  it("hash igual: grava o node.exe", async () => {
     const runtime = join(dir, "runtime");
     await stageNode({ version: "24.1.0", sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }, runtime, exe());
     expect(readFileSync(join(runtime, "node", "node.exe"), "utf8")).toBe("abc");
-    expect(JSON.parse(readFileSync(join(runtime, "runtime.json"), "utf8"))).toEqual({ node: "24.1.0" });
+  });
+});
+
+describe("o carimbo da montagem", () => {
+  const put = (path: string, text: string) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  };
+  const seed = (): string => {
+    const runtime = join(dir, "runtime");
+    put(join(runtime, "server", "embedded.js"), "servidor");
+    put(join(runtime, "server", "node_modules", "better-sqlite3", "x.node"), "nativo");
+    put(join(runtime, "bridge", "cli.js"), "ponte");
+    put(join(runtime, "bridge", "node_modules", "@lydell", "y.node"), "nativo");
+    put(join(runtime, "node", "node.exe"), "node");
+    return runtime;
+  };
+
+  it("12 hex, o mesmo para a mesma montagem", () => {
+    const runtime = seed();
+    expect(runtimeBuild(runtime)).toMatch(/^[0-9a-f]{12}$/);
+    expect(runtimeBuild(runtime)).toBe(runtimeBuild(runtime));
+  });
+
+  it("muda quando um arquivo do servidor ou da ponte muda, entra ou troca de nome", () => {
+    const runtime = seed();
+    const base = runtimeBuild(runtime);
+    const changed = (edit: () => void, undo: () => void): string => {
+      edit();
+      try {
+        return runtimeBuild(runtime);
+      } finally {
+        undo();
+      }
+    };
+    const native = join(runtime, "server", "node_modules", "better-sqlite3", "x.node");
+    expect(changed(() => writeFileSync(native, "outro"), () => writeFileSync(native, "nativo"))).not.toBe(base);
+    const cli = join(runtime, "bridge", "cli.js");
+    expect(changed(() => writeFileSync(cli, "ponte nova"), () => writeFileSync(cli, "ponte"))).not.toBe(base);
+    const extra = join(runtime, "bridge", "node_modules", "@lydell", "z.node");
+    expect(changed(() => writeFileSync(extra, "nativo"), () => rmSync(extra))).not.toBe(base);
+    const moved = join(runtime, "bridge", "node_modules", "@lydell", "w.node");
+    const pty = join(runtime, "bridge", "node_modules", "@lydell", "y.node");
+    expect(changed(() => renameSync(pty, moved), () => renameSync(moved, pty))).not.toBe(base);
+    expect(runtimeBuild(runtime)).toBe(base);
+  });
+
+  it("o que fica fora do servidor e da ponte não conta", () => {
+    const runtime = seed();
+    const base = runtimeBuild(runtime);
+    writeFileSync(join(runtime, "node", "node.exe"), "outro node");
+    writeFileSync(join(runtime, "runtime.json"), "{}");
+    expect(runtimeBuild(runtime)).toBe(base);
+  });
+
+  it("o runtime.json leva a versão do Node e o carimbo", () => {
+    const runtime = seed();
+    writeRuntimeInfo(runtime, "24.1.0");
+    expect(JSON.parse(readFileSync(join(runtime, "runtime.json"), "utf8"))).toEqual({ node: "24.1.0", build: runtimeBuild(runtime) });
   });
 });
 

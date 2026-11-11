@@ -79,7 +79,7 @@ export function packageDir(fromPackageJson: string, name: string): string {
   }
 }
 
-/** Grava o node.exe em `runtimeDir/node` e o runtime.json, mas só depois de conferir o SHA-256. */
+/** Grava o node.exe em `runtimeDir/node`, mas só depois de conferir o SHA-256. */
 export async function stageNode(node: { version: string; sha256: string }, runtimeDir: string, localExe?: string): Promise<void> {
   const temp = join(runtimeDir, "node.exe.baixando");
   mkdirSync(runtimeDir, { recursive: true });
@@ -96,7 +96,39 @@ export async function stageNode(node: { version: string; sha256: string }, runti
   } finally {
     rmSync(temp, { force: true });
   }
-  writeFileSync(join(runtimeDir, "runtime.json"), `${JSON.stringify({ node: node.version })}\n`);
+}
+
+/**
+ * O carimbo da montagem: 12 hex do SHA-256 de todos os arquivos de `server/` e `bridge/` (caminho relativo com `/` e
+ * conteúdo, em ordem fixa). Qualquer mudança no servidor, na ponte ou nos módulos nativos muda o carimbo, e o app instalado
+ * por cima da mesma versão copia o runtime de novo em vez de reaproveitar o antigo.
+ */
+export function runtimeBuild(runtimeDir: string): string {
+  const files: string[] = [];
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(join(runtimeDir, rel), { withFileTypes: true })) {
+      const path = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(path);
+      else files.push(path);
+    }
+  };
+  walk("server");
+  walk("bridge");
+  const hash = createHash("sha256");
+  for (const path of files.sort()) {
+    const content = readFileSync(join(runtimeDir, path));
+    // O tamanho separa um arquivo do outro: nenhum par de caminho e conteúdo se confunde com outro.
+    hash.update(`${path}\0${content.length}\0`);
+    hash.update(content);
+  }
+  return hash.digest("hex").slice(0, 12);
+}
+
+/** Grava o runtime.json que o app lê (a versão do Node e o carimbo da montagem) e devolve o carimbo. Vem por último, com o servidor e a ponte prontos. */
+export function writeRuntimeInfo(runtimeDir: string, nodeVersion: string): string {
+  const build = runtimeBuild(runtimeDir);
+  writeFileSync(join(runtimeDir, "runtime.json"), `${JSON.stringify({ node: nodeVersion, build })}\n`);
+  return build;
 }
 
 const startsWithAny = (rel: string, prefixes: string[]): boolean => prefixes.some((prefix) => rel.startsWith(prefix));
@@ -153,7 +185,8 @@ async function main(): Promise<void> {
   // Node: o de WF_NODE_EXE (se existir) no lugar do download, conferido do mesmo jeito.
   const local = process.env.WF_NODE_EXE;
   await stageNode(node, runtimeOut, local && existsSync(local) ? local : undefined);
-  console.log(`montado em ${stage} (${target}, Node ${node.version})`);
+  const build = writeRuntimeInfo(runtimeOut, node.version);
+  console.log(`montado em ${stage} (${target}, Node ${node.version}, montagem ${build})`);
 }
 
 if (import.meta.main) {

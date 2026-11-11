@@ -33,15 +33,33 @@ describe("runtimeRootDir", () => {
 });
 
 describe("packagedSource", () => {
-  it("lê a versão do Node e aponta para resources/runtime", () => {
-    mkdirSync(join(dir, "runtime"));
-    writeFileSync(join(dir, "runtime", "runtime.json"), JSON.stringify({ node: "24.9.9" }));
+  const info = (value: object) => {
+    mkdirSync(join(dir, "runtime"), { recursive: true });
+    writeFileSync(join(dir, "runtime", "runtime.json"), JSON.stringify(value));
+  };
+
+  it("lê a versão do Node e o carimbo da montagem, e aponta para resources/runtime", () => {
+    info({ node: "24.9.9", build: "0123456789ab" });
     const source = packagedSource(dir);
     expect(source.nodeVersion).toBe("24.9.9");
+    expect(source.build).toBe("0123456789ab");
     expect(source.node).toBe(join(dir, "runtime", "node", "node.exe"));
     expect(source.serverDir).toBe(join(dir, "runtime", "server"));
     expect(source.bridgeDir).toBe(join(dir, "runtime", "bridge"));
   });
+
+  it("sem a versão do Node: falha", () => {
+    info({ build: "0123456789ab" });
+    expect(() => packagedSource(dir)).toThrow("runtime.json sem a versão do Node");
+  });
+
+  it.each([{}, { build: "" }, { build: "0123456789" }, { build: "0123456789abc" }, { build: "0123456789AB" }, { build: "0123456789ag" }, { build: 123 }])(
+    "carimbo ausente ou fora de 12 hex (%j): falha",
+    (extra) => {
+      info({ node: "24.9.9", ...extra });
+      expect(() => packagedSource(dir)).toThrow("runtime.json sem o carimbo da montagem");
+    },
+  );
 });
 
 describe("pageFiles", () => {
