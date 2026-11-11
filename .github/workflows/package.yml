@@ -57,12 +57,14 @@ jobs:
           if ($modules -ne "@koromix, koffi") { throw "o node_modules do app.asar tem: $modules" }
           $natives = @(Get-ChildItem "$resources\app.asar.unpacked" -Recurse -Filter *.node)
           if ($natives.Count -ne 1 -or $natives[0].Name -ne "koffi.node") { throw "módulos nativos fora do asar: $($natives.FullName -join ', ')" }
-      - name: O node-pty carrega no Node embutido
+      - name: O node-pty abre um terminal no Node embutido
         run: |
           $runtime = "$env:LOCALAPPDATA\Programs\WorkForces\resources\runtime"
           $pty = "$runtime\bridge\node_modules\@lydell\node-pty".Replace("\", "/")
-          & "$runtime\node\node.exe" -e "require('$pty')"
-          if ($LASTEXITCODE -ne 0) { throw "o node-pty não carregou no node.exe do app" }
+          # No Windows, o require não carrega o conpty.node: só o spawn. Um cmd que sai com 7 prova a volta inteira, com prazo.
+          $script = "const p = require('$pty').spawn('cmd.exe', ['/c', 'exit 7'], {}); p.onExit((e) => { if (e.exitCode !== 7) console.error('o cmd saiu com ' + e.exitCode); process.exit(e.exitCode === 7 ? 0 : 3); }); setTimeout(() => { console.error('o terminal não saiu em 15 s'); process.exit(2); }, 15000);"
+          & "$runtime\node\node.exe" -e $script
+          if ($LASTEXITCODE -ne 0) { throw "o node-pty não abriu um terminal no node.exe do app (saída $LASTEXITCODE)" }
       - name: O app instalado cria o escritório sem Node no PATH (E2E)
         run: |
           $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
