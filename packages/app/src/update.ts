@@ -22,7 +22,8 @@ export interface UpdateDeps {
 
 /**
  * Verifica os Releases 10 s depois de abrir e de 6 em 6 horas; baixa em segundo plano e avisa a versão baixada uma vez.
- * Falha (sem internet, proxy, sem Release) só vai ao log: o app não incomoda a pessoa por isso.
+ * Falha (sem internet, proxy, sem Release) só vai ao log: o app não incomoda a pessoa por isso. O começo e o fim de cada
+ * verificação também vão ao log (é por eles que o CI vê a verificação rodar no app instalado).
  */
 export function startUpdates(deps: UpdateDeps): { downloaded(): string | null; stop(): void } {
   let downloaded: string | null = null;
@@ -38,12 +39,14 @@ export function startUpdates(deps: UpdateDeps): { downloaded(): string | null; s
   });
   updater.on("error", (error) => log(`atualização: ${error.message}`));
 
+  const failed = (error: unknown): void => log(`atualização: verificação falhou: ${error instanceof Error ? error.message : String(error)}`);
   const check = (): void => {
+    log("atualização: verificando os Releases");
     // Um erro síncrono do atualizador também não pode derrubar o timer.
     try {
-      updater.checkForUpdates().catch((error: unknown) => log(`atualização: ${error instanceof Error ? error.message : String(error)}`));
+      updater.checkForUpdates().then(() => log("atualização: verificação terminou"), failed);
     } catch (error) {
-      log(`atualização: ${error instanceof Error ? error.message : String(error)}`);
+      failed(error);
     }
   };
   let interval: NodeJS.Timeout | null = null;

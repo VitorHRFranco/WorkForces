@@ -15,23 +15,30 @@ const PAGE_MS = 30_000;
 const PORT_FREE_MS = 10_000;
 /** Quantas linhas do console do processo principal ficam guardadas para o log de uma falha. */
 const LOG_KEEP = 200;
+/** A primeira verificação de atualização sai 10 s depois de a janela abrir (FIRST_CHECK_MS do app); a ida aos Releases leva o resto. */
+const UPDATE_CHECK_MS = 120_000;
+/** O fim de uma verificação no log do app (update.ts), com sucesso ou com falha. */
+const CHECK_DONE = /^atualização: verificação (terminou|falhou)/;
 
 test.skip(!EXE, "só roda com WF_PACKAGED_EXE apontando para o app instalado");
 
-/** O app aberto, se ainda estiver: o `afterAll` fecha, e uma falha mostra a tela e o console dele. */
+/** O app aberto, se ainda estiver: o `afterEach` fecha, e uma falha mostra a tela e o console dele. */
 let opened: { app: ElectronApplication; page: Page; log: string[] } | undefined;
-let dir: string | undefined;
+const dirs: string[] = [];
 
 test.afterEach(async ({}, testInfo) => {
+  if (!opened) return;
   // Este E2E só roda no CI: sem isto, uma falha diria qual elemento faltou, e não o aviso que a tela mostrou no lugar.
-  if (testInfo.status === testInfo.expectedStatus || !opened) return;
-  const screen = await opened.page.locator("body").innerText({ timeout: 2_000 }).catch(() => "(a tela não respondeu)");
-  console.log(`tela do app instalado na falha:${EOL}${screen}${EOL}console do app:${EOL}${opened.log.join(EOL)}`);
-});
-test.afterAll(async () => {
-  if (opened) await closeApp(opened.app);
+  if (testInfo.status !== testInfo.expectedStatus) {
+    const screen = await opened.page.locator("body").innerText({ timeout: 2_000 }).catch(() => "(a tela não respondeu)");
+    console.log(`tela do app instalado na falha:${EOL}${screen}${EOL}console do app:${EOL}${opened.log.join(EOL)}`);
+  }
+  // O próximo teste abre o app de novo: este não pode ficar rodando.
+  await closeApp(opened.app);
   opened = undefined;
-  if (dir !== undefined) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+test.afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 /** As pastas do PATH com e sem um node.exe; as sem ficam para o app (ele chama o powershell.exe, que mora no System32). */
@@ -79,7 +86,7 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
   // A primeira abertura copia o runtime antes da janela, e o servidor sobe depois: mais que o prazo padrão de um teste.
   test.setTimeout(180_000);
   const root = mkdtempSync(join(tmpdir(), "wf-e2e-instalado-"));
-  dir = root;
+  dirs.push(root);
   const runtimeDir = join(root, "runtime");
   // O Node que roda o teste está no PATH: sem nenhuma pasta para tirar, o teste não provaria nada.
   const path = splitPath(process.env.PATH ?? "");
@@ -123,4 +130,46 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
   opened = undefined;
   await closeApp(app);
   await expect.poll(() => answers(port), { timeout: PORT_FREE_MS }).toBe(false);
+});
+
+test("o app instalado, com a atualização ligada, verifica os Releases e continua de pé", async () => {
+  // A primeira abertura copia o runtime antes da janela, e a primeira verificação sai 10 s depois dela.
+  test.setTimeout(240_000);
+  // Sem WF_NO_UPDATE o `autoUpdater` de verdade nasce e vai aos Releases do GitHub. O teste não clica em "Reiniciar agora"
+  // (com um release mais novo que a versão do branch, o app baixaria em segundo plano).
+  expect(process.env.WF_NO_UPDATE, "o teste precisa da atualização ligada").toBeUndefined();
+  const root = mkdtempSync(join(tmpdir(), "wf-e2e-atualizacao-"));
+  dirs.push(root);
+  const { app, page } = await withEnv({ WF_RUNTIME_DIR: join(root, "runtime") }, () => launchApp(root, { executablePath: EXE! }));
+  const log: string[] = [];
+  const updateLog: string[] = [];
+  let result: string | undefined;
+  app.on("console", (message) => {
+    const text = message.text();
+    log.push(text);
+    if (log.length > LOG_KEEP) log.shift();
+    // As linhas do app (update.ts) e as do electron-updater, que escreve no console do processo principal.
+    if (/atualiza|update/i.test(text)) updateLog.push(text);
+    if (result === undefined && CHECK_DONE.test(text)) result = text;
+  });
+  opened = { app, page, log };
+
+  // 1. A tela inicial abre normalmente.
+  const create = page.getByRole("button", { name: "Criar escritório" });
+  await expect(create).toBeVisible();
+
+  // 2. A primeira verificação termina (sem release publicado, falha; com o da mesma versão, não acha nada novo) e só vai ao log.
+  await expect.poll(() => result, { timeout: UPDATE_CHECK_MS, message: "a primeira verificação de atualização não terminou" }).toBeDefined();
+  console.log(`verificação de atualização no app instalado:${EOL}${updateLog.join(EOL)}`);
+  expect(updateLog).toContain("atualização: verificando os Releases");
+
+  // 3. O app continua de pé: o processo principal e a janela respondem.
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  await expect(create).toBeVisible();
+  await create.click();
+  await expect(page.getByRole("heading", { name: "Escritório neste computador" })).toBeVisible();
+
+  // 4. E fecha sozinho, sem precisar ser morto.
+  opened = undefined;
+  expect(await closeApp(app)).toBe(true);
 });

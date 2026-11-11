@@ -175,21 +175,25 @@ export async function launchApp(dir: string, options: LaunchOptions = {}): Promi
   }
 }
 
-/** Fecha o app (o Playwright pede `app.quit()` e espera o processo sair), com prazo: se vencer, mata o processo. */
-export async function closeApp(app: ElectronApplication): Promise<void> {
+/**
+ * Fecha o app (o Playwright pede `app.quit()` e espera o processo sair), com prazo: se vencer, mata o processo. Devolve se
+ * o app saiu sozinho, sem precisar ser morto.
+ */
+export async function closeApp(app: ElectronApplication): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<false>((resolve) => {
     timer = setTimeout(() => resolve(false), APP_CLOSE_MS);
   });
   const closed = await Promise.race([app.close().then(() => true, () => false), deadline]);
   clearTimeout(timer);
-  if (closed) return;
+  if (closed) return true;
   const child = app.process();
   child.kill();
   if (!(await waitExit(child, 5_000))) {
     child.kill("SIGKILL");
     await waitExit(child, 5_000);
   }
+  return false;
 }
 
 export class Office {

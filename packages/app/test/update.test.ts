@@ -7,12 +7,17 @@ class FakeUpdater extends EventEmitter {
   autoInstallOnAppQuit = false;
   checks = 0;
   failNext = false;
+  throwNext = false;
   quitAndInstall = vi.fn();
   checkForUpdates(): Promise<unknown> {
     this.checks++;
+    if (this.throwNext) throw new Error("quebrou");
     return this.failNext ? Promise.reject(new Error("sem rede")) : Promise.resolve(null);
   }
 }
+
+const START = "atualização: verificando os Releases";
+const DONE = "atualização: verificação terminou";
 
 describe("startUpdates", () => {
   let updater: FakeUpdater;
@@ -42,8 +47,12 @@ describe("startUpdates", () => {
     expect(updater.checks).toBe(0);
     await vi.advanceTimersByTimeAsync(FIRST_CHECK_MS);
     expect(updater.checks).toBe(1);
+    // O começo e o fim de cada verificação vão ao log (o E2E do app instalado espera por eles), nunca à tela.
+    expect(log.mock.calls.map(([line]) => line)).toEqual([START, DONE]);
+    expect(notify).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS);
     expect(updater.checks).toBe(2);
+    expect(log.mock.calls.map(([line]) => line)).toEqual([START, DONE, START, DONE]);
     await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS);
     expect(updater.checks).toBe(3);
   });
@@ -63,12 +72,24 @@ describe("startUpdates", () => {
     updater.emit("error", new Error("proxy"));
     await vi.advanceTimersByTimeAsync(FIRST_CHECK_MS);
     expect(updater.checks).toBe(1);
-    expect(log).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls.map(([line]) => line)).toEqual(["atualização: proxy", START, "atualização: verificação falhou: sem rede"]);
     expect(notify).not.toHaveBeenCalled();
     expect(updates.downloaded()).toBeNull();
     updater.failNext = false;
     await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS);
     expect(updater.checks).toBe(2);
+    expect(log.mock.calls.at(-1)?.[0]).toBe(DONE);
+  });
+
+  it("erro síncrono do atualizador: também só vai ao log, e a próxima verificação acontece", async () => {
+    start();
+    updater.throwNext = true;
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_MS);
+    expect(log.mock.calls.map(([line]) => line)).toEqual([START, "atualização: verificação falhou: quebrou"]);
+    updater.throwNext = false;
+    await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS);
+    expect(updater.checks).toBe(2);
+    expect(log.mock.calls.at(-1)?.[0]).toBe(DONE);
   });
 
   it("stop cancela os timers", async () => {

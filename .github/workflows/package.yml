@@ -65,10 +65,15 @@ jobs:
           $script = "const p = require('$pty').spawn('cmd.exe', ['/c', 'exit 7'], {}); p.onExit((e) => { if (e.exitCode !== 7) console.error('o cmd saiu com ' + e.exitCode); process.exit(e.exitCode === 7 ? 0 : 3); }); setTimeout(() => { console.error('o terminal não saiu em 15 s'); process.exit(2); }, 15000);"
           & "$runtime\node\node.exe" -e $script
           if ($LASTEXITCODE -ne 0) { throw "o node-pty não abriu um terminal no node.exe do app (saída $LASTEXITCODE)" }
+      # Um teste por passo, escolhido por uma palavra só do nome dele (sem espaço nem acento para atravessar o pnpm).
       - name: O app instalado cria o escritório sem Node no PATH (E2E)
         run: |
           $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
-          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep PATH
+      - name: O app instalado, com a atualização ligada, verifica os Releases e continua de pé (E2E)
+        run: |
+          $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep Releases
       - name: Desinstalar apaga a instalação, o link e o runtime
         run: |
           $install = "$env:LOCALAPPDATA\Programs\WorkForces"
