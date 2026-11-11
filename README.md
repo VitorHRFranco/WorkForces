@@ -6,31 +6,23 @@ Escritório virtual 2D para times que trabalham com agentes de código (Claude C
 
 > Em construção.
 
-## Desenvolvimento
+## Instalar
 
-Requisitos: Node 22.12 ou mais novo e pnpm 12 (`npm install -g pnpm@12.11.2`).
+1. Baixe o `WorkForces-Setup-<versão>.exe` na página de [Releases](../../releases) e execute.
+2. O Windows pode mostrar o SmartScreen ("O Windows protegeu o computador"), porque o instalador ainda não tem assinatura de código: clique em "Mais informações" e em "Executar assim mesmo".
+3. O instalador é por usuário: não pede administrador, instala em `%LOCALAPPDATA%\Programs\WorkForces` e cria atalhos no Menu Iniciar e na Área de Trabalho.
 
-```bash
-pnpm install
-pnpm typecheck
-pnpm build
-pnpm test
-```
+O app se atualiza sozinho: procura versões novas nos Releases, baixa em segundo plano e avisa quando a versão está pronta. Ela entra quando o app reinicia ("Reiniciar agora", no aviso), e os agentes abertos continuam rodando.
 
-`pnpm e2e` sobe o servidor, a ponte e o app (Electron) do build, e `pnpm demo` grava o GIF deste README. Os dois pesam na CPU e rodam na esteira do GitHub: o E2E no CI, e o GIF no workflow manual "GIF do README". No Linux sem tela, rode com `xvfb-run -a`.
+Para chamar agentes, o computador precisa do Claude Code (o comando `claude` no `PATH`) e do Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`. O Node.js não é preciso: o app traz o dele.
 
-## Rodar o escritório localmente
+Ao desinstalar, os escritórios salvos e as pastas liberadas continuam em `%APPDATA%\@workforces\app`; apague essa pasta à mão se não quiser guardá-los.
 
-```bash
-pnpm build
-node packages/server/dist/cli.js start
-```
+## Entrar num escritório
 
-Em outro terminal, abra o app com `pnpm app`. Na primeira execução, o console do servidor mostra um link de convite de admin (válido por 24 h). No app, cole o link em "Entrar com convite" e crie a primeira conta. O escritório fica salvo, e nas próximas vezes o app já abre nele.
+O app é o único jeito de entrar. Quem hospeda o escritório (veja [Criar escritório](#criar-escritório-neste-computador) e [Servidor para um time](#servidor-para-um-time-docker--caddy)) manda um link de convite `workforces://invite?…`. Clique nele (o app abre) ou, se o chat não o deixar clicável, cole em "Entrar com convite" no app, e crie a conta. O escritório fica salvo, e nas próximas vezes o app já abre nele.
 
-O app é o único jeito de entrar. O servidor não serve mais páginas para o navegador, só a API, o mapa e a página do link de convite, que abre o app.
-
-### No escritório
+## No escritório
 
 - Ande com as setas ou WASD. Pare perto de uma cadeira (ou do sofá) para sentar; qualquer tecla de movimento (setas ou WASD) levanta. Cada pessoa recebe uma mesa na primeira vez que aparece (pelo app): a primeira livre, na ordem do mapa.
 - Os agentes de cada pessoa aparecem como robôs na mesa dela, com o rótulo e o status. Robô esmaecido: o dono está fora ou a ponte está reconectando.
@@ -38,58 +30,20 @@ O app é o único jeito de entrar. O servidor não serve mais páginas para o na
 - Enter abre o chat; Enter manda; Esc volta ao mapa. O chat guarda só as últimas 200 mensagens, em memória: reiniciar o servidor apaga.
 - **Mesa: aberta/fechada**, na barra de cima: com a mesa fechada, ninguém vê o terminal dos seus agentes (nem você, pelo mapa). Os robôs continuam na mesa, com a placa "fechada", e a escolha vale até você abrir de novo, mesmo que o servidor reinicie.
 
-### Editar o mapa
-
-O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.tmj`), com tiles de 32 px. Para o escritório entender o mapa:
-
-- um único tileset, **embutido** no mapa, com a imagem na mesma pasta do `.tmj`;
-- camadas de tiles com a propriedade booleana `collides` = `true` bloqueiam a passagem (paredes);
-- as posições são as dos pés: o ponto no meio da base de quem (ou do que) está ali;
-- um objeto do tipo `spawn` (ponto) marca a entrada;
-- cada mesa é um retângulo do tipo `desk` (a zona onde quem chega vê o terminal), com um nome único em minúsculas (`mesa-1`, `mesa-2`…); a ordem das mesas no mapa é a ordem em que elas são distribuídas;
-- até 3 pontos do tipo `robot` por mesa, com a propriedade `desk` = nome da mesa, marcam onde aparecem os robôs;
-- pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta (a posição do assento é arredondada para pixels inteiros);
-- pontos do tipo `prop`, com a propriedade `sprite`, desenham um móvel ou uma decoração com a base nesse ponto. Os nomes disponíveis estão em `packages/client/src/game/props.json`; os móveis bloqueiam a passagem pela base.
-
-Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console das DevTools do app (F12, em desenvolvimento). Para usar outro mapa, aponte `WF_MAP` para ele.
-
-**Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. As imagens são geradas por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), que baixa as peças do LPC Revised de um commit fixado:
-
-```bash
-python tools/art/build_art.py          # refaz as imagens e o props.json
-python tools/art/build_art.py --map    # também refaz o mapa (descarta edições feitas no Tiled)
-```
-
-Configuração por variáveis de ambiente:
-
-| Variável | Padrão | Uso |
-|---|---|---|
-| `WF_PORT` | `4600` | porta do servidor |
-| `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede; defina também `WF_PUBLIC_URL` com o endereço que as pessoas abrem) |
-| `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço público do escritório: vai nos links de convite e é a única origem aceita |
-| `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
-| `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled, tiles de 32 px); a imagem do tileset fica na mesma pasta |
-| `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost; o app só aceita HTTP em localhost, então quem está em outro computador não entra num servidor sem HTTPS |
-| `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
-
-Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`.
-
-Rode com as mesmas variáveis `WF_*` do servidor: o comando abre o banco em `WF_DATA_DIR` e valida `WF_PUBLIC_URL`.
-
-### Agentes
+## Agentes
 
 Os agentes rodam no seu computador, e quem os abre é o app (por enquanto, só no Windows). O escritório não abre agentes nem conhece as suas pastas: ele vê só o robô e a tela já mascarada.
 
 - **Pastas:** em "Chamar agente" → "Pastas…", libere as pastas de projeto que o app pode abrir, escolhendo cada uma pelo seletor do Windows. "Chamar agente" mostra as IAs (só o Claude funciona por enquanto; as outras aparecem como "em breve") e as pastas liberadas. O agente abre na pasta escolhida, e o robô aparece na sua mesa.
-- **Requisitos:** cada agente abre numa janela do Windows Terminal, que o app minimiza logo em seguida. É preciso ter o Claude Code (o comando `claude` no PATH), o Node.js 22.12 ou mais novo (o do `PATH`, ou o `node.exe` indicado em `WF_NODE`) e o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`.
+- **Requisitos:** cada agente abre numa janela do Windows Terminal, que o app minimiza logo em seguida. É preciso ter o Claude Code (o comando `claude` no `PATH`) e o Windows Terminal, que já vem no Windows 11; no Windows 10, instale com `winget install Microsoft.WindowsTerminal`. O Node.js vem com o app.
 - **Limites:** no máximo um pedido a cada 5 s e 5 agentes abertos neste computador.
 - **Meus agentes:** o botão na barra de cima mostra o terminal dos agentes que este app abriu, só para a conta que está aberta (outra conta no mesmo escritório não os vê), e deixa digitar neles. A digitação vai deste computador direto para o agente, sem passar pelo escritório; quem visita a sua mesa continua só olhando.
 - **Depois de fechar:** fechar o app não fecha os agentes: eles continuam na janela deles e no mapa. Ao reabrir o app, eles voltam ao "Meus agentes", porque o app guarda os agentes que abriu no `local-agents.json`, na pasta de dados do app.
-- **Máscara:** a tela do agente sai deste computador com os tokens e as senhas conhecidos mascarados. Para mascarar outros padrões, acrescente expressões regulares à lista `secretPatterns` do `agents.json`, na pasta de dados do app (`%APPDATA%\@workforces\app` com `pnpm app`, ou a pasta de `WF_APP_DATA_DIR`). Saia do app pelo ícone da bandeja (Sair) antes de editar: fechar a janela só esconde o app, e liberar ou remover uma pasta regrava o `agents.json`. Os padrões valem para os agentes chamados depois que ele abrir de novo.
+- **Máscara:** a tela do agente sai deste computador com os tokens e as senhas conhecidos mascarados. Para mascarar outros padrões, acrescente expressões regulares à lista `secretPatterns` do `agents.json`, na pasta de dados do app (`%APPDATA%\@workforces\app`). Saia do app pelo ícone da bandeja (Sair) antes de editar: fechar a janela só esconde o app, e liberar ou remover uma pasta regrava o `agents.json`. Os padrões valem para os agentes chamados depois que ele abrir de novo.
 - **Acessos:** cada computador entra no escritório com um acesso próprio, que o app cria sozinho. "Computadores", na barra de cima, lista os acessos de cada computador e permite revogar; depois de revogar, o app cria outro na próxima vez que você chamar um agente.
 - **Quem usava a ponte pela linha de comando:** o `~/.workforces/config.json` antigo (`%USERPROFILE%\.workforces\config.json`) ainda guarda o token antigo em texto puro. Apague o arquivo e revogue esse token em "Computadores".
 
-### Criar escritório (neste computador)
+## Criar escritório (neste computador)
 
 O app pode hospedar o escritório no seu próprio computador, sem Docker. Na tela inicial, em "Neste computador", clique em "Criar escritório", escolha o modo e a porta (o padrão é 4600; vale de 1024 a 65535) e clique em "Criar e entrar". Você cria a primeira conta, que é a de admin, e entra.
 
@@ -102,13 +56,13 @@ Abrir o app não liga o escritório: use "Ligar e entrar". Ele fica no ar enquan
   - O convite leva o IP público que o roteador informa, ou o IP ou nome (DDNS) que você digitar em "Endereço da internet". Sem nenhum dos dois, ele leva o endereço da rede local, e a tela pede o IP público ou o nome.
   - **CGNAT:** se o IP que o roteador informa não for público (o provedor usa CGNAT, ou há dois roteadores em sequência), quem está fora não chega por ele, e a tela avisa. Peça um IP público ao provedor ou hospede em LAN com uma VPN.
   - O app não consulta serviço de fora para descobrir o IP nem para testar a porta.
-- **Firewall:** ao ligar pela primeira vez, o Windows pergunta se libera o "Node.js" (o programa que roda o escritório) na rede. Marque redes privadas e também públicas: o Windows trata o Hamachi e outras VPNs como rede pública. Se negou sem querer: Painel de Controle → Firewall do Windows Defender → Permitir um aplicativo → Node.js → marque Privada e Pública.
+- **Firewall:** ao ligar pela primeira vez, o Windows pergunta se libera o "Node.js" na rede. É o que o app traz, em `%LOCALAPPDATA%\WorkForces\runtime\node-…`, e é ele que roda o escritório. Marque redes privadas e também públicas: o Windows trata o Hamachi e outras VPNs como rede pública. Se negou sem querer: Painel de Controle → Firewall do Windows Defender → Permitir um aplicativo → Node.js → marque Privada e Pública.
 - **Convite:** "Gerar convite", na barra de cima do escritório, dá um link `workforces://invite?…` com o pino do certificado do escritório. A pessoa clica no link ou, se o chat não o deixar clicável, cola em "Entrar com convite" no app; no navegador ele não abre. O app confere o pino sozinho: ninguém instala certificado nem vê aviso de segurança.
 - **Trocar endereço:** o endereço muda quando muda o IP deste computador ou o público, ou quando você troca o modo ou a porta; a tela do anfitrião avisa quando o IP muda. Quem já entrou usa "Trocar endereço" no escritório salvo, na tela inicial do app, com o endereço novo. A conta e o pino continuam valendo, e o pino garante que é o mesmo escritório.
-- **Node.js:** por enquanto, o escritório roda no Node.js do computador, e é preciso ter o 22.12 ou mais novo (o mesmo dos agentes: o do `PATH`, ou o `node.exe` indicado em `WF_NODE`).
+- **Node.js:** o escritório roda no Node.js que o app traz, em `%LOCALAPPDATA%\WorkForces\runtime`: não é preciso instalar nada.
 - **Dados:** o banco e o certificado ficam na pasta `office`, dentro da pasta de dados do app. Apagar essa pasta gera outro certificado, e quem já entrou precisa de um convite novo.
 
-### Servidor para um time (Docker + Caddy)
+## Servidor para um time (Docker + Caddy)
 
 Para outras pessoas entrarem de outros computadores, o servidor precisa ficar numa máquina que todos alcancem, com HTTPS: fora de localhost, servidor e ponte recusam HTTP sem TLS, e o servidor avisa no log quando escuta na rede sem HTTPS. A pasta `deploy/` tem um exemplo com o [Caddy](https://caddyserver.com/) na frente, que gera e renova o certificado sozinho.
 
@@ -143,6 +97,83 @@ docker run -p 127.0.0.1:4600:4600 -e WF_PUBLIC_URL=http://localhost:4600 workfor
 
 O log avisa que está sem HTTPS (dentro do container o servidor escuta na rede); publicar a porta só em `127.0.0.1` deixa o acesso restrito a este computador.
 
-### O app em desenvolvimento
+### Configuração do servidor
+
+O servidor lê estas variáveis de ambiente (no Docker, passe-as ao `docker compose` ou ao `docker run`; a partir do código, veja [Desenvolvimento](#desenvolvimento)):
+
+| Variável | Padrão | Uso |
+|---|---|---|
+| `WF_PORT` | `4600` | porta do servidor |
+| `WF_HOST` | `127.0.0.1` | interface em que escuta (`0.0.0.0` para a rede; defina também `WF_PUBLIC_URL` com o endereço que as pessoas abrem) |
+| `WF_PUBLIC_URL` | `http://localhost:<porta>` | endereço público do escritório: vai nos links de convite e é a única origem aceita |
+| `WF_DATA_DIR` | `~/.workforces-server` | onde fica o banco SQLite |
+| `WF_MAP` | `assets/map/office.tmj` | mapa do escritório (Tiled, tiles de 32 px); a imagem do tileset fica na mesma pasta |
+| `WF_INSECURE` | desligado (`1` liga) | permite `WF_PUBLIC_URL` com HTTP fora de localhost; o app só aceita HTTP em localhost, então quem está em outro computador não entra num servidor sem HTTPS |
+| `WF_TRUST_PROXY` | desligado (`1` liga) | confia em `X-Forwarded-For` (atrás de um proxy reverso) |
+
+Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`.
+
+Rode com as mesmas variáveis `WF_*` do servidor: o comando abre o banco em `WF_DATA_DIR` e valida `WF_PUBLIC_URL`.
+
+## Desenvolvimento
+
+Para mexer no código, são preciso o Node 22.12 ou mais novo e o pnpm 12 (`npm install -g pnpm@12.11.2`). Quem só usa o app não precisa de nenhum dos dois.
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm build
+pnpm test
+```
+
+`pnpm e2e` sobe o servidor, a ponte e o app (Electron) do build, e `pnpm demo` grava o GIF deste README. Os dois pesam na CPU e rodam na esteira do GitHub: o E2E no CI, e o GIF no workflow manual "GIF do README". No Linux sem tela, rode com `xvfb-run -a`.
+
+### Rodar o escritório a partir do código
+
+```bash
+pnpm build
+node packages/server/dist/cli.js start
+```
+
+Em outro terminal, abra o app com `pnpm app`. Na primeira execução, o console do servidor mostra um link de convite de admin (válido por 24 h). No app, cole o link em "Entrar com convite" e crie a primeira conta. O escritório fica salvo, e nas próximas vezes o app já abre nele.
+
+Com `pnpm app`, os agentes e o escritório hospedado usam o Node do `PATH` (ou o `node.exe` indicado em `WF_NODE`; 22.12 ou mais novo), e a pasta de dados é a do app instalado, ou a de `WF_APP_DATA_DIR`, se definida. O app instalado traz o Node dele e não lê o `WF_NODE`. `WF_NO_UPDATE` desliga a busca de atualizações.
+
+### Editar o mapa
+
+O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.tmj`), com tiles de 32 px. Para o escritório entender o mapa:
+
+- um único tileset, **embutido** no mapa, com a imagem na mesma pasta do `.tmj`;
+- camadas de tiles com a propriedade booleana `collides` = `true` bloqueiam a passagem (paredes);
+- as posições são as dos pés: o ponto no meio da base de quem (ou do que) está ali;
+- um objeto do tipo `spawn` (ponto) marca a entrada;
+- cada mesa é um retângulo do tipo `desk` (a zona onde quem chega vê o terminal), com um nome único em minúsculas (`mesa-1`, `mesa-2`…); a ordem das mesas no mapa é a ordem em que elas são distribuídas;
+- até 3 pontos do tipo `robot` por mesa, com a propriedade `desk` = nome da mesa, marcam onde aparecem os robôs;
+- pontos do tipo `seat`, com a propriedade `dir` (`up`, `down`, `left` ou `right`, para onde a pessoa olha), são assentos: quem para perto senta (a posição do assento é arredondada para pixels inteiros);
+- pontos do tipo `prop`, com a propriedade `sprite`, desenham um móvel ou uma decoração com a base nesse ponto. Os nomes disponíveis estão em `packages/client/src/game/props.json`; os móveis bloqueiam a passagem pela base.
+
+Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console das DevTools do app (F12, em desenvolvimento). Para usar outro mapa, aponte `WF_MAP` para ele.
+
+**Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. As imagens são geradas por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), que baixa as peças do LPC Revised de um commit fixado:
+
+```bash
+python tools/art/build_art.py          # refaz as imagens e o props.json
+python tools/art/build_art.py --map    # também refaz o mapa (descarta edições feitas no Tiled)
+```
+
+### O app a partir do build
 
 `pnpm app` abre o app a partir do build (`packages/app/dist` e `packages/client/dist`). Depois de mudar o cliente, rode `pnpm --filter @workforces/client build` (ou deixe `pnpm --filter @workforces/client dev` rodando) e aperte F5 na janela do app; F12 abre as DevTools. Ao abrir, o app registra o link `workforces://` neste Windows para esta cópia; é assim que o link de convite do navegador chega a ele.
+
+### Lançar uma versão
+
+O instalador é montado pelo workflow "Instalador" (`.github/workflows/package.yml`), e o release sai de uma tag:
+
+1. Mude a `version` em `packages/app/package.json` (é a versão do instalador e a que o atualizador compara) e faça o commit.
+2. Crie a tag com o mesmo número: `git tag vX.Y.Z`. A tag precisa ser `v` mais a versão do `package.json`; senão, o release falha.
+3. `git push origin vX.Y.Z`. O workflow monta o instalador, confere o `latest.yml` e cria um release em **rascunho**, com o `.exe`, o `.blockmap` e o `latest.yml`.
+4. Revise o rascunho e publique-o no site do GitHub. O app instalado só enxerga a versão nova depois de publicada.
+
+Nos branches `plano-*`, o mesmo workflow é um ensaio: monta e testa o instalador e mostra o comando do release, sem criar nada.
+
+Para montar o instalador à mão, no Windows: `pnpm build`, `pnpm --filter @workforces/app run stage` (com `run`: `pnpm stage` é outro comando do pnpm) e o `electron-builder`, como no workflow.
