@@ -1,0 +1,95 @@
+name: Instalador
+
+# Monta o instalador do Windows (NSIS, por usuário), instala sem perguntas, abre o app instalado sem Node no PATH e
+# desinstala. Nos branches plano-* é um ensaio do release; numa tag v*, o instalador é o que vai para o release.
+on:
+  push:
+    branches: ["plano-*"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    # Só leitura: este job monta e testa, não publica nada.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install -g pnpm@12.11.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # O pacote electron não baixa o binário ao instalar; baixa aqui, e o electron-builder empacota esse mesmo (electronDist).
+      - run: node packages/app/node_modules/electron/install.js
+      - name: Monta o app e o runtime (com o node.exe conferido por SHA-256)
+        run: pnpm --filter @workforces/app stage
+      - name: Gera o instalador
+        run: pnpm --filter @workforces/app exec electron-builder --config release/electron-builder.json --win nsis --x64 --publish never
+      - name: Instala sem perguntas, só para o usuário
+        run: |
+          $setup = @(Get-ChildItem packages/app/release/out -Filter "WorkForces-Setup-*.exe")
+          if ($setup.Count -ne 1) { throw "esperava um instalador em release/out e achei $($setup.Count)" }
+          $process = Start-Process $setup[0].FullName -ArgumentList "/S" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "o instalador saiu com $($process.ExitCode)" }
+      - name: O app fica em LOCALAPPDATA\Programs
+        run: |
+          $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
+      - name: O link workforces:// abre o app instalado
+        run: |
+          $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          $command = (Get-ItemProperty -LiteralPath "HKCU:\Software\Classes\workforces\shell\open\command").'(default)'
+          if (-not $command -or $command.IndexOf($exe, [StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "o comando do workforces:// é '$command', sem $exe" }
+      - name: O app.asar leva o koffi montado, e só ele
+        run: |
+          $resources = "$env:LOCALAPPDATA\Programs\WorkForces\resources"
+          # O índice do asar: um JSON logo depois de 16 bytes, com o tamanho nos bytes 12 a 15.
+          $asar = [IO.File]::ReadAllBytes("$resources\app.asar")
+          $index = [Text.Encoding]::UTF8.GetString($asar, 16, [BitConverter]::ToUInt32($asar, 12)) | ConvertFrom-Json
+          $modules = ($index.files.node_modules.files.PSObject.Properties.Name | Sort-Object) -join ", "
+          if ($modules -ne "@koromix, koffi") { throw "o node_modules do app.asar tem: $modules" }
+          $natives = @(Get-ChildItem "$resources\app.asar.unpacked" -Recurse -Filter *.node)
+          if ($natives.Count -ne 1 -or $natives[0].Name -ne "koffi.node") { throw "módulos nativos fora do asar: $($natives.FullName -join ', ')" }
+      - name: O node-pty carrega no Node embutido
+        run: |
+          $runtime = "$env:LOCALAPPDATA\Programs\WorkForces\resources\runtime"
+          $pty = "$runtime\bridge\node_modules\@lydell\node-pty".Replace("\", "/")
+          & "$runtime\node\node.exe" -e "require('$pty')"
+          if ($LASTEXITCODE -ne 0) { throw "o node-pty não carregou no node.exe do app" }
+      - name: O app instalado cria o escritório sem Node no PATH (E2E)
+        run: |
+          $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts
+      - name: Desinstalar apaga a instalação, o link e o runtime
+        run: |
+          $install = "$env:LOCALAPPDATA\Programs\WorkForces"
+          $link = "HKCU:\Software\Classes\workforces"
+          $runtime = "$env:LOCALAPPDATA\WorkForces\runtime"
+          New-Item -ItemType Directory -Force $runtime | Out-Null
+          New-Item -ItemType File -Force "$runtime\marca" | Out-Null
+          Start-Process "$install\Uninstall WorkForces.exe" -ArgumentList "/S" -Wait
+          # O desinstalador do NSIS se copia para o %TEMP% e roda de lá: o Start-Process pode voltar antes do fim.
+          $left = { @($install, $link, $runtime) | Where-Object { Test-Path -LiteralPath $_ } }
+          $deadline = (Get-Date).AddSeconds(60)
+          while (@(& $left).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          $remaining = @(& $left)
+          if ($remaining.Count -gt 0) { throw "a desinstalação deixou: $($remaining -join ', ')" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: instalador
+          path: |
+            packages/app/release/out/*.exe
+            packages/app/release/out/*.blockmap
+            packages/app/release/out/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: instalador-e2e-falhas
+          path: packages/e2e/test-results
+          retention-days: 7

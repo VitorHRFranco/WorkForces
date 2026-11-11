@@ -1,0 +1,40 @@
+{
+  "appId": "io.github.vitorhrfranco.workforces",
+  "productName": "WorkForces",
+  "electronVersion": "44.7.2",
+  "electronDist": "node_modules/electron/dist",
+  "directories": {
+    "app": "release/stage/app",
+    "output": "release/out",
+    "buildResources": "release"
+  },
+  "files": [
+    "**/*",
+    "!node_modules{,/**/*}",
+    { "from": "node_modules", "to": "node_modules", "filter": ["**/*"] }
+  ],
+  "asar": true,
+  "asarUnpack": ["**/*.node"],
+  "npmRebuild": false,
+  "extraResources": [{ "from": "release/stage/runtime", "to": "runtime" }],
+  "artifactName": "WorkForces-Setup-${version}.${ext}",
+  "protocols": [{ "name": "WorkForces", "schemes": ["workforces"] }],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "release/icon.png"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "createDesktopShortcut": true,
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false,
+    "include": "release/installer.nsh"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "VitorHRFranco",
+    "repo": "WorkForces",
+    "releaseType": "draft"
+  }
+}

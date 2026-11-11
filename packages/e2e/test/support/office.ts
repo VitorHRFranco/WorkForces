@@ -69,6 +69,8 @@ export interface LaunchOptions {
   link?: string;
   /** Tamanho da área da página (padrão: 960 × 640). */
   size?: Size;
+  /** O executável de um app instalado (o WorkForces.exe), no lugar do Electron do repositório abrindo o app do build. */
+  executablePath?: string;
 }
 
 export interface LaunchedApp {
@@ -148,17 +150,18 @@ export async function startOffice(): Promise<Office> {
 }
 
 /**
- * Abre o app do build numa pasta de dados própria (uma nova dentro de `dir`, se `options.dataDir` não vier), sem registrar
- * o `workforces://` no sistema e sem depender de servidor nenhum. No Linux sem chaveiro, `--password-store=basic` deixa o
- * `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
+ * Abre o app do build (ou o instalado, com `options.executablePath`) numa pasta de dados própria (uma nova dentro de `dir`,
+ * se `options.dataDir` não vier), sem registrar o `workforces://` no sistema e sem depender de servidor nenhum. No Linux
+ * sem chaveiro, `--password-store=basic` deixa o `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
  */
 export async function launchApp(dir: string, options: LaunchOptions = {}): Promise<LaunchedApp> {
   const dataDir = options.dataDir ?? mkdtempSync(join(dir, "app-"));
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+  // O app instalado já sabe onde está o próprio código: só o Electron do repositório recebe a pasta do app.
   const app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [APP_DIR, "--password-store=basic", ...(options.link ? [options.link] : [])],
+    executablePath: options.executablePath ?? ELECTRON,
+    args: [...(options.executablePath ? [] : [APP_DIR]), "--password-store=basic", ...(options.link ? [options.link] : [])],
     env: { ...env, WF_APP_DATA_DIR: dataDir, WF_APP_NO_PROTOCOL: "1" },
   });
   try {
