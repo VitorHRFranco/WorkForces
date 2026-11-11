@@ -99,17 +99,14 @@ jobs:
           path: packages/e2e/test-results
           retention-days: 7
 
-  # Numa tag v*, cria o release como rascunho com o instalador: quem publica é o autor, pelo site. Fora de tag é um
-  # ensaio, que confere o latest.yml e mostra o comando, sem criar nada.
-  release:
+  # Confere o que iria para o release: o latest.yml contra o instalador e, fora de tag, o ensaio do comando.
+  release-check:
     runs-on: ubuntu-latest
     needs: windows
     timeout-minutes: 10
-    # Escrita só aqui: o resto do workflow é só leitura.
+    # Só leitura: conferir não cria nada.
     permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
@@ -132,20 +129,41 @@ jobs:
             || { echo "::error::o sha512 do latest.yml não é o do $EXE (esperava $SHA)"; cat instalador/latest.yml; exit 1; }
           echo "latest.yml confere: path e sha512 do $EXE"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-      - name: Cria o rascunho do release (numa tag) ou mostra o ensaio
+      - name: Mostra o ensaio do release (fora de tag)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
           set -euo pipefail
-          cd instalador
           FILES=("WorkForces-Setup-$VERSION.exe" "WorkForces-Setup-$VERSION.exe.blockmap" latest.yml)
-          CMD=(gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "WorkForces $VERSION" "${FILES[@]}")
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "Ensaio: $GITHUB_REF não é uma tag, nada será criado."
-            echo "Arquivos: ${FILES[*]}"
-            echo "Comando: ${CMD[*]}"
-            exit 0
-          fi
+          echo "Ensaio: $GITHUB_REF não é uma tag, nada será criado."
+          echo "Arquivos: ${FILES[*]}"
+          # Na tag v$VERSION, o $GITHUB_REF_NAME é a própria tag.
+          echo "Comando: gh release create \"v$VERSION\" --draft --generate-notes --title \"WorkForces $VERSION\" ${FILES[*]}"
+
+  # Numa tag v*, cria o release como rascunho com o instalador: quem publica é o autor, pelo site.
+  release:
+    runs-on: ubuntu-latest
+    needs: release-check
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 10
+    # Escrita só aqui, e só numa tag: o resto do workflow é só leitura.
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: instalador
+          path: instalador
+      - name: Cria o rascunho do release
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./packages/app/package.json').version")
           if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
             echo "::error::a tag $GITHUB_REF_NAME não bate com a versão $VERSION do packages/app/package.json"
             exit 1
           fi
-          "${CMD[@]}"
+          cd instalador
+          FILES=("WorkForces-Setup-$VERSION.exe" "WorkForces-Setup-$VERSION.exe.blockmap" latest.yml)
+          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "WorkForces $VERSION" "${FILES[@]}"
