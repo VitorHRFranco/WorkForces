@@ -14,3 +14,7 @@ docs/superpowers/
 
 # Peças do LPC Revised baixadas pelo gerador de arte (tools/art/build_art.py)
 tools/art/.cache/
+
+# Montagem do instalador (packages/app/release/stage.ts)
+packages/app/release/stage/
+packages/app/release/out/
