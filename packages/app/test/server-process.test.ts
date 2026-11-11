@@ -52,6 +52,7 @@ const launchFor = (entry: string, port: number): ServerLaunch => ({
   port,
   publicUrl: `https://127.0.0.1:${port}`,
   dataDir: dir,
+  mapFile: null,
 });
 
 /** `mode` em lista: um modo por filho, na ordem dos `start`. */
@@ -142,6 +143,21 @@ describe("EmbeddedServer com o dublê", () => {
     const env = envSeen[0]!;
     expect(env.WF_TLS_PIN_FILE).toBeUndefined();
     expect(env).toMatchObject({ WF_PORT: "4701", WF_HOST: "127.0.0.1", WF_PUBLIC_URL: "https://127.0.0.1:4701", WF_DATA_DIR: dir, WF_TLS: "self-signed" });
+  });
+
+  it("mapFile vai como WF_MAP; null não leva WF_MAP (nem o herdado)", async () => {
+    process.env.WF_MAP = "/herdado.tmj";
+    const envSeen: NodeJS.ProcessEnv[] = [];
+    try {
+      const { server } = fakeServer("ready", { envSeen });
+      await server.start({ ...launchFor(fakeEntry, 4702), mapFile: "/x/office.tmj" });
+      await server.stop(300);
+      await server.start(launchFor(fakeEntry, 4703));
+    } finally {
+      delete process.env.WF_MAP;
+    }
+    expect(envSeen[0]!.WF_MAP).toBe("/x/office.tmj");
+    expect(envSeen[1]!.WF_MAP).toBeUndefined();
   });
 
   it("as linhas do filho (stdout e stderr) vão para o log com o prefixo", async () => {

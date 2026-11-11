@@ -103,6 +103,7 @@ function setup(options: { node?: string | null; addresses?: HostAddressInfo[]; l
       return options.local ?? true;
     },
     entry: ENTRY,
+    mapFile: "/x/office.tmj",
     dataDir: join(dir, "office"),
     emit: (status) => states.push(status.state),
     log: () => {},
@@ -190,7 +191,7 @@ describe("Host", () => {
     release();
     expect(await turning).toEqual({ ok: true, pin: PIN, anchor: "PEM", adminInvite: "convite-admin" });
     expect(server.launches).toEqual([
-      { node: NODE, entry: ENTRY, host: "0.0.0.0", port: 4600, publicUrl: "https://192.168.0.10:4600", dataDir: join(dir, "office") },
+      { node: NODE, entry: ENTRY, host: "0.0.0.0", port: 4600, publicUrl: "https://192.168.0.10:4600", dataDir: join(dir, "office"), mapFile: "/x/office.tmj" },
     ]);
     expect(saved()).toMatchObject({ pin: PIN, lastInviteHost: "192.168.0.10" });
     expect(host.hostedPin()).toBe(PIN);

@@ -31,6 +31,8 @@ export interface HostDeps {
   confirmLocal(url: string, pin: string): Promise<boolean>;
   /** O `embedded.js` do servidor. */
   entry: string;
+  /** O mapa do escritório; null no desenvolvimento (o servidor acha o do repositório). */
+  mapFile: string | null;
   /** Onde o escritório guarda o banco e o certificado. */
   dataDir: string;
   emit(status: HostStatus): void;
@@ -238,7 +240,7 @@ export class Host {
       }
       const invite = this.inviteHost(settings, mapped);
       const publicUrl = `https://${invite.host}:${settings.port}`;
-      const started = await this.deps.server.start({ node, entry: this.deps.entry, host: "0.0.0.0", port: settings.port, publicUrl, dataDir: this.deps.dataDir });
+      const started = await this.deps.server.start({ node, entry: this.deps.entry, host: "0.0.0.0", port: settings.port, publicUrl, dataDir: this.deps.dataDir, mapFile: this.deps.mapFile });
       if (!started.ok) return await this.failed(started.error === "port-in-use" ? portInUse(settings.port) : started.error === "timeout" ? START_TIMEOUT : START_FAILED);
       const { pin, anchor, adminInvite } = started;
       // No Windows, o bind em 0.0.0.0 dá certo mesmo com outro programa só em 127.0.0.1 na porta, e o anfitrião cairia

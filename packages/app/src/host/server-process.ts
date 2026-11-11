@@ -10,6 +10,8 @@ export interface ServerLaunch {
   port: number;
   publicUrl: string;
   dataDir: string;
+  /** O mapa do escritório (`WF_MAP`); null deixa o servidor usar o do repositório. */
+  mapFile: string | null;
 }
 
 export type ServerStart =
@@ -54,6 +56,7 @@ export class EmbeddedServer {
       WF_DATA_DIR: launch.dataDir,
       WF_TLS: "self-signed",
     });
+    if (launch.mapFile) env.WF_MAP = launch.mapFile;
     const child = this.fork(launch.entry, [], { execPath: launch.node, execArgv: [], env, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true });
     this.child = child;
     for (const stream of [child.stdout, child.stderr]) {

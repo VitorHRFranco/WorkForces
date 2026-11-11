@@ -33,6 +33,8 @@ import { EmbeddedServer } from "./host/server-process.js";
 import { HostSettingsStore } from "./host/settings.js";
 import { upnpPortMapper } from "./host/wan.js";
 import { findInviteArg } from "./links.js";
+import { cleanupRuntimes, ensureRuntime } from "./runtime/install.js";
+import { packagedSource, pageFiles, runtimeRootDir, userDataDir, type Runtime } from "./runtime/layout.js";
 import { checkReachable } from "./net/forward.js";
 import { SocketRelay } from "./net/office-socket.js";
 import { fetchAnchor, officeFetch } from "./net/pinned.js";
@@ -85,7 +87,7 @@ function trustSystemCertificates(): void {
 }
 
 // A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
-if (process.env.WF_APP_DATA_DIR) app.setPath("userData", resolve(process.env.WF_APP_DATA_DIR));
+app.setPath("userData", userDataDir(process.env, app.getPath("appData")));
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -198,16 +200,37 @@ async function start(): Promise<void> {
     open: (sealed) => safeStorage.decryptString(Buffer.from(sealed, "base64")),
   };
 
-  // O escritório deste computador: liga só quando a pessoa pede (abrir o app não liga).
   const userData = app.getPath("userData");
+
+  // Instalado: o app usa o próprio Node e uma cópia do servidor e da ponte fora da pasta de instalação (o atualizador troca
+  // a instalação, e o Windows não deixa trocar arquivos de um programa rodando). Em desenvolvimento, os do repositório.
+  let runtime: Runtime | null = null;
+  if (app.isPackaged) {
+    app.setAppUserModelId("io.github.vitorhrfranco.workforces");
+    const root = runtimeRootDir(process.env, process.platform, userData);
+    try {
+      const source = packagedSource(process.resourcesPath);
+      runtime = await ensureRuntime(source, root, app.getVersion());
+      void cleanupRuntimes(root, [`node-${source.nodeVersion}`, `app-${app.getVersion()}`]).catch((error: unknown) => console.warn("não consegui limpar o runtime antigo", error));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      dialog.showErrorBox("WorkForces", `não consegui preparar os arquivos do WorkForces em ${root} (${reason}). Libere espaço no disco e abra o app de novo.`);
+      app.exit(1);
+      return;
+    }
+  }
+  const nodePath = (): Promise<string | null> => (runtime ? Promise.resolve(runtime.node) : findNode());
+
+  // O escritório deste computador: liga só quando a pessoa pede (abrir o app não liga).
   const officeHost = new Host({
     settings: HostSettingsStore.load(join(userData, "host.json"), console.warn),
     server: new EmbeddedServer({ log: console.log }),
     portMapper: upnpPortMapper({ log: console.warn }),
-    findNode: () => findNode(),
+    findNode: nodePath,
     addresses: () => listAddresses(),
     confirmLocal: async (url, pin) => (await fetchAnchor(url, pin)).ok,
-    entry: fileURLToPath(new URL("../../server/dist/embedded.js", import.meta.url)),
+    entry: runtime?.serverEntry ?? fileURLToPath(new URL("../../server/dist/embedded.js", import.meta.url)),
+    mapFile: runtime?.mapFile ?? null,
     dataDir: join(userData, "office"),
     emit: (status) => sendToPage("host:status", status),
     log: console.warn,
@@ -217,8 +240,7 @@ async function start(): Promise<void> {
   const appState = new AppState(OfficeStore.load(join(userData, "offices.json"), box, console.warn), () => officeHost.hostedPin());
   state = appState;
 
-  const clientDir = fileURLToPath(new URL("../../client/dist", import.meta.url));
-  const preload = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+  const { clientDir, preload } = pageFiles(app.isPackaged, import.meta.url);
 
   const socketRelay = new SocketRelay(
     (id, event) => sendToPage("socket:event", id, event),
@@ -251,14 +273,15 @@ async function start(): Promise<void> {
   localAgents = agents;
   void agents.scan();
 
-  // O invólucro roda no Node do sistema; o mesmo caminho do cli.js identifica os agentes abertos na contagem.
-  const cliPath = fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
+  // O invólucro roda no Node do app (instalado) ou do sistema (desenvolvimento); o caminho do cli.js identifica os agentes abertos.
+  const cliPath = runtime?.bridgeCli ?? fileURLToPath(new URL("../../bridge/dist/cli.js", import.meta.url));
   const launcher = new AgentLauncher({
     platform: process.platform,
     folders,
     isDirectory,
-    countOpenAgents: () => countOpenAgents(cliPath),
-    findNode: () => findNode(),
+    // Instalado, conta pela pasta do runtime: acha agentes de qualquer versão do app (o filtro `claude` deixa o servidor de fora).
+    countOpenAgents: () => countOpenAgents(runtime?.root ?? cliPath),
+    findNode: nodePath,
     // O escritório é a foto tirada no pedido (agents:spawn): o token e o endereço do start saem do mesmo, mesmo que o aberto mude.
     async ensureToken(office) {
       const result = await ensureBridgeToken(office, tokenName(hostname()));
