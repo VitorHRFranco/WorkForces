@@ -18,6 +18,7 @@ import { OwnPanel } from "../office/own-panel";
 import { watchTarget } from "../office/watch-target";
 import type { TerminalHandle } from "../terminal/terminal-panel";
 import { navigate } from "../router";
+import { UpdateNotice } from "./update-notice";
 
 interface LoadedMap {
   map: OfficeMap;
@@ -209,6 +210,7 @@ export function OfficePage() {
     <div class="office">
       <header class="topbar">
         <strong>WorkForces</strong>
+        <UpdateNotice />
         <AgentMenu onModalChange={setAgentModal} />
         <span class="who">{me.name}</span>
         <span class="online">{state.players.size === 1 ? "1 pessoa online" : `${state.players.size} pessoas online`}</span>

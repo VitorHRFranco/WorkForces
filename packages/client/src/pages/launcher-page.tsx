@@ -4,6 +4,7 @@ import { bridge } from "../bridge";
 import { takeFlash } from "../flash";
 import { navigate, routePath } from "../router";
 import { AddressChangedNotice, hostStateText, useHostStatus } from "./host-page";
+import { UpdateNotice } from "./update-notice";
 
 type Reach = "checking" | "up" | "down";
 
@@ -116,6 +117,7 @@ export function LauncherPage() {
 
   return (
     <main class="card launcher">
+      <UpdateNotice />
       <h1>WorkForces</h1>
       {flash && (
         <p class="error" role="alert">

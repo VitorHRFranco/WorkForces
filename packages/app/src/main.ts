@@ -18,6 +18,7 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
+import electronUpdater from "electron-updater";
 import { channelDir } from "@workforces/bridge/channel";
 import { ALIAS_PATTERN, HostSettingsInput, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type HostConfigResult, type LocalAgentInfo } from "@workforces/protocol";
 import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
@@ -42,6 +43,7 @@ import { prepareInvite } from "./offices/join.js";
 import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
 import { AppState } from "./state.js";
+import { startUpdates, type Updater } from "./update.js";
 
 const PAGE_PREFIX = `app://${PAGE_HOST}/`;
 const MAX_TEXT = 2048;
@@ -528,6 +530,30 @@ async function start(): Promise<void> {
       }
     });
   }
+
+  // Atualização automática: só instalado (o `autoUpdater` só é tocado aqui, então em desenvolvimento e no E2E nem nasce).
+  const updatesEnabled = app.isPackaged && !process.env.WF_NO_UPDATE;
+  const inert: Updater = { autoDownload: false, autoInstallOnAppQuit: false, checkForUpdates: () => Promise.resolve(null), quitAndInstall: () => {}, on: () => undefined };
+  const updater: Updater = updatesEnabled ? electronUpdater.autoUpdater : inert;
+  const updates = startUpdates({
+    updater,
+    enabled: updatesEnabled,
+    notify: (version) => sendToPage("app:update", version),
+    log: console.warn,
+  });
+  app.on("will-quit", updates.stop);
+  handle("app:updateCurrent", () => updates.downloaded());
+  handle("app:restartToUpdate", async () => {
+    if (updates.downloaded() === null || quitting) return;
+    quitting = true;
+    // O escritório deste computador desliga antes, como na saída; `hostOff` evita que o `before-quit` espere de novo.
+    if (host && !hostOff && !hostStopping) {
+      hostStopping = true;
+      await host.turnOff().catch((error: unknown) => console.warn("não consegui desligar o escritório ao atualizar", error));
+    }
+    hostOff = true;
+    updater.quitAndInstall(true, true);
+  });
 
   tray = new Tray(icon.resize({ height: 16 }));
   tray.setToolTip("WorkForces");

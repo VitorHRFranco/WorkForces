@@ -40,6 +40,11 @@ const bridge: AppBridge = {
     pickAndAdd: (alias) => ipcRenderer.invoke("folders:pickAndAdd", alias),
     remove: (alias) => ipcRenderer.invoke("folders:remove", alias),
   },
+  update: {
+    current: () => ipcRenderer.invoke("app:updateCurrent"),
+    onReady: (listener) => subscribe<[string]>("app:update", listener),
+    restart: () => ipcRenderer.invoke("app:restartToUpdate"),
+  },
   agents: {
     spawn: (alias) => ipcRenderer.invoke("agents:spawn", alias),
     list: () => ipcRenderer.invoke("agents:list"),

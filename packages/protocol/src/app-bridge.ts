@@ -95,6 +95,12 @@ export interface AppBridge {
     pickAndAdd(alias: string): Promise<FolderChange | null>;
     remove(alias: string): Promise<FolderInfo[]>;
   };
+  /** Atualização automática: a versão já baixada, que entra quando o app reiniciar. */
+  update: {
+    current(): Promise<string | null>;
+    onReady(listener: (version: string) => void): () => void;
+    restart(): Promise<void>;
+  };
   agents: {
     spawn(alias: string): Promise<SpawnOutcome>;
     list(): Promise<LocalAgentInfo[]>;
