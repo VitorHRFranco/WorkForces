@@ -36,10 +36,12 @@ jobs:
           if ($setup.Count -ne 1) { throw "esperava um instalador em release/out e achei $($setup.Count)" }
           $process = Start-Process $setup[0].FullName -ArgumentList "/S" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "o instalador saiu com $($process.ExitCode)" }
-      - name: O app fica em LOCALAPPDATA\Programs
+      - name: O app fica em LOCALAPPDATA\Programs, com o endereço das atualizações
         run: |
           $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
           if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
+          $update = "$env:LOCALAPPDATA\Programs\WorkForces\resources\app-update.yml"
+          if (-not (Select-String -LiteralPath $update -Pattern "provider: github" -Quiet)) { throw "o $update não aponta para os releases do GitHub" }
       - name: O link workforces:// abre o app instalado
         run: |
           $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"

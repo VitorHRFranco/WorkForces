@@ -34,12 +34,11 @@ test.afterAll(async () => {
   if (dir !== undefined) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-/** O PATH sem nenhuma pasta que tenha um node.exe; o resto fica (o app chama o powershell.exe, que mora no System32). */
-function pathWithoutNode(path: string): string {
-  return path
-    .split(delimiter)
-    .filter((entry) => entry !== "" && !existsSync(join(entry.replace(/"/g, ""), "node.exe")))
-    .join(delimiter);
+/** As pastas do PATH com e sem um node.exe; as sem ficam para o app (ele chama o powershell.exe, que mora no System32). */
+function splitPath(path: string): { withNode: string[]; rest: string[] } {
+  const entries = path.split(delimiter).filter((entry) => entry !== "");
+  const hasNode = (entry: string): boolean => existsSync(join(entry.replace(/"/g, ""), "node.exe"));
+  return { withNode: entries.filter(hasNode), rest: entries.filter((entry) => !hasNode(entry)) };
 }
 
 /**
@@ -82,7 +81,10 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
   const root = mkdtempSync(join(tmpdir(), "wf-e2e-instalado-"));
   dir = root;
   const runtimeDir = join(root, "runtime");
-  const env = { PATH: pathWithoutNode(process.env.PATH ?? ""), WF_RUNTIME_DIR: runtimeDir, WF_NO_UPDATE: "1" };
+  // O Node que roda o teste está no PATH: sem nenhuma pasta para tirar, o teste não provaria nada.
+  const path = splitPath(process.env.PATH ?? "");
+  expect(path.withNode).not.toHaveLength(0);
+  const env = { PATH: path.rest.join(delimiter), WF_RUNTIME_DIR: runtimeDir, WF_NO_UPDATE: "1" };
   const { app, page } = await withEnv(env, () => launchApp(root, { executablePath: EXE! }));
   const log: string[] = [];
   app.on("console", (message) => {
