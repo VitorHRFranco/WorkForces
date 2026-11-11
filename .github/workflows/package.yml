@@ -25,8 +25,9 @@ jobs:
       - run: pnpm build
       # O pacote electron não baixa o binário ao instalar; baixa aqui, e o electron-builder empacota esse mesmo (electronDist).
       - run: node packages/app/node_modules/electron/install.js
+      # Com "run": no pnpm 12, "pnpm stage" é um comando do próprio pnpm, não o script.
       - name: Monta o app e o runtime (com o node.exe conferido por SHA-256)
-        run: pnpm --filter @workforces/app stage
+        run: pnpm --filter @workforces/app run stage
       - name: Gera o instalador
         run: pnpm --filter @workforces/app exec electron-builder --config release/electron-builder.json --win nsis --x64 --publish never
       - name: Instala sem perguntas, só para o usuário
