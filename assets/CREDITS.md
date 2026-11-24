@@ -69,7 +69,7 @@ Todas as roupas e todos os cabelos partem do corpo e das animações originais d
 
 ³ O `Credits.txt` de `Characters/Hair` não tem entrada para as barbas, os bigodes e as sobrancelhas. Ficam creditados à coleção LPC Revised e a todos os artistas dela, listados acima.
 
-## Desenho próprio (MIT, como o resto do repositório)
+## Desenho próprio (PolyForm Internal Use 1.0.0, como o resto do repositório; veja o `LICENSE`)
 
 - `packages/client/public/sprites/robot.png`: o robô dos agentes, desenhado pixel a pixel em `tools/art/build_art.py`.
 - `assets/map/office.tmj`: o mapa do escritório, gerado por `tools/art/build_art.py --map` e editável no [Tiled](https://www.mapeditor.org/).

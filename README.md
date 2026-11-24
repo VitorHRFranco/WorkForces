@@ -115,6 +115,16 @@ Para desativar uma conta: `node packages/server/dist/cli.js user disable <nome>`
 
 Rode com as mesmas variáveis `WF_*` do servidor: o comando abre o banco em `WF_DATA_DIR` e valida `WF_PUBLIC_URL`.
 
+## Licença
+
+O WorkForces é software de código disponível, e não código livre. Ele está sob a [PolyForm Internal Use License 1.0.0](LICENSE):
+
+- qualquer pessoa ou empresa pode baixar, instalar e usar o WorkForces no próprio trabalho, inclusive comercialmente, desde que seja para uso interno;
+- o código está aberto para ler e auditar, e cada um pode ajustar a própria cópia para uso interno;
+- não é permitido redistribuir o software nem versões modificadas dele.
+
+A arte do LPC Revised continua sob a OGA-BY 3.0, com os créditos em `assets/CREDITS.md`, e cada dependência segue a licença dela.
+
 ## Desenvolvimento
 
 Para mexer no código, são preciso o Node 22.12 ou mais novo e o pnpm 12 (`npm install -g pnpm@12.11.2`). Quem só usa o app não precisa de nenhum dos dois.
