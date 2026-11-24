@@ -76,7 +76,10 @@ test("a aparência do perfil chega aos outros ao entrar, troca na hora para todo
   await expect.poll(() => keyOf(biaPage, "ana")).toBe(appearanceKey(B));
 
   // ana vai até a mesa-2, para não ficar por cima de bia (na entrada); o CI guarda a captura (artefato "personagem").
-  await walkTo(anaPage, deskSpot(office.map, "mesa-2"));
+  const desk = deskSpot(office.map, "mesa-2");
+  await walkTo(anaPage, desk);
+  // Chegando à mesa ela fica de costas; um passo para baixo a vira de frente, com rosto, óculos e gravata à vista.
+  await walkTo(anaPage, { x: desk.x, y: desk.y + 32 });
   // A cena de bia mostra ana com um pouco de atraso (a posição chega pelo servidor e é interpolada).
   await biaPage.waitForTimeout(1_500);
   await biaPage.screenshot({ path: "test-results/personagem.png" });
