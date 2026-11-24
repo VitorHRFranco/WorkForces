@@ -67,6 +67,14 @@ jobs:
           path: packages/e2e/test-results/escritorio.png
           retention-days: 7
           if-no-files-found: warn
+      # A captura com ana montada com todas as peças opcionais (appearance.e2e.ts), para conferir a ordem das camadas a olho.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: personagem
+          path: packages/e2e/test-results/personagem.png
+          retention-days: 7
+          if-no-files-found: warn
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
