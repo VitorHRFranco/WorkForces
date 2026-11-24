@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# Arquivos do LPC copiados como estão na origem (inclusive as quebras de linha dos Credits.txt).
+assets/lpc/** -text
