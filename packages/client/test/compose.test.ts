@@ -35,6 +35,12 @@ describe("rampFor", () => {
     const near = `#${[r! + 2, g! + 1, b!].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
     expect(rampFor("clothing", near)).toEqual(coral);
   });
+
+  it("o nome só vale se for uma cor da própria família", () => {
+    expect(() => rampFor("clothing", "constructor")).toThrow("cor desconhecida");
+    expect(() => rampFor("clothing", "Raven")).toThrow("cor desconhecida");
+    expect(rampFor("hair", "Raven")).toEqual(RAMPS.hair.named.Raven);
+  });
 });
 
 describe("recolor", () => {

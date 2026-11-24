@@ -1,4 +1,4 @@
-import type { ApiErrorBody, InviteCreated, InviteStatus, Me, TokenCreated, TokenInfo } from "@workforces/protocol";
+import type { ApiErrorBody, Appearance, InviteCreated, InviteStatus, Me, TokenCreated, TokenInfo } from "@workforces/protocol";
 
 export class ApiError extends Error {
   constructor(
@@ -38,6 +38,8 @@ export const api = {
   listTokens: () => request<TokenInfo[]>("GET", "/api/tokens"),
   createToken: (name: string) => request<TokenCreated>("POST", "/api/tokens", { name }),
   revokeToken: (id: number) => request<void>("DELETE", `/api/tokens/${id}`),
+  /** Manda a aparência do perfil ao escritório (o servidor avisa todo mundo, inclusive você). */
+  setAppearance: (appearance: Appearance) => request<void>("PUT", "/api/me/appearance", appearance),
   /** O .tmj do escritório (o mesmo que o servidor usa para as mesas). */
   map: () => request<unknown>("GET", "/map/map.tmj"),
 };

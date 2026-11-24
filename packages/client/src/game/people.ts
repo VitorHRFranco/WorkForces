@@ -1,4 +1,4 @@
-import { LEGACY, type Appearance, type Direction, type Point, type Rect } from "@workforces/protocol";
+import { LEGACY, parseAppearance, type Appearance, type Direction, type Point, type Rect } from "@workforces/protocol";
 
 /** Lado de cada quadro, em px. A folha de uma pessoa, montada a partir da aparência (compose.ts), tem 4 linhas (cima, esquerda, baixo, direita) de 12 quadros. */
 export const PERSON_FRAME = 64;
@@ -29,7 +29,13 @@ export interface Pose {
 
 /** A aparência de quem ainda não escolheu a sua: uma das 12 de hoje, pela ordem do id (as 12 primeiras contas ficam todas diferentes). */
 export function legacyAppearance(userId: number): Appearance {
-  return LEGACY[(userId - 1) % LEGACY.length]!;
+  // Cópia: quem mexer no objeto devolvido não estraga a tabela.
+  return structuredClone(LEGACY[(userId - 1) % LEGACY.length]!);
+}
+
+/** A aparência que a cena mostra para alguém: a que veio do servidor, se este catálogo a entende; senão, a de hoje pelo id. */
+export function appearanceOf(player: { id: number; appearance?: unknown }): Appearance {
+  return parseAppearance(player.appearance) ?? legacyAppearance(player.id);
 }
 
 /** Andando, parada ou sentada: só senta quem está parado num assento, e aí olha para onde o assento manda. */
@@ -44,5 +50,5 @@ export function poseFrames(pose: Pose): number[] {
   return columns.map((column) => ROWS[pose.dir] * COLUMNS + column);
 }
 
-/** A animação de uma pose na folha `textureKey` (a chave que `PeopleTextures.ensure` devolve). */
+/** A animação de uma pose na folha `textureKey` (a chave que `PeopleTextures.acquire` devolve). */
 export const animKey = (textureKey: string, pose: Pose): string => `${textureKey}-${pose.kind}-${pose.dir}`;

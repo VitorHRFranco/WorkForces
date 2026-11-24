@@ -5,8 +5,8 @@ import { cameraFrame, panelInset } from "./camera";
 import { layoutDesks, robotLook } from "./desk-layout";
 import type { MoveState } from "./move-sender";
 import { composeSheet, type Rgba } from "./compose";
-import { FEET, FOOT_Y, PERSON_FRAME, animKey, legacyAppearance, poseFrames, poseOf, type PoseKind } from "./people";
-import { PeopleTextures } from "./people-textures";
+import { FEET, FOOT_Y, PERSON_FRAME, animKey, appearanceOf, poseFrames, poseOf, type PoseKind } from "./people";
+import { PERSON_TEXTURE_PREFIX, PeopleTextures } from "./people-textures";
 import { propDef, propOrigin, solidRect } from "./props";
 import { SIT_DELAY_MS, nearestSeat, seatAt, standSpot } from "./seating";
 import { Track } from "./track";
@@ -61,11 +61,16 @@ interface Remote {
   track: Track;
   /** A folha da aparência dele (PeopleTextures). */
   textureKey: string;
+  /** A `appearance` do jogador de onde a folha saiu: só se confere de novo quando ela muda. */
+  appearanceSource: unknown;
 }
 
-/** Leitura da posição do avatar, para os testes E2E. */
+/** Leituras da cena para os testes E2E. */
 export interface WorkforcesHook {
+  /** A posição do seu avatar. */
   position(): Point;
+  /** O `appearanceKey` da aparência que a cena mostra para a pessoa com esse nome (você ou outro); null se ela não está na cena. */
+  appearanceKeyOf(name: string): string | null;
 }
 type WindowWithHook = Window & { __workforces?: WorkforcesHook };
 
@@ -79,6 +84,8 @@ export class OfficeScene extends Phaser.Scene {
   private wasd!: WasdKeys;
   /** A folha da sua aparência. */
   private textureKey = "";
+  /** A `appearance` do seu jogador de onde a sua folha saiu (undefined antes de ele aparecer no estado). */
+  private appearanceSource: unknown = undefined;
   /** As folhas das aparências em cena, montadas uma vez cada. */
   private people!: PeopleTextures<HTMLCanvasElement>;
   /** Os pixels de cada peça carregada, lidos uma vez. */
@@ -117,6 +124,7 @@ export class OfficeScene extends Phaser.Scene {
     this.people = new PeopleTextures({
       compose: (appearance) => this.composePerson(appearance),
       register: (key, sheet) => this.registerPerson(key, sheet),
+      unregister: (key) => this.unregisterPerson(key),
     });
     this.createAnimations();
     const walls = this.createTilemap();
@@ -127,7 +135,9 @@ export class OfficeScene extends Phaser.Scene {
     // Quem recarrega a página sentado volta no ponto do assento: começa em pé ao lado e senta de novo sozinho, se o assento estiver livre.
     const savedSeat = seatAt(office.seats, saved);
     const start = savedSeat ? standSpot(savedSeat, office.props.flatMap((prop) => solidRect(prop) ?? [])) : saved;
-    this.textureKey = this.people.ensure(legacyAppearance(me.id));
+    // A sua aparência sai do seu jogador no estado; sem ele ainda, a de hoje pelo id.
+    this.appearanceSource = state.players.get(me.id)?.appearance;
+    this.textureKey = this.people.acquire(appearanceOf({ id: me.id, appearance: this.appearanceSource }));
     this.player = this.physics.add.sprite(start.x, start.y, this.textureKey, 0);
     this.player.setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y);
     this.player.body.setSize(FEET.width, FEET.height).setOffset((PERSON_FRAME - FEET.width) / 2, FOOT_Y - FEET.height);
@@ -150,8 +160,11 @@ export class OfficeScene extends Phaser.Scene {
     this.setKeyboardEnabled(this.keyboardWanted);
 
     const unsubscribe = state.subscribe(() => this.sync());
-    // Para os testes E2E: só lê a posição do avatar (a mesma que já vai para todo mundo pelo `move`).
-    const hook: WorkforcesHook = { position: () => ({ x: this.player.x, y: this.player.y }) };
+    // Para os testes E2E: só lê o que já vai para todo mundo (a posição, pelo `move`) ou está na tela (a aparência).
+    const hook: WorkforcesHook = {
+      position: () => ({ x: this.player.x, y: this.player.y }),
+      appearanceKeyOf: (name) => this.appearanceKeyOf(name),
+    };
     (window as WindowWithHook).__workforces = hook;
     const cleanup = () => {
       unsubscribe();
@@ -316,6 +329,37 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /** Tira do jogo a folha e as 12 animações dela (ninguém mais usa essa aparência). */
+  private unregisterPerson(key: string): void {
+    for (const dir of DIRECTIONS) {
+      for (const kind of POSES) this.anims.remove(animKey(key, { kind, dir }));
+    }
+    this.textures.remove(key);
+  }
+
+  /** Troca a folha de um sprite: monta (ou reaproveita) a da nova aparência, põe no sprite e só então solta a antiga. A pose volta no próximo update. */
+  private swapTexture(sprite: Phaser.GameObjects.Sprite, from: string, appearance: Appearance): string {
+    const to = this.people.acquire(appearance);
+    if (to === from) {
+      this.people.release(from);
+      return from;
+    }
+    sprite.anims.stop();
+    sprite.setTexture(to, 0);
+    this.people.release(from);
+    return to;
+  }
+
+  /** O `appearanceKey` que a cena mostra para a pessoa com esse nome (só para o E2E). */
+  private appearanceKeyOf(name: string): string | null {
+    const strip = (key: string) => key.slice(PERSON_TEXTURE_PREFIX.length);
+    if (this.deps.state.me?.name === name) return strip(this.textureKey);
+    for (const remote of this.remotes.values()) {
+      if (remote.name.text === name) return strip(remote.textureKey);
+    }
+    return null;
+  }
+
   private createAnimations(): void {
     this.anims.create({ key: ROBOT_WORKING, frames: this.anims.generateFrameNumbers(ROBOT_KEY, { frames: [0, 1] }), frameRate: 3, repeat: -1 });
   }
@@ -359,8 +403,9 @@ export class OfficeScene extends Phaser.Scene {
     return solids;
   }
 
-  /** Acompanha o estado: outros jogadores, mesas e robôs. */
+  /** Acompanha o estado: a sua aparência, outros jogadores, mesas e robôs. */
   private sync(): void {
+    this.syncMe();
     this.syncRemotes();
     this.syncDesks();
   }
@@ -397,6 +442,15 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /** O servidor ecoa a sua aparência (playerAppearance) como a de qualquer um: o seu sprite troca também. */
+  private syncMe(): void {
+    const { state } = this.deps;
+    const mine = state.me ? state.players.get(state.me.id) : undefined;
+    if (!mine || mine.appearance === this.appearanceSource) return;
+    this.appearanceSource = mine.appearance;
+    this.textureKey = this.swapTexture(this.player, this.textureKey, appearanceOf(mine));
+  }
+
   private syncRemotes(): void {
     const { state } = this.deps;
     const meId = state.me?.id;
@@ -405,14 +459,18 @@ export class OfficeScene extends Phaser.Scene {
       if (player.id === meId) continue;
       let remote = this.remotes.get(player.id);
       if (!remote) {
-        const textureKey = this.people.ensure(legacyAppearance(player.id));
+        const textureKey = this.people.acquire(appearanceOf(player));
         remote = {
           sprite: this.add.sprite(player.x, player.y, textureKey, 0).setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y),
           name: this.label(player.name),
           track: new Track(),
           textureKey,
+          appearanceSource: player.appearance,
         };
         this.remotes.set(player.id, remote);
+      } else if (player.appearance !== remote.appearanceSource) {
+        remote.appearanceSource = player.appearance;
+        remote.textureKey = this.swapTexture(remote.sprite, remote.textureKey, appearanceOf(player));
       }
       const last = remote.track.last();
       if (!last || last.x !== player.x || last.y !== player.y) remote.track.push(now, player.x, player.y);
@@ -421,6 +479,7 @@ export class OfficeScene extends Phaser.Scene {
       if (state.players.has(id)) continue;
       remote.sprite.destroy();
       remote.name.destroy();
+      this.people.release(remote.textureKey);
       this.remotes.delete(id);
     }
   }

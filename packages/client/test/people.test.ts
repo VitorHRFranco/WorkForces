@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appearanceKey } from "@workforces/protocol";
-import { animKey, legacyAppearance, poseFrames, poseOf } from "../src/game/people";
+import { LEGACY, appearanceKey } from "@workforces/protocol";
+import { animKey, appearanceOf, legacyAppearance, poseFrames, poseOf } from "../src/game/people";
 
 describe("pessoas", () => {
   it("cada conta tem a aparência de hoje pelo id; as 12 primeiras são todas diferentes, e o id 13 volta à do 1", () => {
@@ -8,6 +8,24 @@ describe("pessoas", () => {
     const first = Array.from({ length: 12 }, (_, i) => appearanceKey(legacyAppearance(i + 1)));
     expect(new Set(first).size).toBe(12);
     expect(legacyAppearance(13)).toEqual(legacyAppearance(1));
+  });
+
+  it("a aparência de alguém é a que veio, se servir; fora isso, a de hoje pelo id", () => {
+    expect(appearanceOf({ id: 2, appearance: LEGACY[5] })).toEqual(LEGACY[5]);
+    const fallback = legacyAppearance(2);
+    expect(appearanceOf({ id: 2 })).toEqual(fallback);
+    expect(appearanceOf({ id: 2, appearance: null })).toEqual(fallback);
+    expect(appearanceOf({ id: 2, appearance: { lixo: 1 } })).toEqual(fallback);
+    const unknownHair = { ...LEGACY[5], hair: { ...LEGACY[5].hair, style: "short-99" } };
+    expect(appearanceOf({ id: 2, appearance: unknownHair })).toEqual(fallback);
+  });
+
+  it("mexer na aparência de hoje devolvida não muda a próxima", () => {
+    const first = legacyAppearance(1);
+    const original = structuredClone(first);
+    first.hair.color = "Pink";
+    first.skin = "Peach";
+    expect(legacyAppearance(1)).toEqual(original);
   });
 
   it("anda, para e senta com a pose certa", () => {

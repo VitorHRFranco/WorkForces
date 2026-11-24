@@ -46,6 +46,12 @@ export class OfficeState {
         this.players.set(player.id, { ...player, x: message.x, y: message.y, dir: message.dir, moving: message.moving });
         break;
       }
+      case "playerAppearance": {
+        const player = this.players.get(message.playerId);
+        if (!player) return;
+        this.players.set(player.id, { ...player, appearance: message.appearance });
+        break;
+      }
       case "agentAdded":
       case "agentUpdated":
         this.agents.set(message.agent.id, message.agent);

@@ -68,6 +68,18 @@ describe("OfficeState", () => {
     expect(state.version).toBe(version);
   });
 
+  it("playerAppearance troca só a aparência daquele jogador; id desconhecido não faz nada", () => {
+    const state = new OfficeState();
+    state.apply(welcome());
+    const version = state.version;
+    state.apply({ type: "playerAppearance", playerId: 1, appearance: { qualquer: "coisa" } });
+    expect(state.players.get(1)).toEqual({ id: 1, name: "ana", x: 232, y: 184, dir: "down", moving: false, appearance: { qualquer: "coisa" } });
+    expect(state.version).toBe(version + 1);
+    state.apply({ type: "playerAppearance", playerId: 99, appearance: null });
+    expect(state.players.has(99)).toBe(false);
+    expect(state.version).toBe(version + 1);
+  });
+
   it("guarda no máximo 200 mensagens de chat", () => {
     const state = new OfficeState();
     state.apply(welcome());

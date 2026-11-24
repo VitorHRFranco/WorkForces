@@ -31,14 +31,17 @@ const parts: Record<string, PartEntry> = PARTS;
 
 const rgbOf = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
 /**
- * A rampa de uma cor: a da cor pronta do LPC com esse nome; para uma cor livre, por enquanto, a cor pronta cujo tom do
- * meio fica mais perto dela (o plano 3 troca isso por uma rampa calculada a partir da cor).
+ * A rampa de uma cor: a da cor pronta do LPC com esse nome (só os nomes da própria família); para uma cor livre
+ * (`#rrggbb`), por enquanto, a cor pronta cujo tom do meio fica mais perto dela (o plano 3 troca isso por uma rampa
+ * calculada a partir da cor). Outra coisa lança.
  */
 export function rampFor(family: Family, color: string): readonly string[] {
   const named: Record<string, readonly string[]> = RAMPS[family].named;
-  const exact = named[color];
-  if (exact) return exact;
+  if (Object.hasOwn(named, color)) return named[color]!;
+  if (!HEX.test(color)) throw new Error(`cor desconhecida: ${color}`);
   const [r, g, b] = rgbOf(color);
   let best: readonly string[] = [];
   let bestDistance = Infinity;

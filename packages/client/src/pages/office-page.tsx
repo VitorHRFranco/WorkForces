@@ -15,6 +15,7 @@ import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
 import { OwnPanel } from "../office/own-panel";
+import { sendProfileAppearance } from "../office/send-appearance";
 import { watchTarget } from "../office/watch-target";
 import type { TerminalHandle } from "../terminal/terminal-panel";
 import { navigate } from "../router";
@@ -100,8 +101,17 @@ export function OfficePage() {
       },
     }, () => new IpcSocket(bridge.socket));
     connection.current = conn;
-    conn.start();
+    let cancelled = false;
+    // A aparência do perfil vai antes do socket, para o welcome já trazê-la; falha ou demora não seguram a entrada.
+    void sendProfileAppearance({
+      get: () => bridge.appearance.get(),
+      put: (appearance) => api.setAppearance(appearance),
+      log: (message) => console.warn(message),
+    }).then(() => {
+      if (!cancelled) conn.start();
+    });
     return () => {
+      cancelled = true;
       conn.stop();
       connection.current = null;
     };
