@@ -46,4 +46,8 @@ describe("configuração do electron-builder", () => {
     expect(config.npmRebuild).toBe(false);
     expect(config.extraResources).toContainEqual(expect.objectContaining({ from: "release/stage/runtime", to: "runtime" }));
   });
+
+  it("leva os créditos da arte para dentro do app instalado (a OGA-BY pede o crédito onde a arte é distribuída)", () => {
+    expect(config.extraResources).toContainEqual(expect.objectContaining({ from: "../../assets/CREDITS.md", to: "CREDITS.md" }));
+  });
 });

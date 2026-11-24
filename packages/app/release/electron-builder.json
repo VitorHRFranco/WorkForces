@@ -16,7 +16,10 @@
   "asar": true,
   "asarUnpack": ["**/*.node"],
   "npmRebuild": false,
-  "extraResources": [{ "from": "release/stage/runtime", "to": "runtime" }],
+  "extraResources": [
+    { "from": "release/stage/runtime", "to": "runtime" },
+    { "from": "../../assets/CREDITS.md", "to": "CREDITS.md" }
+  ],
   "artifactName": "WorkForces-Setup-${version}.${ext}",
   "protocols": [{ "name": "WorkForces", "schemes": ["workforces"] }],
   "win": {

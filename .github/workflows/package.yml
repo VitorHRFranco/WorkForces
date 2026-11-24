@@ -42,6 +42,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
           $update = "$env:LOCALAPPDATA\Programs\WorkForces\resources\app-update.yml"
           if (-not (Select-String -LiteralPath $update -Pattern "provider: github" -Quiet)) { throw "o $update não aponta para os releases do GitHub" }
+      - name: Os créditos da arte vão dentro do app instalado
+        run: |
+          $credits = "$env:LOCALAPPDATA\Programs\WorkForces\resources\CREDITS.md"
+          if (-not (Select-String -LiteralPath $credits -Pattern "OGA-BY 3.0" -SimpleMatch -Quiet)) { throw "não achei os créditos da arte em $credits" }
       - name: O link workforces:// abre o app instalado
         run: |
           $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
