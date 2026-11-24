@@ -34,8 +34,9 @@ RAW = f"https://raw.githubusercontent.com/ElizaWy/LPC/{catalog.LPC_COMMIT}/"
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 OUT = os.path.join(ROOT, "assets", "lpc")
-# A amostra de cada cor e a conferência das peças usam só o Idle.png, que é o menor.
-SAMPLE = "Idle.png"
+# A amostra de cada cor e a conferência das peças usam todas as poses: um tom pode aparecer numa pose só (o branco do
+# olho da cabeça só aparece nos quadros de andar).
+SAMPLES = [f"{anim}.png" for anim in catalog.ANIMS]
 
 
 class VendorError(Exception):
@@ -97,16 +98,17 @@ def mapping(ref, other, where):
 def derive_ramps(name, family):
     """A rampa de referência e a de cada cor com nome, a partir das amostras em todas as cores."""
     reference = family["reference"]
-    paths = [f"{probe}/{color}/{SAMPLE}" for probe in family["probes"] for color in family["colors"]]
+    paths = [f"{probe}/{color}/{sample}" for probe in family["probes"] for color in family["colors"] for sample in SAMPLES]
     data = fetch_all(paths)
     maps = {color: {} for color in family["colors"]}
     for probe in family["probes"]:
-        ref = image(data[f"{probe}/{reference}/{SAMPLE}"])
-        for color in family["colors"]:
-            found = mapping(ref, image(data[f"{probe}/{color}/{SAMPLE}"]), f"{probe} ({reference} → {color})")
-            for tone, target in found.items():
-                if maps[color].setdefault(tone, target) != target:
-                    raise VendorError(f"{name}: o tom {tone} vai para tons diferentes em {color} nas amostras")
+        for sample in SAMPLES:
+            ref = image(data[f"{probe}/{reference}/{sample}"])
+            for color in family["colors"]:
+                found = mapping(ref, image(data[f"{probe}/{color}/{sample}"]), f"{probe}/{sample} ({reference} → {color})")
+                for tone, target in found.items():
+                    if maps[color].setdefault(tone, target) != target:
+                        raise VendorError(f"{name}: o tom {tone} vai para tons diferentes em {color} nas amostras")
     changing = {tone for found in maps.values() for tone, target in found.items() if target != tone}
     ramp = sorted(changing, key=luminance)
     named = {color: [maps[color][tone] for tone in ramp] for color in family["colors"]}
@@ -189,9 +191,9 @@ def main():
         family = catalog.FAMILIES[piece["family"]]
         for files in catalog.piece_files(piece).values():
             piece_paths += files
-            sample = next(path for path in files if path.endswith("/" + SAMPLE))
-            witness = sample.replace(f"/{family['reference']}/", f"/{witness_color(family)}/")
-            checks.append((sample, witness, piece["family"], family))
+            for sample in files:
+                witness = sample.replace(f"/{family['reference']}/", f"/{witness_color(family)}/")
+                checks.append((sample, witness, piece["family"], family))
     copied_paths = piece_paths + catalog.STATIC_FILES + [catalog.PALETTE_FILE]
 
     data = fetch_all(copied_paths)

@@ -29,17 +29,17 @@ export const GLASSES = ["glasses-01", "glasses-02"] as const;
 
 export const RAMPS = {
   "skin": {
-    "reference": ["#2a1722", "#95381c", "#ae6b3f", "#d38b59", "#edc5a8", "#f9d5ba", "#ffffff"],
+    "reference": ["#2a1722", "#95381c", "#ae6b3f", "#d38b59", "#edc5a8", "#f9d5ba", "#f2f7f8", "#ffffff"],
     "named": {
-      "Bronze": ["#000000", "#3e111a", "#442725", "#603429", "#7f4c31", "#965b38", "#ffffff"],
-      "Brown": ["#000000", "#1a1213", "#2e1f1c", "#442725", "#6b3c2e", "#7f4c31", "#ffffff"],
-      "Coffee": ["#000000", "#1a1213", "#2a1722", "#2e1f1c", "#442725", "#603429", "#faece7"],
-      "Honey": ["#1a1213", "#3e111a", "#603429", "#7f4c31", "#ae6b3f", "#d38b59", "#ffffff"],
-      "Ivory": ["#2a1722", "#99423c", "#cc8665", "#e4a47c", "#f9d5ba", "#faece7", "#ffffff"],
-      "Peach": ["#2a1722", "#95381c", "#ae6b3f", "#d38b59", "#edc5a8", "#f9d5ba", "#ffffff"],
-      "Porcelain": ["#2a1722", "#99423c", "#e4a47c", "#edc5a8", "#faece7", "#ffffff", "#ffffff"],
-      "Tan": ["#2a1722", "#6a1d16", "#965b38", "#c07a4b", "#e4a47c", "#edc5a8", "#ffffff"],
-      "Tawny": ["#1a1213", "#6a1d16", "#7f4c31", "#ae6b3f", "#d38b59", "#e4a47c", "#ffffff"],
+      "Bronze": ["#000000", "#3e111a", "#442725", "#603429", "#7f4c31", "#965b38", "#f2f7f8", "#ffffff"],
+      "Brown": ["#000000", "#1a1213", "#2e1f1c", "#442725", "#6b3c2e", "#7f4c31", "#f2f7f8", "#ffffff"],
+      "Coffee": ["#000000", "#1a1213", "#2a1722", "#2e1f1c", "#442725", "#603429", "#faece7", "#faece7"],
+      "Honey": ["#1a1213", "#3e111a", "#603429", "#7f4c31", "#ae6b3f", "#d38b59", "#f2f7f8", "#ffffff"],
+      "Ivory": ["#2a1722", "#99423c", "#cc8665", "#e4a47c", "#f9d5ba", "#faece7", "#f2f7f8", "#ffffff"],
+      "Peach": ["#2a1722", "#95381c", "#ae6b3f", "#d38b59", "#edc5a8", "#f9d5ba", "#f2f7f8", "#ffffff"],
+      "Porcelain": ["#2a1722", "#99423c", "#e4a47c", "#edc5a8", "#faece7", "#ffffff", "#f2f7f8", "#ffffff"],
+      "Tan": ["#2a1722", "#6a1d16", "#965b38", "#c07a4b", "#e4a47c", "#edc5a8", "#f2f7f8", "#ffffff"],
+      "Tawny": ["#1a1213", "#6a1d16", "#7f4c31", "#ae6b3f", "#d38b59", "#e4a47c", "#f2f7f8", "#ffffff"],
     },
   },
   "hair": {
