@@ -1,4 +1,4 @@
-import { inviteAppLink } from "@workforces/protocol";
+import { LEGACY, inviteAppLink } from "@workforces/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { JSON_HEADERS, ORIGIN, cookieOf, createUser, sessionOf, setupApi, testConfig } from "./helpers/setup.js";
@@ -286,5 +286,62 @@ describe("sessão por Bearer (o app)", () => {
     const session = accounts.sessions.create(ana.id);
     expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/bridge/whoami", headers: { authorization: `Bearer ${session}` } })).statusCode).toBe(401);
+  });
+});
+
+describe("PUT /api/me/appearance", () => {
+  async function ana() {
+    const env = await setupApi();
+    const user = await createUser(env.accounts, "ana");
+    const cookie = `wf_session=${env.accounts.sessions.create(user.id)}`;
+    const put = (payload: unknown, headers: Record<string, string> = { ...JSON_HEADERS, cookie }) =>
+      env.app.inject({ method: "PUT", url: "/api/me/appearance", headers, payload: payload as object });
+    return { ...env, user, cookie, put };
+  }
+
+  it("aceita uma aparência válida: grava, avisa uma vez e responde 204", async () => {
+    const { put, accounts, user, appearanceChanges } = await ana();
+    const response = await put(LEGACY[2]);
+    expect(response.statusCode).toBe(204);
+    expect(accounts.appearances.get(user.id)).toEqual(LEGACY[2]);
+    expect(appearanceChanges).toEqual([{ userId: user.id, appearance: LEGACY[2] }]);
+  });
+
+  it("sem sessão dá 401", async () => {
+    const { put, appearanceChanges } = await ana();
+    const response = await put(LEGACY[2], JSON_HEADERS);
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "faça login" });
+    expect(appearanceChanges).toHaveLength(0);
+  });
+
+  it("aparência inválida dá 400 e nada é gravado", async () => {
+    const { put, accounts, user, appearanceChanges } = await ana();
+    const female = LEGACY.find((a) => a.body === "feminine")!;
+    const male = LEGACY.find((a) => a.body === "masculine")!;
+    const bodies = [{ ...female, beard: "facial-01" }, { ...male, hair: { ...male.hair, style: "short-99" } }, {}];
+    for (const body of bodies) {
+      const response = await put(body);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "aparência inválida" });
+    }
+    expect(accounts.appearances.get(user.id)).toBeNull();
+    expect(appearanceChanges).toHaveLength(0);
+  });
+
+  it("sem application/json dá 415", async () => {
+    const { app, cookie } = await ana();
+    const response = await app.inject({ method: "PUT", url: "/api/me/appearance", headers: { origin: ORIGIN, cookie, "content-type": "text/plain" }, payload: "x" });
+    expect(response.statusCode).toBe(415);
+  });
+
+  it("o 31º pedido no mesmo minuto dá 429, sem gravar nem avisar", async () => {
+    const { put, accounts, user, appearanceChanges } = await ana();
+    for (let i = 0; i < 30; i++) expect((await put(LEGACY[0])).statusCode).toBe(204);
+    const response = await put(LEGACY[1]);
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toEqual({ error: "mudanças demais na aparência; espere um pouco" });
+    expect(appearanceChanges).toHaveLength(30);
+    expect(accounts.appearances.get(user.id)).toEqual(LEGACY[0]);
   });
 });

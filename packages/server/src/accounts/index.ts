@@ -1,4 +1,5 @@
 import type { Db } from "../db.js";
+import { AppearanceStore } from "./appearances.js";
 import { DeskStore } from "./desks.js";
 import { InviteStore } from "./invites.js";
 import { SessionStore } from "./sessions.js";
@@ -11,11 +12,15 @@ export interface AccountServices {
   sessions: SessionStore;
   tokens: TokenStore;
   desks: DeskStore;
+  appearances: AppearanceStore;
 }
 
 export function createAccountServices(db: Db, now: () => number): AccountServices {
   const users = new UserStore(db, now);
-  return { users, invites: new InviteStore(db, users, now), sessions: new SessionStore(db, now), tokens: new TokenStore(db, now), desks: new DeskStore(db) };
+  return {
+    users, invites: new InviteStore(db, users, now), sessions: new SessionStore(db, now), tokens: new TokenStore(db, now), desks: new DeskStore(db),
+    appearances: new AppearanceStore(db),
+  };
 }
 
 /** Desativa a conta e derruba tudo o que ela abriu; conexões vivas caem na próxima varredura. */

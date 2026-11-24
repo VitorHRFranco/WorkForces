@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { inviteAppLink } from "@workforces/protocol";
+import { inviteAppLink, type Appearance } from "@workforces/protocol";
 import { createAccountServices, type AccountServices } from "./accounts/index.js";
 import { ADMIN_INVITE_TTL_MS } from "./accounts/invites.js";
 import { buildApp } from "./app.js";
@@ -73,7 +73,11 @@ export function createServer(config: ServerConfig, options: CreateServerOptions 
   );
   const app = buildApp(ctx, https);
   const onTokenRevoked = (tokenId: number) => hub.closeBridgesForToken(tokenId);
-  registerApi(app, { ctx, accounts, onTokenRevoked });
+  const onAppearanceChanged = (userId: number, appearance: Appearance) => {
+    // A própria pessoa também recebe o aviso: é por ele que ela atualiza o boneco.
+    if (world.setAppearance(userId, appearance)) hub.broadcast({ type: "playerAppearance", playerId: userId, appearance });
+  };
+  registerApi(app, { ctx, accounts, onTokenRevoked, onAppearanceChanged });
   registerSockets(app, { ctx, accounts, hub, world }, options.sockets);
   registerMapRoutes(app, office);
   registerInvitePage(app, ctx);

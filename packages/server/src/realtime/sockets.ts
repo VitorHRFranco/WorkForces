@@ -205,7 +205,7 @@ export function registerSockets(app: FastifyInstance, deps: SocketDeps, options:
     clients.set(user.id, connection);
     const deskId = ensureDesk(user);
     const firstTab = !world.isOnline(user.id);
-    const player = world.join(user);
+    const player = world.join(user, accounts.appearances.get(user.id));
     const link: ClientLink = {
       userId: user.id,
       send: (message: ServerToClient) => {

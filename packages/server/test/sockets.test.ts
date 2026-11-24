@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
+import { LEGACY } from "@workforces/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { disableUser } from "../src/accounts/index.js";
 import { TestSocket, bridgeSocket, clientSocket, hello, startLiveServer, type LiveServer, type Message } from "./helpers/live.js";
@@ -414,7 +415,7 @@ describe("presença e movimento", () => {
     const bia = await person(server, "bia");
     const anaTab = clientSocket(server, ana.session);
     const anaWelcome = await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
-    expect(anaWelcome.players).toEqual([{ id: ana.user.id, name: "ana", x: spawn.x, y: spawn.y, dir: "down", moving: false }]);
+    expect(anaWelcome.players).toEqual([{ id: ana.user.id, name: "ana", x: spawn.x, y: spawn.y, dir: "down", moving: false, appearance: null }]);
     const biaTab = clientSocket(server, bia.session);
     const biaWelcome = await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
     expect((biaWelcome.players as Message[]).map((p) => p.name).sort()).toEqual(["ana", "bia"]);
@@ -430,6 +431,42 @@ describe("presença e movimento", () => {
     const again = clientSocket(server, bia.session);
     const back = await again.waitFor((m) => m.type === "welcome", "bia voltou");
     expect((back.players as Message[]).find((p) => p.id === bia.user.id)).toMatchObject({ x: widthPx, y: 0, moving: false });
+  });
+
+  it("a aparência guardada vai no welcome e no playerJoined; quem nunca escolheu vem com null", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    server.accounts.appearances.set(bia.user.id, LEGACY[5]!);
+    const anaTab = clientSocket(server, ana.session);
+    await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
+    const biaTab = clientSocket(server, bia.session);
+    const biaWelcome = await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
+    const players = biaWelcome.players as Message[];
+    expect(players.find((p) => p.id === bia.user.id)!.appearance).toEqual(LEGACY[5]);
+    expect(players.find((p) => p.id === ana.user.id)!.appearance).toBeNull();
+    const joined = await anaTab.waitFor((m) => m.type === "playerJoined", "bia entrou");
+    expect((joined.player as Message).appearance).toEqual(LEGACY[5]);
+  });
+
+  it("um PUT aceito faz todos os conectados receberem playerAppearance", async () => {
+    const server = await live();
+    const ana = await person(server, "ana");
+    const bia = await person(server, "bia");
+    const anaTab = clientSocket(server, ana.session);
+    const biaTab = clientSocket(server, bia.session);
+    await anaTab.waitFor((m) => m.type === "welcome", "welcome da ana");
+    await biaTab.waitFor((m) => m.type === "welcome", "welcome da bia");
+    const response = await server.app.inject({
+      method: "PUT",
+      url: "/api/me/appearance",
+      headers: { ...JSON_HEADERS, cookie: `wf_session=${ana.session}` },
+      payload: LEGACY[2],
+    });
+    expect(response.statusCode).toBe(204);
+    const expected = { type: "playerAppearance", playerId: ana.user.id, appearance: LEGACY[2] };
+    expect(await anaTab.waitFor((m) => m.type === "playerAppearance", "aviso para a ana")).toEqual(expected);
+    expect(await biaTab.waitFor((m) => m.type === "playerAppearance", "aviso para a bia")).toEqual(expected);
   });
 
   it("segunda aba não faz a pessoa sair nem entrar de novo", async () => {

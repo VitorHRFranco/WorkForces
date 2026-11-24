@@ -1,4 +1,4 @@
-import { LIMITS, inZone, type ChatEntry, type DeskInfo, type Direction, type OfficeMap, type PlayerInfo, type Point } from "@workforces/protocol";
+import { LIMITS, type Appearance, inZone, type ChatEntry, type DeskInfo, type Direction, type OfficeMap, type PlayerInfo, type Point } from "@workforces/protocol";
 
 export interface Person {
   readonly id: number;
@@ -87,15 +87,25 @@ export class World {
   }
 
   /** Entra no mapa: na última posição conhecida ou na entrada. Quem já está online continua onde está. */
-  join(person: Person): PlayerInfo {
+  join(person: Person, appearance: Appearance | null): PlayerInfo {
     const current = this.players.get(person.id);
     if (current) return current;
     const last = this.lastSeen.get(person.id);
+    // A aparência do join vale sempre (a gravada no banco é a verdade), inclusive para quem volta pelo lastSeen.
     const player: PlayerInfo = last
-      ? { ...last, name: person.name, moving: false }
-      : { id: person.id, name: person.name, x: this.map.spawn.x, y: this.map.spawn.y, dir: "down", moving: false };
+      ? { ...last, name: person.name, moving: false, appearance }
+      : { id: person.id, name: person.name, x: this.map.spawn.x, y: this.map.spawn.y, dir: "down", moving: false, appearance };
     this.players.set(person.id, player);
     return player;
+  }
+
+  /** Troca a aparência de quem está online; null se a pessoa não está (o próximo `join` já traz a nova). */
+  setAppearance(userId: number, appearance: Appearance): PlayerInfo | null {
+    const player = this.players.get(userId);
+    if (!player) return null;
+    const changed: PlayerInfo = { ...player, appearance };
+    this.players.set(userId, changed);
+    return changed;
   }
 
   leave(userId: number): void {

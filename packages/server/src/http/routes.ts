@@ -1,4 +1,4 @@
-import { CreateTokenRequest, Credentials, LoginRequest, inviteAppLink, type Me, type TlsAnchor } from "@workforces/protocol";
+import { Appearance, CreateTokenRequest, Credentials, LoginRequest, inviteAppLink, type Me, type TlsAnchor } from "@workforces/protocol";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccountServices } from "../accounts/index.js";
 import { INVITE_TTL_MS } from "../accounts/invites.js";
@@ -12,6 +12,8 @@ export interface ApiDeps {
   accounts: AccountServices;
   /** Chamado depois de revogar um token, para derrubar as conexões vivas dele. */
   onTokenRevoked(tokenId: number): void;
+  /** Chamado depois de gravar uma aparência nova, para avisar quem está online. */
+  onAppearanceChanged(userId: number, appearance: Appearance): void;
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -29,6 +31,7 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
   const secure = ctx.config.publicUrl.protocol === "https:";
   const byIp = new AttemptLimiter(30, LOGIN_WINDOW_MS, ctx.now);
   const byName = new AttemptLimiter(10, LOGIN_WINDOW_MS, ctx.now);
+  const appearanceChanges = new AttemptLimiter(30, 60_000, ctx.now);
   const currentUser = (request: FastifyRequest) => accounts.sessions.lookup(sessionIdOf(request.headers));
 
   // Contra requisição forjada: origem exata quando o pedido diz de onde vem ou leva cookie (`originAllowed`), e JSON sempre
@@ -98,6 +101,17 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const invite = accounts.invites.create({ createdBy: user.id, isAdmin: false, ttlMs: INVITE_TTL_MS });
     const url = pin ? inviteAppLink(origin, invite.code, pin.pin) : `${origin}/invite/${invite.code}`;
     return reply.code(201).send({ url, expiresAt: invite.expiresAt });
+  });
+
+  app.put("/api/me/appearance", async (request, reply) => {
+    const user = currentUser(request);
+    if (!user) return reply.code(401).send({ error: "faça login" });
+    const body = Appearance.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "aparência inválida" });
+    if (!appearanceChanges.tryAcquire(String(user.id))) return reply.code(429).send({ error: "mudanças demais na aparência; espere um pouco" });
+    accounts.appearances.set(user.id, body.data);
+    deps.onAppearanceChanged(user.id, body.data);
+    return reply.code(204).send();
   });
 
   // O app busca a âncora aqui (sem sessão) para confiar neste servidor; o pino do convite garante que é o certificado certo.

@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { Appearance } from "@workforces/protocol";
 import type { LightMyRequestResponse } from "fastify";
 import { createAccountServices, type AccountServices } from "../../src/accounts/index.js";
 import { ADMIN_INVITE_TTL_MS, INVITE_TTL_MS } from "../../src/accounts/invites.js";
@@ -39,10 +40,13 @@ export async function setupApi(config: ServerConfig = testConfig(), pin: PinSour
   const ctx: AppContext = { config, now: () => clock.now, log: (message) => logs.push(message), pin };
   const accounts = createAccountServices(openDb(":memory:"), ctx.now);
   const revoked: number[] = [];
+  const appearanceChanges: { userId: number; appearance: Appearance }[] = [];
   const app = buildApp(ctx);
-  registerApi(app, { ctx, accounts, onTokenRevoked: (id) => revoked.push(id) });
+  registerApi(app, { ctx, accounts, onTokenRevoked: (id) => revoked.push(id),
+    onAppearanceChanged: (userId, appearance) => appearanceChanges.push({ userId, appearance }),
+  });
   await app.ready();
-  return { app, ctx, accounts, clock, logs, revoked };
+  return { app, ctx, accounts, clock, logs, revoked, appearanceChanges };
 }
 
 export async function createUser(accounts: AccountServices, name: string, options: { admin?: boolean; password?: string } = {}): Promise<User> {
