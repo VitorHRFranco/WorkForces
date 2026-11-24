@@ -21,8 +21,6 @@ test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no ch
   const screen = panel.locator(".xterm-rows");
   await walkTo(anaPage, deskSpot(office.map, "mesa-2"));
   await expect(panel).toBeVisible();
-  // As duas pessoas à vista: o CI guarda a captura (artefato "escritorio") para comparar a arte com a de antes.
-  await anaPage.screenshot({ path: "test-results/escritorio.png" });
   await expect(screen).toContainText("agente de brinquedo");
   await expect(screen).toContainText("token de teste: ••••");
   await expect(screen).not.toContainText("E2Etokendebrinquedo");
@@ -40,6 +38,9 @@ test("A visita a mesa de B: vê o terminal com o token mascarado, conversa no ch
   await biaPage.getByRole("textbox", { name: "Mensagem" }).fill("oi, ana!");
   await biaPage.getByRole("textbox", { name: "Mensagem" }).press("Enter");
   await expect(anaChat).toContainText("oi, ana!");
+  // A tela de bia (no ponto de entrada, fora das mesas, sem painel) mostra as duas: ela e ana parada na mesa-2. O CI guarda
+  // a captura (artefato "escritorio") para comparar a arte com a de antes.
+  await biaPage.screenshot({ path: "test-results/escritorio.png" });
 
   // Mesa fechada: o painel some para quem visita, e volta quando a dona abre.
   await biaPage.getByRole("button", { name: "Mesa: aberta" }).click();
