@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BEARDS, BODIES, BROWS, CLOTHING_COLORS, FEET, GLASSES, HAIR_COLORS, HAIR_STYLES, LEGS, METALS, SKINS, TOPS } from "./people-catalog.js";
+import { BEARDS, CATALOG_VERSION, BODIES, BROWS, CLOTHING_COLORS, FEET, GLASSES, HAIR_COLORS, HAIR_STYLES, LEGS, METALS, SKINS, TOPS } from "./people-catalog.js";
 
 /** Cor livre, em minúsculas. */
 export const Hex = z.string().regex(/^#[0-9a-f]{6}$/);
@@ -15,7 +15,7 @@ const MetalColor = z.union([z.enum(METALS), Hex]);
 /** A aparência de um personagem: as escolhas de cada parte, não a imagem. Sobrancelha e barba usam a cor do cabelo. */
 export const Appearance = z
   .object({
-    v: z.literal(1),
+    v: z.literal(CATALOG_VERSION),
     body: z.enum(BODIES),
     skin: z.enum(SKINS),
     hair: z.object({ style: z.enum(HAIR_STYLES), color: HairColor }),
@@ -34,6 +34,12 @@ export const Appearance = z
     path: ["beard"],
   });
 export type Appearance = z.infer<typeof Appearance>;
+
+/** A aparência se ela vale neste catálogo; senão null (de outra versão, malformada ou ausente). Nunca lança. */
+export function parseAppearance(value: unknown): Appearance | null {
+  const parsed = Appearance.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Texto que identifica a aparência: o JSON com as chaves sempre na mesma ordem, qualquer que seja a do objeto. */
 export function appearanceKey(appearance: Appearance): string {

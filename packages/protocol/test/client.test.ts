@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClientToServer, CreateTokenRequest, Credentials, ServerToClient } from "../src/index.js";
+import { ClientToServer, CreateTokenRequest, Credentials, LEGACY, PlayerInfo, ServerToClient } from "../src/index.js";
 
 const agentId = "0b8e3f2a-5c1d-4e6f-8a7b-9c0d1e2f3a4b";
 const agent = { id: agentId, ownerId: 1, ownerName: "ana", label: "loja", status: "idle", connected: true, ownerAway: false };
@@ -101,5 +101,29 @@ describe("Credentials e CreateTokenRequest", () => {
     expect(CreateTokenRequest.parse({ name: "  notebook  " })).toEqual({ name: "notebook" });
     expect(CreateTokenRequest.safeParse({ name: "   " }).success).toBe(false);
     expect(CreateTokenRequest.safeParse({ name: "x".repeat(41) }).success).toBe(false);
+  });
+});
+
+describe("aparência no fio", () => {
+  const me = { id: 1, name: "ana", isAdmin: false, deskId: null };
+  const at = { x: 10, y: 20, dir: "down", moving: false };
+
+  it("um welcome com aparência que o catálogo não entende ainda chega com todos os jogadores", () => {
+    const players = [
+      { id: 1, name: "ana", ...at, appearance: LEGACY[0] },
+      { id: 2, name: "beto", ...at, appearance: { lixo: true } },
+    ];
+    const parsed = ServerToClient.safeParse({ type: "welcome", protocol: 2, me, agents: [], players, desks: [], chat: [] });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.type === "welcome") expect(parsed.data.players).toHaveLength(2);
+  });
+
+  it("um jogador sem appearance (servidor antigo) passa", () => {
+    expect(PlayerInfo.safeParse({ id: 1, name: "ana", ...at }).success).toBe(true);
+  });
+
+  it("playerAppearance exige um id de jogador válido", () => {
+    expect(ServerToClient.safeParse({ type: "playerAppearance", playerId: 3, appearance: null }).success).toBe(true);
+    expect(ServerToClient.safeParse({ type: "playerAppearance", playerId: 0, appearance: null }).success).toBe(false);
   });
 });

@@ -162,6 +162,9 @@ def pack(images, width=512, pad=2):
 # Colunas: 0-7 andando, 8-10 parado, 11 sentado (coluna 2 do Sitting.png do LPC: sentado numa cadeira).
 # Linhas: 0 cima, 1 esquerda, 2 baixo, 3 direita. O cliente recolore e empilha as peças de cada aparência.
 
+# Versão do catálogo: muda quando uma aparência guardada pode deixar de valer. Vai no catálogo e no `v` das aparências.
+CATALOG_VERSION = 1
+
 # Os 12 personagens de hoje, na ordem das contas (o id 1 é o primeiro). Viram as aparências LEGACY do catálogo.
 PEOPLE = [  # (corpo, pele, cabelo, cor do cabelo, camisa, cor, calça, cor)
     ("m", "Peach", "Short 02 - Parted", "Brown", "Shirt 09 - Polo", "Cornflower", "Pants 03 - Pants", "Denim"),
@@ -226,7 +229,7 @@ def legacy_appearances():
     """Os 12 de hoje como aparências, com as chaves na ordem da Appearance (packages/protocol/src/appearance.ts)."""
     return [
         {
-            "v": 1,
+            "v": CATALOG_VERSION,
             "body": "masculine" if kind == "m" else "feminine",
             "skin": skin,
             "hair": {"style": piece_id(hair), "color": hair_color},
@@ -297,7 +300,7 @@ def build_catalog():
         "// Gerado por tools/art/build_art.py a partir de assets/lpc. Não edite.",
         "",
         "/** Versão do catálogo: muda quando uma aparência guardada pode deixar de valer. */",
-        "export const CATALOG_VERSION = 1;",
+        f"export const CATALOG_VERSION = {CATALOG_VERSION};",
     ]
     for name, value in constants.items():
         lines += ["", f"export const {name} = {ts(value)} as const;"]

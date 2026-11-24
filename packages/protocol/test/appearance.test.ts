@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Appearance, LEGACY, appearanceKey } from "../src/index.js";
+import { Appearance, CATALOG_VERSION, LEGACY, appearanceKey, parseAppearance } from "../src/index.js";
 
 const base = LEGACY[0];
 const valid = (value: unknown) => Appearance.safeParse(value).success;
@@ -37,5 +37,19 @@ describe("Appearance", () => {
     expect(appearanceKey(reordered)).toBe(appearanceKey(base));
     expect(appearanceKey(LEGACY[1])).not.toBe(appearanceKey(base));
     expect(appearanceKey({ ...base, bowtie: "Coral" })).not.toBe(appearanceKey(base));
+  });
+});
+
+describe("parseAppearance", () => {
+  it("devolve a aparência válida e null para o resto, sem lançar", () => {
+    expect(parseAppearance(LEGACY[0])).toEqual(LEGACY[0]);
+    expect(parseAppearance(undefined)).toBeNull();
+    expect(parseAppearance(null)).toBeNull();
+    expect(parseAppearance("x")).toBeNull();
+    expect(parseAppearance({ ...LEGACY[0], v: 2 })).toBeNull();
+  });
+
+  it("o v da aparência é a versão do catálogo", () => {
+    expect(Appearance.safeParse({ ...LEGACY[0], v: CATALOG_VERSION }).success).toBe(true);
   });
 });

@@ -37,7 +37,11 @@ export type Direction = z.infer<typeof Direction>;
 /** Posição em pixels do mapa (centro do avatar). O servidor limita aos limites do mapa. */
 const position = { x: z.number(), y: z.number(), dir: Direction, moving: z.boolean() };
 
-export const PlayerInfo = z.object({ id: z.number().int().min(1), name: z.string(), ...position });
+/**
+ * `appearance` é a aparência como o servidor a guardou (null para quem nunca escolheu); o cliente confere com
+ * `parseAppearance`. É `unknown` de propósito: uma aparência que este catálogo não entende não derruba o `welcome`.
+ */
+export const PlayerInfo = z.object({ id: z.number().int().min(1), name: z.string(), ...position, appearance: z.unknown().optional() });
 export type PlayerInfo = z.infer<typeof PlayerInfo>;
 
 export const Move = z.object({ type: z.literal("move"), ...position });
@@ -103,5 +107,8 @@ export const PlayerJoined = z.object({ type: z.literal("playerJoined"), player: 
 export const PlayerLeft = z.object({ type: z.literal("playerLeft"), playerId: z.number().int().min(1) });
 export const PlayerMoved = z.object({ type: z.literal("playerMoved"), playerId: z.number().int().min(1), ...position });
 
-export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved, ChatPosted]);
+/** A aparência de um jogador mudou. Um cliente antigo ignora. */
+export const PlayerAppearance = z.object({ type: z.literal("playerAppearance"), playerId: z.number().int().min(1), appearance: z.unknown() });
+
+export const ServerToClient = z.discriminatedUnion("type", [Welcome, AgentAdded, AgentUpdated, AgentRemoved, ClientFrame, WatchEnded, DeskUpdated, PlayerJoined, PlayerLeft, PlayerMoved, PlayerAppearance, ChatPosted]);
 export type ServerToClient = z.infer<typeof ServerToClient>;
