@@ -75,6 +75,16 @@ jobs:
           path: packages/e2e/test-results/personagem.png
           retention-days: 7
           if-no-files-found: warn
+      # As capturas do Personalizar (customize.e2e.ts): a tela aberta e um personagem com a camisa em cor livre.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: personalizar
+          path: |
+            packages/e2e/test-results/personalizar.png
+            packages/e2e/test-results/personagem-livre.png
+          retention-days: 7
+          if-no-files-found: warn
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

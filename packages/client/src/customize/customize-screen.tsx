@@ -50,7 +50,7 @@ function PieceSelect<T extends string>({ label, options, value, onChange, none }
   return (
     <label class="piece">
       {label}{" "}
-      <select value={value ?? ""} onChange={(event) => onChange(((event.target as HTMLSelectElement).value || null) as T | null)}>
+      <select aria-label={label} value={value ?? ""} onChange={(event) => onChange(((event.target as HTMLSelectElement).value || null) as T | null)}>
         {none !== undefined && <option value="">{none}</option>}
         {options.map((id) => (
           <option key={id} value={id}>
