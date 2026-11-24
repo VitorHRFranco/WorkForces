@@ -18,3 +18,4 @@ tools/art/.cache/
 # Montagem do instalador (packages/app/release/stage.ts)
 packages/app/release/stage/
 packages/app/release/out/
+__pycache__/

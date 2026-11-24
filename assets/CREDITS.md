@@ -8,7 +8,9 @@ A arte do escritório vem do [LPC Revised](https://github.com/ElizaWy/LPC), no c
 - `packages/client/public/sprites/props.png`: móveis e decoração;
 - `packages/client/public/sprites/people.png`: as 12 pessoas (corpo, cabeça, cabelo e roupas em camadas).
 
-Os créditos de cada peça vêm dos `Credits.txt` das pastas do LPC Revised.
+Os arquivos originais que o projeto usa estão em `assets/lpc/`, sem modificação, no mesmo caminho do repositório de origem, junto com os `Credits.txt` de cada pasta (`assets/lpc/ORIGEM.md` diz de onde e quando vieram). Os créditos de cada peça vêm desses `Credits.txt`.
+
+O LPC Revised é obra destes artistas, listados no `Credits.txt` da raiz da coleção: Eliza Wyatt (DeathsDarling), Lanea Zimmerman (Sharm), Stephen Challener (Redshrike), Johannes Sjölund (Wulax), BlueCarrot16, BenCreating, Durrani, YuriNikolai e Craftpix.net 2D Game Assets.
 
 ### Piso, paredes e bordas (`Structure/`)
 
@@ -55,11 +57,16 @@ Todas as roupas e todos os cabelos partem do corpo e das animações originais d
 | Body 01 - Feminine, Thin | Stephen Challener (Redshrike), Eliza Wyatt (DeathsDarling) | [LPC Base Assets](https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles) |
 | Body 02 - Masculine, Thin | Stephen Challener (Redshrike), Durrani, Eliza Wyatt (DeathsDarling), BenCreating | [LPC Base Assets](https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles), [LPC Jump Expanded](https://opengameart.org/content/lpc-jump-expanded) |
 | Head 01 - Feminine e Head 02 - Masculine | Stephen Challener (Redshrike), Eliza Wyatt (DeathsDarling) | [LPC Base Assets](https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles) |
-| Cabelos Short 02 - Parted, Short 03 - Curly e Medium 02 - Curly | Eliza Wyatt (DeathsDarling) | LPC Revised |
-| Cabelos Short 04 - Cowlick, Short 05 - Natural, Short 07 - Flat Top, Medium 04 - Bangs & Bun, Medium 06 - Dreadlocks, Medium 08 - Bob, Bangs e Medium 09 - Twists | BlueCarrot16 (original CC0), Eliza Wyatt (DeathsDarling) | [LPC Hair](https://opengameart.org/content/lpc-hair) |
+| Cabelos Short 01 - Buzzcut, Short 02 - Parted, Short 03 - Curly, Short 06 - Balding e Medium 02 - Curly | Eliza Wyatt (DeathsDarling) | LPC Revised |
+| Cabelos Short 04 - Cowlick, Short 05 - Natural, Short 07 - Flat Top, Short 08 - Flat Top, Fade, Medium 04 - Bangs & Bun, Medium 05 - Cornrows, Medium 06 - Dreadlocks, Medium 08 - Bob, Bangs, Medium 09 - Twists e Medium 10 - Twists, Fade | BlueCarrot16 (original CC0), Eliza Wyatt (DeathsDarling) | [LPC Hair](https://opengameart.org/content/lpc-hair) |
 | Cabelo Medium 07 - Bob, Side Part | Thecilekli (original CC0), BlueCarrot16, Eliza Wyatt (DeathsDarling) | [LPC Hair](https://opengameart.org/content/lpc-hair) |
 | Cabelo Medium 03 - Idol | Thecilekli (original CC0), Eliza Wyatt (DeathsDarling) | [LPC Korean Idol Hairstyle](https://opengameart.org/content/lpc-korean-idol-hairstyle-male-with-12-colors) |
-| Camisas Shirt 01, 02, 04, 05, 06, 07, 08 e 09; calças Pants 02, 03 e 04; sapatos Shoes 01 | Eliza Wyatt (DeathsDarling) | LPC Revised |
+| Cabelo Medium 01 - Page | Johannes Sjölund (Wulax), Eliza Wyatt (DeathsDarling) | [LPC Medieval Fantasy Character Sprites](https://opengameart.org/content/lpc-medieval-fantasy-character-sprites) |
+| Barbas e bigodes Facial Hair 01 a 07; sobrancelhas Eyebrows 01 e 02 | Coleção LPC Revised ³ | LPC Revised |
+| Camisas Shirt 01 a 09; cardigã Sweater 01; suspensório Accessory 01; calças Pants 01 a 05; bermudas Shorts 01 e 02; sapatos Shoes 01 e 02; meias Socks 01 e 02; gravata Neckwear 01 - Bowtie (nos dois corpos) | Eliza Wyatt (DeathsDarling) | LPC Revised |
+| Óculos Eyewear 01 - Glasses e Eyewear 02 - Halfmoon Glasses | Eliza Wyatt (DeathsDarling) | LPC Revised |
+
+³ O `Credits.txt` de `Characters/Hair` não tem entrada para as barbas, os bigodes e as sobrancelhas. Ficam creditados à coleção LPC Revised e a todos os artistas dela, listados acima.
 
 ## Desenho próprio (MIT, como o resto do repositório)
 
