@@ -59,6 +59,14 @@ jobs:
       # O Ubuntu 24 bloqueia o namespace que o sandbox do Electron usa; no runner descartável, libera.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: xvfb-run -a pnpm e2e
+      # A captura do escritório com duas pessoas (office.e2e.ts), para conferir a arte a olho.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: escritorio
+          path: packages/e2e/test-results/escritorio.png
+          retention-days: 7
+          if-no-files-found: warn
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

@@ -1,8 +1,6 @@
-import type { Direction, Point, Rect } from "@workforces/protocol";
+import { LEGACY, type Appearance, type Direction, type Point, type Rect } from "@workforces/protocol";
 
-/** Folha people.png (gerada por tools/art/build_art.py): 12 variantes; cada uma ocupa 4 linhas (cima, esquerda, baixo, direita) de 12 quadros. */
-export const PEOPLE_VARIANTS = 12;
-/** Lado de cada quadro, em px. */
+/** Lado de cada quadro, em px. A folha de uma pessoa, montada a partir da aparência (compose.ts), tem 4 linhas (cima, esquerda, baixo, direita) de 12 quadros. */
 export const PERSON_FRAME = 64;
 /** Linha dos pés dentro do quadro: a posição de uma pessoa no mapa é a dos pés. */
 export const FOOT_Y = 62;
@@ -29,9 +27,9 @@ export interface Pose {
   dir: Direction;
 }
 
-/** Variante de cada conta, pela ordem do id (spec 8): as 12 primeiras contas ficam todas diferentes. */
-export function personVariant(userId: number): number {
-  return (userId - 1) % PEOPLE_VARIANTS;
+/** A aparência de quem ainda não escolheu a sua: uma das 12 de hoje, pela ordem do id (as 12 primeiras contas ficam todas diferentes). */
+export function legacyAppearance(userId: number): Appearance {
+  return LEGACY[(userId - 1) % LEGACY.length]!;
 }
 
 /** Andando, parada ou sentada: só senta quem está parado num assento, e aí olha para onde o assento manda. */
@@ -40,11 +38,11 @@ export function poseOf(moving: boolean, dir: Direction, seatDir: Direction | nul
   return { kind: moving ? "walk" : "idle", dir };
 }
 
-/** Quadros da pose na folha (numerados linha a linha, 12 por linha). */
-export function poseFrames(variant: number, pose: Pose): number[] {
+/** Quadros da pose na folha de uma pessoa (numerados linha a linha, 12 por linha). */
+export function poseFrames(pose: Pose): number[] {
   const columns = pose.kind === "walk" ? WALK : pose.kind === "idle" ? IDLE : SIT;
-  const row = variant * 4 + ROWS[pose.dir];
-  return columns.map((column) => row * COLUMNS + column);
+  return columns.map((column) => ROWS[pose.dir] * COLUMNS + column);
 }
 
-export const animKey = (variant: number, pose: Pose): string => `person-${variant}-${pose.kind}-${pose.dir}`;
+/** A animação de uma pose na folha `textureKey` (a chave que `PeopleTextures.ensure` devolve). */
+export const animKey = (textureKey: string, pose: Pose): string => `${textureKey}-${pose.kind}-${pose.dir}`;

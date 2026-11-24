@@ -1,16 +1,19 @@
-import { deskAt, type Direction, type OfficeMap, type Point, type Seat } from "@workforces/protocol";
+import { PARTS, deskAt, type Appearance, type Direction, type OfficeMap, type Point, type Seat } from "@workforces/protocol";
 import Phaser from "phaser";
 import type { OfficeState } from "../office/office-state";
 import { cameraFrame, panelInset } from "./camera";
 import { layoutDesks, robotLook } from "./desk-layout";
 import type { MoveState } from "./move-sender";
-import { FEET, FOOT_Y, PEOPLE_VARIANTS, PERSON_FRAME, animKey, personVariant, poseFrames, poseOf, type PoseKind } from "./people";
+import { composeSheet, type Rgba } from "./compose";
+import { FEET, FOOT_Y, PERSON_FRAME, animKey, legacyAppearance, poseFrames, poseOf, type PoseKind } from "./people";
+import { PeopleTextures } from "./people-textures";
 import { propDef, propOrigin, solidRect } from "./props";
 import { SIT_DELAY_MS, nearestSeat, seatAt, standSpot } from "./seating";
 import { Track } from "./track";
 
 const TILES_KEY = "tiles";
-const PEOPLE_KEY = "people";
+/** As peças do personagem são carregadas como "part:<arquivo>" (sprites/parts/<arquivo>). */
+const PART_PREFIX = "part:";
 const ROBOT_KEY = "robot";
 const PROPS_KEY = "props";
 const MAP_KEY = "office";
@@ -28,6 +31,11 @@ const LABEL_DEPTH = 10_000;
 /** Altura do nome acima dos pés. */
 const NAME_ABOVE_FEET = 50;
 const DIRECTIONS: Direction[] = ["up", "down", "left", "right"];
+/** Todos os arquivos de sprites/parts/: as peças de todos os corpos e as camadas de trás. */
+const PART_FILES: string[] = Object.values(PARTS).flatMap((entry) => {
+  const part: { file?: string; byBody?: Record<string, string>; behind?: string } = entry;
+  return [part.file, ...Object.values(part.byBody ?? {}), part.behind].filter((file): file is string => file !== undefined);
+});
 const POSES: PoseKind[] = ["walk", "idle", "sit"];
 /** Contorno escuro: os textos continuam legíveis sobre o piso e os móveis. */
 const OUTLINE = { stroke: "#1d2027", strokeThickness: 2 };
@@ -51,7 +59,8 @@ interface Remote {
   sprite: Phaser.GameObjects.Sprite;
   name: Phaser.GameObjects.Text;
   track: Track;
-  variant: number;
+  /** A folha da aparência dele (PeopleTextures). */
+  textureKey: string;
 }
 
 /** Leitura da posição do avatar, para os testes E2E. */
@@ -68,7 +77,12 @@ export class OfficeScene extends Phaser.Scene {
   private nameTag!: Phaser.GameObjects.Text;
   private cursors!: ArrowKeys;
   private wasd!: WasdKeys;
-  private variant = 0;
+  /** A folha da sua aparência. */
+  private textureKey = "";
+  /** As folhas das aparências em cena, montadas uma vez cada. */
+  private people!: PeopleTextures<HTMLCanvasElement>;
+  /** Os pixels de cada peça carregada, lidos uma vez. */
+  private readonly partPixels = new Map<string, Rgba>();
   private readonly remotes = new Map<number, Remote>();
   private dir: Direction = "down";
   private zone: string | null = null;
@@ -93,13 +107,17 @@ export class OfficeScene extends Phaser.Scene {
   preload(): void {
     const size = this.deps.map.tileSize;
     this.load.spritesheet(TILES_KEY, this.deps.tilesUrl, { frameWidth: size, frameHeight: size });
-    this.load.spritesheet(PEOPLE_KEY, `${SPRITES_URL}/people.png`, { frameWidth: PERSON_FRAME, frameHeight: PERSON_FRAME });
+    for (const file of PART_FILES) this.load.image(PART_PREFIX + file, `${SPRITES_URL}/parts/${file}`);
     this.load.spritesheet(ROBOT_KEY, `${SPRITES_URL}/robot.png`, { frameWidth: ROBOT_SIZE.width, frameHeight: ROBOT_SIZE.height });
     this.load.image(PROPS_KEY, `${SPRITES_URL}/props.png`);
   }
 
   create(): void {
     const { map: office, state } = this.deps;
+    this.people = new PeopleTextures({
+      compose: (appearance) => this.composePerson(appearance),
+      register: (key, sheet) => this.registerPerson(key, sheet),
+    });
     this.createAnimations();
     const walls = this.createTilemap();
     const solids = this.createProps();
@@ -109,8 +127,8 @@ export class OfficeScene extends Phaser.Scene {
     // Quem recarrega a página sentado volta no ponto do assento: começa em pé ao lado e senta de novo sozinho, se o assento estiver livre.
     const savedSeat = seatAt(office.seats, saved);
     const start = savedSeat ? standSpot(savedSeat, office.props.flatMap((prop) => solidRect(prop) ?? [])) : saved;
-    this.variant = personVariant(me.id);
-    this.player = this.physics.add.sprite(start.x, start.y, PEOPLE_KEY);
+    this.textureKey = this.people.ensure(legacyAppearance(me.id));
+    this.player = this.physics.add.sprite(start.x, start.y, this.textureKey, 0);
     this.player.setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y);
     this.player.body.setSize(FEET.width, FEET.height).setOffset((PERSON_FRAME - FEET.width) / 2, FOOT_Y - FEET.height);
     this.player.setCollideWorldBounds(true);
@@ -188,7 +206,7 @@ export class OfficeScene extends Phaser.Scene {
       const length = Math.hypot(vx, vy) || 1;
       this.player.setVelocity((vx / length) * SPEED, (vy / length) * SPEED);
     }
-    this.player.setDepth(SPRITE_DEPTH + this.player.y).play(animKey(this.variant, poseOf(moving, this.dir, this.seat?.dir ?? null)), true);
+    this.player.setDepth(SPRITE_DEPTH + this.player.y).play(animKey(this.textureKey, poseOf(moving, this.dir, this.seat?.dir ?? null)), true);
     this.nameTag.setPosition(this.player.x, this.player.y - NAME_ABOVE_FEET);
 
     const position = { x: Math.round(this.player.x), y: Math.round(this.player.y) };
@@ -210,7 +228,7 @@ export class OfficeScene extends Phaser.Scene {
       remote.sprite
         .setPosition(at.x, at.y)
         .setDepth(SPRITE_DEPTH + at.y)
-        .play(animKey(remote.variant, poseOf(player.moving, player.dir, seat?.dir ?? null)), true);
+        .play(animKey(remote.textureKey, poseOf(player.moving, player.dir, seat?.dir ?? null)), true);
       remote.name.setPosition(at.x, at.y - NAME_ABOVE_FEET);
     }
   }
@@ -247,20 +265,58 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, frame.boundsWidth, heightPx).setFollowOffset(frame.offsetX, 0);
   }
 
-  private createAnimations(): void {
-    for (let variant = 0; variant < PEOPLE_VARIANTS; variant++) {
-      for (const dir of DIRECTIONS) {
-        for (const kind of POSES) {
-          const pose = { kind, dir };
-          this.anims.create({
-            key: animKey(variant, pose),
-            frames: this.anims.generateFrameNumbers(PEOPLE_KEY, { frames: poseFrames(variant, pose) }),
-            frameRate: kind === "walk" ? 12 : 3,
-            repeat: -1,
-          });
-        }
+  /** Os pixels de uma peça carregada, lidos do canvas uma vez. */
+  private partRgba(file: string): Rgba {
+    let rgba = this.partPixels.get(file);
+    if (!rgba) {
+      const source = this.textures.get(PART_PREFIX + file).getSourceImage() as HTMLImageElement;
+      const canvas = document.createElement("canvas");
+      canvas.width = source.width;
+      canvas.height = source.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(source, 0, 0);
+      const { width, height, data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      rgba = { width, height, data };
+      this.partPixels.set(file, rgba);
+    }
+    return rgba;
+  }
+
+  /** A folha de uma aparência, montada num canvas. */
+  private composePerson(appearance: Appearance): HTMLCanvasElement {
+    const sheet = composeSheet(appearance, (file) => this.partRgba(file));
+    const canvas = document.createElement("canvas");
+    canvas.width = sheet.width;
+    canvas.height = sheet.height;
+    const context = canvas.getContext("2d")!;
+    const image = context.createImageData(sheet.width, sheet.height);
+    image.data.set(sheet.data);
+    context.putImageData(image, 0, 0);
+    return canvas;
+  }
+
+  /** Registra a folha como textura recortada em quadros de 64x64 (numerados linha a linha) e cria as animações das 12 poses. */
+  private registerPerson(key: string, sheet: HTMLCanvasElement): void {
+    const texture = this.textures.addCanvas(key, sheet)!;
+    const columns = sheet.width / PERSON_FRAME;
+    const rows = sheet.height / PERSON_FRAME;
+    for (let frame = 0; frame < columns * rows; frame++) {
+      texture.add(frame, 0, (frame % columns) * PERSON_FRAME, Math.floor(frame / columns) * PERSON_FRAME, PERSON_FRAME, PERSON_FRAME);
+    }
+    for (const dir of DIRECTIONS) {
+      for (const kind of POSES) {
+        const pose = { kind, dir };
+        this.anims.create({
+          key: animKey(key, pose),
+          frames: this.anims.generateFrameNumbers(key, { frames: poseFrames(pose) }),
+          frameRate: kind === "walk" ? 12 : 3,
+          repeat: -1,
+        });
       }
     }
+  }
+
+  private createAnimations(): void {
     this.anims.create({ key: ROBOT_WORKING, frames: this.anims.generateFrameNumbers(ROBOT_KEY, { frames: [0, 1] }), frameRate: 3, repeat: -1 });
   }
 
@@ -349,11 +405,12 @@ export class OfficeScene extends Phaser.Scene {
       if (player.id === meId) continue;
       let remote = this.remotes.get(player.id);
       if (!remote) {
+        const textureKey = this.people.ensure(legacyAppearance(player.id));
         remote = {
-          sprite: this.add.sprite(player.x, player.y, PEOPLE_KEY).setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y),
+          sprite: this.add.sprite(player.x, player.y, textureKey, 0).setDisplayOrigin(PERSON_FRAME / 2, FOOT_Y),
           name: this.label(player.name),
           track: new Track(),
-          variant: personVariant(player.id),
+          textureKey,
         };
         this.remotes.set(player.id, remote);
       }
