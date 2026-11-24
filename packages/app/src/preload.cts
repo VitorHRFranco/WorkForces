@@ -45,6 +45,10 @@ const bridge: AppBridge = {
     onReady: (listener) => subscribe<[string]>("app:update", listener),
     restart: () => ipcRenderer.invoke("app:restartToUpdate"),
   },
+  appearance: {
+    get: () => ipcRenderer.invoke("app:appearanceGet"),
+    set: (appearance) => ipcRenderer.invoke("app:appearanceSet", appearance),
+  },
   agents: {
     spawn: (alias) => ipcRenderer.invoke("agents:spawn", alias),
     list: () => ipcRenderer.invoke("agents:list"),

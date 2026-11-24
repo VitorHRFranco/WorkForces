@@ -1,3 +1,4 @@
+import type { Appearance } from "./appearance.js";
 import type { AgentState } from "./bridge.js";
 import type { FrameBody } from "./frame.js";
 import type { HostConfigResult, HostSettingsInput, HostStatus } from "./host.js";
@@ -100,6 +101,11 @@ export interface AppBridge {
     current(): Promise<string | null>;
     onReady(listener: (version: string) => void): () => void;
     restart(): Promise<void>;
+  };
+  /** A aparência do perfil local, a mesma em todos os escritórios; o `set` só grava (mandar ao escritório aberto é com a página). */
+  appearance: {
+    get(): Promise<Appearance | null>;
+    set(appearance: Appearance): Promise<{ ok: true } | { ok: false; error: string }>;
   };
   agents: {
     spawn(alias: string): Promise<SpawnOutcome>;

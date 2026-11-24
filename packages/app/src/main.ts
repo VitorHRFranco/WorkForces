@@ -20,7 +20,7 @@ import {
 } from "electron";
 import electronUpdater from "electron-updater";
 import { channelDir } from "@workforces/bridge/channel";
-import { ALIAS_PATTERN, HostSettingsInput, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type HostConfigResult, type LocalAgentInfo } from "@workforces/protocol";
+import { ALIAS_PATTERN, Appearance, HostSettingsInput, LOCAL_INPUT_MAX, type AppRoute, type FolderChange, type HostConfigResult, type LocalAgentInfo } from "@workforces/protocol";
 import { ensureBridgeToken, tokenName } from "./agents/bridge-token.js";
 import { FolderStore, INVALID_ALIAS } from "./agents/folders.js";
 import { AgentLauncher } from "./agents/launcher.js";
@@ -43,6 +43,7 @@ import { prepareInvite } from "./offices/join.js";
 import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
 import { AppState } from "./state.js";
+import { ProfileStore } from "./profile.js";
 import { startUpdates, type Updater } from "./update.js";
 
 const PAGE_PREFIX = `app://${PAGE_HOST}/`;
@@ -542,6 +543,15 @@ async function start(): Promise<void> {
     log: console.warn,
   });
   app.on("will-quit", updates.stop);
+  // O perfil local: uma aparência só, para todos os escritórios (mandá-la ao escritório aberto é com a página).
+  const profile = new ProfileStore(join(app.getPath("userData"), "profile.json"));
+  handle("app:appearanceGet", () => profile.appearance());
+  handle("app:appearanceSet", (value) => {
+    const parsed = Appearance.safeParse(value);
+    if (!parsed.success) return { ok: false, error: "aparência inválida" };
+    profile.setAppearance(parsed.data);
+    return { ok: true };
+  });
   handle("app:updateCurrent", () => updates.downloaded());
   handle("app:restartToUpdate", async () => {
     if (updates.downloaded() === null || quitting) return;
