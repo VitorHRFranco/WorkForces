@@ -154,12 +154,15 @@ O mapa é um arquivo do [Tiled](https://www.mapeditor.org/) (`assets/map/office.
 
 Se algo não bater, o servidor não sobe e diz o motivo. Um `sprite` que não existe no atlas só some do mapa, com um aviso no console das DevTools do app (F12, em desenvolvimento). Para usar outro mapa, aponte `WF_MAP` para ele.
 
-**Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. As imagens são geradas por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), que baixa as peças do LPC Revised de um commit fixado:
+**Arte.** A arte é do [LPC Revised](https://github.com/ElizaWy/LPC), sob a licença OGA-BY 3.0, com os créditos de cada peça em `assets/CREDITS.md`; o robô é desenho próprio. Os arquivos do LPC que o projeto usa ficam em `assets/lpc/`, sem modificação e com os `Credits.txt` originais. As imagens são geradas a partir deles por `tools/art/build_art.py` (Python 3.10+ e [Pillow](https://pypi.org/project/pillow/)), sem acessar a rede: o tileset, os móveis, o robô, cada peça do personagem em `packages/client/public/sprites/parts/` (numa cor de referência; o app troca as cores e empilha as peças) e o catálogo do personagem em `packages/protocol/src/people-catalog.ts`.
 
 ```bash
-python tools/art/build_art.py          # refaz as imagens e o props.json
+python tools/art/build_art.py          # refaz as imagens, as peças, o props.json e o catálogo
 python tools/art/build_art.py --map    # também refaz o mapa (descarta edições feitas no Tiled)
+python tools/art/build_art.py --check  # confere que a arte do repositório sai de assets/lpc (o CI roda)
 ```
+
+`tools/art/catalog.py` lista as peças e os arquivos usados. Para trazer peças novas do LPC, acrescente-as lá e rode `python tools/art/vendor_lpc.py` (precisa de rede): ele refaz `assets/lpc/` a partir do commit fixado, deriva as rampas de cor (`assets/lpc/ramps.json`) e confere que cada peça muda de cor só pela troca exata de tons. Depois, rode o `build_art.py` e acrescente os artistas das peças novas em `assets/CREDITS.md`.
 
 ### O app a partir do build
 
