@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 import { LEGACY, RAMPS } from "@workforces/protocol";
-import { composeSheet, rampFor, recolor, type Rgba } from "../src/game/compose";
+import { composeSheet, freeRamp, rampFor, recolor, type Family, type Rgba } from "../src/game/compose";
 
 function readPng(url: URL): Rgba {
   const png = PNG.sync.read(readFileSync(fileURLToPath(url)));
@@ -27,13 +27,51 @@ describe("rampFor", () => {
     expect(rampFor("metal", "Gold")).toEqual(RAMPS.metal.named.Gold);
   });
 
-  it("a cor livre usa, por enquanto, a rampa com nome de tom do meio mais perto", () => {
+  it("a cor livre usa a rampa calculada", () => {
+    expect(rampFor("clothing", "#3a7d44")).toEqual(freeRamp("clothing", "#3a7d44"));
+  });
+});
+
+/** Luminosidade aproximada (a ordem é o que importa): L do OKLab feito pelo teste, independente da implementação. */
+function lightness(hex: string): number {
+  const lin = rgba(hex)
+    .slice(0, 3)
+    .map((c) => {
+      const v = c / 255;
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+  const [r, g, b] = lin as [number, number, number];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+}
+
+describe("freeRamp", () => {
+  it("o tom do meio de uma cor pronta devolve a rampa dela", () => {
     const coral = RAMPS.clothing.named.Coral;
-    const middle = coral[Math.floor(coral.length / 2)]!;
-    expect(rampFor("clothing", middle)).toEqual(coral);
-    const [r, g, b] = rgba(middle);
-    const near = `#${[r! + 2, g! + 1, b!].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
-    expect(rampFor("clothing", near)).toEqual(coral);
+    expect(freeRamp("clothing", coral[Math.floor(coral.length / 2)]!)).toEqual(coral);
+  });
+
+  const cases: [Family, string][] = [
+    ...["#3a7d44", "#c0392b", "#2e86c1", "#f1c40f", "#8e44ad", "#7f8c8d", "#e67e22", "#16a085"].map((hex): [Family, string] => ["clothing", hex]),
+    ["hair", "#a0522d"],
+  ];
+  it.each(cases)("%s %s: tons válidos, distintos, do escuro ao claro, com a cor no meio", (family, hex) => {
+    const ramp = freeRamp(family, hex);
+    expect(ramp).toHaveLength(RAMPS[family].reference.length);
+    for (const tone of ramp) expect(tone).toMatch(/^#[0-9a-f]{6}$/);
+    expect(new Set(ramp).size).toBe(ramp.length);
+    for (let i = 1; i < ramp.length; i++) expect(lightness(ramp[i]!)).toBeGreaterThanOrEqual(lightness(ramp[i - 1]!) - 1e-9);
+    const middle = rgba(ramp[Math.floor(ramp.length / 2)]!);
+    const wanted = rgba(hex);
+    for (let c = 0; c < 3; c++) expect(Math.abs(middle[c]! - wanted[c]!)).toBeLessThanOrEqual(2);
+  });
+
+  it.each(["#000000", "#ffffff"])("%s não lança, e os tons seguem do escuro ao claro", (hex) => {
+    const ramp = freeRamp("clothing", hex);
+    for (const tone of ramp) expect(tone).toMatch(/^#[0-9a-f]{6}$/);
+    for (let i = 1; i < ramp.length; i++) expect(lightness(ramp[i]!)).toBeGreaterThanOrEqual(lightness(ramp[i - 1]!) - 1e-9);
   });
 
   it("o nome só vale se for uma cor da própria família", () => {

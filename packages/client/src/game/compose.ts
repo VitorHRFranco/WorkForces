@@ -35,22 +35,78 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 
 /**
  * A rampa de uma cor: a da cor pronta do LPC com esse nome (só os nomes da própria família); para uma cor livre
- * (`#rrggbb`), por enquanto, a cor pronta cujo tom do meio fica mais perto dela (o plano 3 troca isso por uma rampa
- * calculada a partir da cor). Outra coisa lança.
+ * (`#rrggbb`), a rampa calculada por `freeRamp`. Outra coisa lança.
  */
 export function rampFor(family: Family, color: string): readonly string[] {
   const named: Record<string, readonly string[]> = RAMPS[family].named;
   if (Object.hasOwn(named, color)) return named[color]!;
   if (!HEX.test(color)) throw new Error(`cor desconhecida: ${color}`);
-  const [r, g, b] = rgbOf(color);
-  let best: readonly string[] = [];
+  return freeRamp(family, color.toLowerCase());
+}
+
+type Lab = [number, number, number];
+
+const toLinear = (c: number): number => {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+const fromLinear = (v: number): number => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055) * 255;
+
+/** sRGB (0–255) → OKLab (Björn Ottosson). */
+function toOklab(hex: string): Lab {
+  const [r, g, b] = rgbOf(hex).map(toLinear) as [number, number, number];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+
+/** OKLab → sRGB linear (pode sair do intervalo 0–1). */
+function oklabToLinear([L, a, b]: Lab): [number, number, number] {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+}
+
+const inGamut = (rgb: [number, number, number]): boolean => rgb.every((v) => v >= -1e-7 && v <= 1 + 1e-7);
+
+/** OKLab → `#rrggbb`: fora do que a tela mostra, tira saturação (mantém a luminosidade, e com ela a ordem da rampa). */
+function oklabToHex([L, a, b]: Lab): string {
+  const lightness = Math.min(1, Math.max(0, L));
+  let lo = 0;
+  let hi = 1;
+  if (!inGamut(oklabToLinear([lightness, a, b]))) {
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (inGamut(oklabToLinear([lightness, a * mid, b * mid]))) lo = mid;
+      else hi = mid;
+    }
+  } else lo = 1;
+  const linear = oklabToLinear([lightness, a * lo, b * lo]);
+  return `#${linear.map((v) => Math.round(Math.min(255, Math.max(0, fromLinear(Math.min(1, Math.max(0, v)))))).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * A rampa de uma cor livre, com o sombreado de uma rampa feita à mão (anti-objetivo 1): a cor pronta da família de tom do
+ * meio mais perto (no OKLab) é deslocada inteira pela diferença entre a cor escolhida e esse tom do meio.
+ */
+export function freeRamp(family: Family, hex: string): readonly string[] {
+  const target = toOklab(hex);
+  let base: readonly string[] = [];
+  let baseMiddle: Lab = [0, 0, 0];
   let bestDistance = Infinity;
-  for (const ramp of Object.values(named)) {
-    const [mr, mg, mb] = rgbOf(ramp[Math.floor(ramp.length / 2)]!);
-    const distance = (mr - r) ** 2 + (mg - g) ** 2 + (mb - b) ** 2;
-    if (distance < bestDistance) [best, bestDistance] = [ramp, distance];
+  for (const ramp of Object.values(RAMPS[family].named) as readonly (readonly string[])[]) {
+    const middle = toOklab(ramp[Math.floor(ramp.length / 2)]!);
+    const distance = (middle[0] - target[0]) ** 2 + (middle[1] - target[1]) ** 2 + (middle[2] - target[2]) ** 2;
+    if (distance < bestDistance) [base, baseMiddle, bestDistance] = [ramp, middle, distance];
   }
-  return best;
+  if (bestDistance === 0) return base;
+  const delta: Lab = [target[0] - baseMiddle[0], target[1] - baseMiddle[1], target[2] - baseMiddle[2]];
+  return base.map((tone) => {
+    const [L, a, b] = toOklab(tone);
+    return oklabToHex([L + delta[0], a + delta[1], b + delta[2]]);
+  });
 }
 
 /** Troca cada tom `from[i]` por `to[i]`; os outros pixels (tons fixos) e a transparência ficam. Não mexe na entrada. */
