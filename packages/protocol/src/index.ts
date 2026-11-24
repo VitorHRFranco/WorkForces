@@ -10,3 +10,5 @@ export * from "./invite.js";
 export * from "./app-bridge.js";
 export * from "./local.js";
 export * from "./host.js";
+export * from "./people-catalog.js";
+export * from "./appearance.js";
