@@ -68,9 +68,18 @@ describe("freeRamp", () => {
     for (let c = 0; c < 3; c++) expect(Math.abs(middle[c]! - wanted[c]!)).toBeLessThanOrEqual(2);
   });
 
-  it.each(["#000000", "#ffffff"])("%s não lança, e os tons seguem do escuro ao claro", (hex) => {
-    const ramp = freeRamp("clothing", hex);
+  const extremes: [Family, string][] = [
+    ["clothing", "#000000"],
+    ["clothing", "#ffffff"],
+    ["clothing", "#ffff00"],
+    ["clothing", "#f0f0f0"],
+    ["metal", "#ffffff"],
+    ["metal", "#00ff00"],
+  ];
+  it.each(extremes)("%s %s: nos extremos, os tons continuam distintos e do escuro ao claro (sem virar borrão)", (family, hex) => {
+    const ramp = freeRamp(family, hex);
     for (const tone of ramp) expect(tone).toMatch(/^#[0-9a-f]{6}$/);
+    expect(new Set(ramp).size).toBe(ramp.length);
     for (let i = 1; i < ramp.length; i++) expect(lightness(ramp[i]!)).toBeGreaterThanOrEqual(lightness(ramp[i - 1]!) - 1e-9);
   });
 

@@ -29,6 +29,7 @@ export async function saveAppearance(appearance: Appearance, deps: SaveDeps): Pr
     await deps.putOffice(appearance);
     return "saved";
   } catch (error) {
-    return error instanceof ApiError && error.status === 400 ? "office-refused" : "office-unreachable";
+    // 400: o catálogo do escritório não aceita esta aparência; 404: o escritório é de antes da aparência no servidor.
+    return error instanceof ApiError && (error.status === 400 || error.status === 404) ? "office-refused" : "office-unreachable";
   }
 }

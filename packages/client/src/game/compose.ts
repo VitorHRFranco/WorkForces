@@ -103,11 +103,31 @@ export function freeRamp(family: Family, hex: string): readonly string[] {
   }
   if (bestDistance === 0) return base;
   const delta: Lab = [target[0] - baseMiddle[0], target[1] - baseMiddle[1], target[2] - baseMiddle[2]];
-  return base.map((tone) => {
+  const shifted = base.map((tone): Lab => {
     const [L, a, b] = toOklab(tone);
-    return oklabToHex([L + delta[0], a + delta[1], b + delta[2]]);
+    return [L + delta[0], a + delta[1], b + delta[2]];
+  });
+  // Nos extremos (preto, branco, amarelo forte), deslocar a rampa inteira jogaria tons para além do preto ou do branco, e
+  // eles virariam o mesmo tom. O tom do meio fica dentro de uma faixa, e os de baixo e os de cima são comprimidos para
+  // caber entre ele e as pontas, mantendo a ordem e os tons distintos.
+  const middle = Math.floor(shifted.length / 2);
+  const middleL = Math.min(MIDDLE_L_MAX, Math.max(MIDDLE_L_MIN, shifted[middle]![0]));
+  const offsets = shifted.map(([L]) => L - shifted[middle]![0]);
+  const below = Math.min(0, ...offsets);
+  const above = Math.max(0, ...offsets);
+  const shrinkBelow = below < 0 ? Math.min(1, (middleL - TONE_L_MIN) / -below) : 1;
+  const shrinkAbove = above > 0 ? Math.min(1, (TONE_L_MAX - middleL) / above) : 1;
+  return shifted.map(([, a, b], i) => {
+    const offset = offsets[i]!;
+    return oklabToHex([middleL + offset * (offset < 0 ? shrinkBelow : shrinkAbove), a, b]);
   });
 }
+
+/** Faixa de luminosidade (OKLab) do tom do meio de uma rampa livre e das pontas dela: longe o bastante do preto e do branco puros para os tons não se repetirem. */
+const MIDDLE_L_MIN = 0.2;
+const MIDDLE_L_MAX = 0.88;
+const TONE_L_MIN = 0.04;
+const TONE_L_MAX = 0.98;
 
 /** Troca cada tom `from[i]` por `to[i]`; os outros pixels (tons fixos) e a transparência ficam. Não mexe na entrada. */
 export function recolor(image: Rgba, from: readonly string[], to: readonly string[]): Rgba {

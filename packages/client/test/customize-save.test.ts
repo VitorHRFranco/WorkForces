@@ -24,6 +24,13 @@ describe("saveAppearance", () => {
     expect(setProfile).toHaveBeenCalledOnce();
   });
 
+  it("um escritório de antes da aparência no servidor (404) também conta como recusa", async () => {
+    const putOffice = vi.fn(async () => {
+      throw new ApiError(404, "caminho não encontrado");
+    });
+    expect(await saveAppearance(appearance, { setProfile: okProfile(), putOffice })).toBe("office-refused");
+  });
+
   it("outro erro do escritório (ou a rede) também deixa salvo no perfil", async () => {
     for (const error of [new ApiError(500, "erro"), new TypeError("rede")]) {
       const setProfile = okProfile();
