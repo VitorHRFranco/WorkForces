@@ -2,38 +2,42 @@
 """Gera a arte do escritório a partir do LPC Revised (OGA-BY 3.0; créditos em assets/CREDITS.md).
 
 Uso, na raiz do repositório (precisa de Python 3.10+ e Pillow):
-    python tools/art/build_art.py          # refaz as imagens e o props.json
+    python tools/art/build_art.py          # refaz as imagens, as peças do personagem, o props.json e o catálogo
     python tools/art/build_art.py --map    # também reescreve assets/map/office.tmj (perde edições feitas no Tiled)
+    python tools/art/build_art.py --check  # confere que a arte do repositório sai de assets/lpc (sai com 1 se não)
 
-Os arquivos do LPC são baixados uma vez, do commit fixado abaixo, para tools/art/.cache/ (fora do git).
+Os arquivos do LPC vêm de assets/lpc/, copiados por tools/art/vendor_lpc.py (do commit em catalog.LPC_COMMIT). O gerador
+não acessa a rede.
 """
 import argparse
 import json
 import os
-import urllib.parse
-import urllib.request
+import sys
+import tempfile
 
 from PIL import Image
 
-LPC_COMMIT = "f07f7f5892e67c932c68f70bb04472f2c64e46bc"
-RAW = f"https://raw.githubusercontent.com/ElizaWy/LPC/{LPC_COMMIT}/"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import catalog  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE = os.path.join(HERE, ".cache", LPC_COMMIT[:12])
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+LPC_DIR = os.path.join(REPO, "assets", "lpc")
 T = 32
 WALL_FILL = (58, 52, 70, 255)  # #3a3446, por baixo das bordas do topo da parede
 BACKGROUND = "#2e2a3a"
 
+# O gerador só pode pedir os arquivos que vendor_lpc.py copia: os móveis e tiles e as peças do catálogo.
+ALLOWED = set(catalog.STATIC_FILES) | {path for piece in catalog.PIECES for files in catalog.piece_files(piece).values() for path in files}
+
 
 def lpc(path):
-    """Abre um arquivo do LPC (baixa para o cache na primeira vez)."""
-    local = os.path.join(CACHE, *path.split("/"))
+    """Abre um arquivo do LPC copiado em assets/lpc/."""
+    if path not in ALLOWED:
+        raise SystemExit(f"build_art: {path} não está em catalog.STATIC_FILES nem nas peças do catálogo")
+    local = os.path.join(LPC_DIR, *path.split("/"))
     if not os.path.exists(local):
-        os.makedirs(os.path.dirname(local), exist_ok=True)
-        with urllib.request.urlopen(RAW + urllib.parse.quote(path), timeout=60) as response:
-            data = response.read()
-        with open(local + ".part", "wb") as out:
-            out.write(data)
-        os.replace(local + ".part", local)
+        raise SystemExit(f"build_art: falta assets/lpc/{path}; rode python tools/art/vendor_lpc.py")
     return Image.open(local).convert("RGBA")
 
 
@@ -153,10 +157,12 @@ def pack(images, width=512, pad=2):
     return atlas, places
 
 
-# ---------------------------------------------------------------- pessoas (sprites/people.png)
-# Uma faixa de 64 px de altura x 4 linhas por variante. Colunas: 0-7 andando, 8-10 parado, 11 sentado
-# (coluna 2 do Sitting.png do LPC: sentado numa cadeira). Linhas: 0 cima, 1 esquerda, 2 baixo, 3 direita.
+# ---------------------------------------------------------------- pessoas (sprites/parts/ e o catálogo do personagem)
+# Cada peça vira uma faixa de 768x256 na cor de referência da família (catalog.FAMILIES): 12 colunas x 4 linhas de 64 px.
+# Colunas: 0-7 andando, 8-10 parado, 11 sentado (coluna 2 do Sitting.png do LPC: sentado numa cadeira).
+# Linhas: 0 cima, 1 esquerda, 2 baixo, 3 direita. O cliente recolore e empilha as peças de cada aparência.
 
+# Os 12 personagens de hoje, na ordem das contas (o id 1 é o primeiro). Viram as aparências LEGACY do catálogo.
 PEOPLE = [  # (corpo, pele, cabelo, cor do cabelo, camisa, cor, calça, cor)
     ("m", "Peach", "Short 02 - Parted", "Brown", "Shirt 09 - Polo", "Cornflower", "Pants 03 - Pants", "Denim"),
     ("f", "Bronze", "Medium 07 - Bob, Side Part", "Black", "Shirt 07 - Buttoned Longsleeve Shirt", "Coral", "Pants 03 - Pants", "Charcoal"),
@@ -171,41 +177,131 @@ PEOPLE = [  # (corpo, pele, cabelo, cor do cabelo, camisa, cor, calça, cor)
     ("m", "Brown", "Medium 06 - Dreadlocks", "Black", "Shirt 04 - T-shirt", "Amber", "Pants 03 - Pants", "Denim"),
     ("f", "Porcelain", "Medium 08 - Bob, Bangs", "Pink", "Shirt 09 - Polo", "Aegean", "Pants 03 - Pants", "Black"),
 ]
-HAIR_BEHIND = {"Medium 02 - Curly"}  # estilos com a camada _Behind (desenhada antes do corpo)
+
+# Ordem das camadas, de baixo para cima. Cada nome é um campo da aparência; "hair-behind" é a camada de trás do cabelo.
+LAYER_ORDER = ["hair-behind", "body", "feet", "legs", "top", "suspenders", "cardigan", "bowtie", "head", "brows", "beard", "glasses", "hair"]
+
+# Os ids de cada campo da aparência, na ordem do catálogo.
+CATEGORIES = {
+    "HAIR_STYLES": ("medium-", "short-"),
+    "BEARDS": ("facial-",),
+    "BROWS": ("brows-",),
+    "TOPS": ("shirt-",),
+    "LEGS": ("pants-", "shorts-"),
+    "FEET": ("shoes", "boots", "socks-"),
+    "GLASSES": ("glasses-",),
+}
 
 
-def person(variant, anim):
-    kind, skin, hair, hair_color, shirt, shirt_color, pants, pants_color = variant
-    body = "Body 02 - Masculine, Thin" if kind == "m" else "Body 01 - Feminine, Thin"
-    head = "Head 02 - Masculine" if kind == "m" else "Head 01 - Feminine"
-    clothing = "Characters/Clothing/" + ("Masculine, Thin" if kind == "m" else "Feminine, Thin")
-    layers = []
-    if hair in HAIR_BEHIND:
-        layers.append(f"Characters/Hair/{hair}/_Behind/{hair_color}")
-    layers += [
-        f"Characters/Body/{body}/{skin}",
-        f"{clothing}/Feet/Shoes 01 - Shoes/Black",
-        f"{clothing}/Legs/{pants}/{pants_color}",
-        f"{clothing}/Torso/{shirt}/{shirt_color}",
-        f"Characters/Head/{head}/{skin}",
-        f"Characters/Hair/{hair}/{hair_color}",
-    ]
-    out = None
-    for layer in layers:
-        image = lpc(f"{layer}/{anim}.png")
-        out = out or Image.new("RGBA", image.size)
-        out.alpha_composite(image)
-    return out
-
-
-def build_people():
-    sheet = Image.new("RGBA", (12 * 64, len(PEOPLE) * 256))
-    for index, variant in enumerate(PEOPLE):
-        top = index * 256
-        sheet.alpha_composite(person(variant, "Walk"), (0, top))
-        sheet.alpha_composite(person(variant, "Idle"), (8 * 64, top))
-        sheet.alpha_composite(person(variant, "Sitting").crop((128, 0, 192, 256)), (11 * 64, top))
+def band(files):
+    """As poses de uma peça (Walk, Idle e Sitting do LPC) numa faixa de 768x256."""
+    walk, idle, sitting = (lpc(path) for path in files)
+    sheet = Image.new("RGBA", (12 * 64, 256))
+    sheet.alpha_composite(walk, (0, 0))
+    sheet.alpha_composite(idle, (8 * 64, 0))
+    sheet.alpha_composite(sitting.crop((128, 0, 192, 256)), (11 * 64, 0))
     return sheet
+
+
+def part_name(piece_id, body, layer):
+    """Nome do arquivo em sprites/parts/: <id>.png, <corpo>-<id>.png, ou <id>-behind.png para a camada de trás."""
+    name = piece_id + ("-behind" if layer else "")
+    return f"{body}-{name}.png" if body else f"{name}.png"
+
+
+def build_parts():
+    return {
+        part_name(piece["id"], body, layer): band(files)
+        for piece in catalog.PIECES
+        for (body, layer), files in catalog.piece_files(piece).items()
+    }
+
+
+def piece_id(lpc_name):
+    """O id do catálogo de uma peça pelo nome da pasta do LPC (por exemplo "Shirt 09 - Polo")."""
+    return next(piece["id"] for piece in catalog.PIECES if piece["folder"].split("/")[-1] == lpc_name)
+
+
+def legacy_appearances():
+    """Os 12 de hoje como aparências, com as chaves na ordem da Appearance (packages/protocol/src/appearance.ts)."""
+    return [
+        {
+            "v": 1,
+            "body": "masculine" if kind == "m" else "feminine",
+            "skin": skin,
+            "hair": {"style": piece_id(hair), "color": hair_color},
+            "brows": None,
+            "beard": None,
+            "top": {"style": piece_id(shirt), "color": shirt_color},
+            "cardigan": None,
+            "suspenders": None,
+            "legs": {"style": piece_id(pants), "color": pants_color},
+            "feet": {"style": "shoes", "color": "Black"},
+            "glasses": None,
+            "bowtie": None,
+        }
+        for kind, skin, hair, hair_color, shirt, shirt_color, pants, pants_color in PEOPLE
+    ]
+
+
+def parts_index():
+    """Para cada peça: a família e o arquivo (ou um por corpo), e a camada de trás quando houver."""
+    index = {}
+    for piece in catalog.PIECES:
+        files = catalog.piece_files(piece)
+        entry = {"family": piece["family"]}
+        if (None, "") in files:
+            entry["file"] = part_name(piece["id"], None, "")
+        else:
+            entry["byBody"] = {body: part_name(piece["id"], body, "") for body in catalog.BODIES}
+        if (None, "_Behind") in files:
+            entry["behind"] = part_name(piece["id"], None, "_Behind")
+        index[piece["id"]] = entry
+    return index
+
+
+def ts(value, indent=0):
+    """Um valor em TypeScript: listas de textos numa linha, objetos uma chave por linha."""
+    pad = "  " * (indent + 1)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        items = [f"{pad}{json.dumps(key, ensure_ascii=False)}: {ts(item, indent + 1)}," for key, item in value.items()]
+        return "{\n" + "\n".join(items) + "\n" + "  " * indent + "}"
+    if isinstance(value, list) and any(isinstance(item, (dict, list)) for item in value):
+        items = [f"{pad}{ts(item, indent + 1)}," for item in value]
+        return "[\n" + "\n".join(items) + "\n" + "  " * indent + "]"
+    if value is None:
+        return "null"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def build_catalog():
+    """O catálogo do personagem (packages/protocol/src/people-catalog.ts), lido pelo protocolo, pelo cliente e pelo servidor."""
+    with open(os.path.join(LPC_DIR, "ramps.json"), encoding="utf-8") as source:
+        ramps = json.load(source)
+    ids = [piece["id"] for piece in catalog.PIECES]
+    constants = {
+        "BODIES": list(catalog.BODIES),
+        "SKINS": catalog.SKINS,
+        "HAIR_COLORS": catalog.HAIR_COLORS,
+        "CLOTHING_COLORS": catalog.CLOTHING_COLORS,
+        "METALS": catalog.METALS,
+        **{name: [i for i in ids if i.startswith(prefixes)] for name, prefixes in CATEGORIES.items()},
+        "RAMPS": ramps,
+        "PARTS": parts_index(),
+        "LAYER_ORDER": LAYER_ORDER,
+        "LEGACY": legacy_appearances(),
+    }
+    lines = [
+        "// Gerado por tools/art/build_art.py a partir de assets/lpc. Não edite.",
+        "",
+        "/** Versão do catálogo: muda quando uma aparência guardada pode deixar de valer. */",
+        "export const CATALOG_VERSION = 1;",
+    ]
+    for name, value in constants.items():
+        lines += ["", f"export const {name} = {ts(value)} as const;"]
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------- robô (sprites/robot.png), desenho próprio
@@ -384,33 +480,84 @@ def build_map(tileset_size):
 # ----------------------------------------------------------------
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--map", action="store_true", help="reescreve assets/map/office.tmj")
-    parser.add_argument("--out", default=os.path.abspath(os.path.join(HERE, "..", "..")), help="raiz onde gravar (padrão: o repositório)")
-    args = parser.parse_args()
-    root = args.out
-    map_dir = os.path.join(root, "assets", "map")
-    sprites = os.path.join(root, "packages", "client", "public", "sprites")
-    game = os.path.join(root, "packages", "client", "src", "game")
-    for directory in (map_dir, sprites, game):
-        os.makedirs(directory, exist_ok=True)
+MAP_DIR = os.path.join("assets", "map")
+SPRITES = os.path.join("packages", "client", "public", "sprites")
+PARTS_DIR = os.path.join(SPRITES, "parts")
+GAME = os.path.join("packages", "client", "src", "game")
+CATALOG_FILE = os.path.join("packages", "protocol", "src", "people-catalog.ts")
+
+
+def generate(root, write_map=False):
+    """Grava a arte sob `root`; devolve os caminhos gravados, relativos a `root` (sem o mapa)."""
+    for directory in (MAP_DIR, SPRITES, PARTS_DIR, GAME, os.path.dirname(CATALOG_FILE)):
+        os.makedirs(os.path.join(root, directory), exist_ok=True)
+    written = []
+
+    def save_image(image, rel):
+        image.save(os.path.join(root, rel), optimize=True)
+        written.append(rel)
+
+    def save_text(text, rel):
+        with open(os.path.join(root, rel), "w", encoding="utf-8", newline="\n") as out:
+            out.write(text)
+        written.append(rel)
 
     tileset = build_tileset()
-    tileset.save(os.path.join(map_dir, "office.png"), optimize=True)
+    save_image(tileset, os.path.join(MAP_DIR, "office.png"))
     props = build_props()
     atlas, places = pack({name: image for name, (image, _) in props.items()})
-    atlas.save(os.path.join(sprites, "props.png"), optimize=True)
+    save_image(atlas, os.path.join(SPRITES, "props.png"))
     lines = [f'  "{name}": {json.dumps({"x": x, "y": y, "w": w, "h": h, "solid": props[name][1]})}' for name, (x, y, w, h) in sorted(places.items())]
-    with open(os.path.join(game, "props.json"), "w", encoding="utf-8", newline="\n") as out:
-        out.write("{\n" + ",\n".join(lines) + "\n}\n")
-    build_people().save(os.path.join(sprites, "people.png"), optimize=True)
-    build_robot().save(os.path.join(sprites, "robot.png"), optimize=True)
-    if args.map:
-        with open(os.path.join(map_dir, "office.tmj"), "w", encoding="utf-8", newline="\n") as out:
+    save_text("{\n" + ",\n".join(lines) + "\n}\n", os.path.join(GAME, "props.json"))
+    save_image(build_robot(), os.path.join(SPRITES, "robot.png"))
+    for name, image in build_parts().items():
+        save_image(image, os.path.join(PARTS_DIR, name))
+    save_text(build_catalog(), CATALOG_FILE)
+    if write_map:
+        with open(os.path.join(root, MAP_DIR, "office.tmj"), "w", encoding="utf-8", newline="\n") as out:
             json.dump(build_map(tileset.size), out, separators=(",", ":"))
             out.write("\n")
-    print("arte gerada em", root)
+    return written
+
+
+def same(generated, committed):
+    """Os PNG comparam pelos pixels (os bytes mudam com a versão do zlib); o resto, byte a byte."""
+    if not os.path.exists(committed):
+        return False
+    if generated.endswith(".png"):
+        a, b = Image.open(generated).convert("RGBA"), Image.open(committed).convert("RGBA")
+        return a.size == b.size and a.tobytes() == b.tobytes()
+    with open(generated, "rb") as x, open(committed, "rb") as y:
+        return x.read() == y.read()
+
+
+def check():
+    """Gera tudo numa pasta temporária e compara com o repositório. Devolve as diferenças."""
+    with tempfile.TemporaryDirectory() as tmp:
+        written = generate(tmp)
+        differences = [rel for rel in written if not same(os.path.join(tmp, rel), os.path.join(REPO, rel))]
+        produced = {name for name in os.listdir(os.path.join(tmp, PARTS_DIR))}
+    committed_parts = os.path.join(REPO, PARTS_DIR)
+    if os.path.isdir(committed_parts):
+        differences += [os.path.join(PARTS_DIR, name) + " (não é gerado)" for name in sorted(os.listdir(committed_parts)) if name not in produced]
+    return differences
+
+
+def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--map", action="store_true", help="reescreve assets/map/office.tmj")
+    parser.add_argument("--check", action="store_true", help="confere que a arte do repositório sai de assets/lpc")
+    parser.add_argument("--out", default=REPO, help="raiz onde gravar (padrão: o repositório)")
+    args = parser.parse_args()
+    if args.check:
+        differences = check()
+        for rel in differences:
+            print("diferente:", rel.replace(os.sep, "/"))
+        print("a arte do repositório confere com assets/lpc" if not differences else f"{len(differences)} arquivo(s) diferente(s)")
+        sys.exit(1 if differences else 0)
+    generate(args.out, args.map)
+    print("arte gerada em", args.out)
 
 
 if __name__ == "__main__":

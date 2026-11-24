@@ -31,6 +31,16 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+      # O gerador da arte lê só assets/lpc: regerar tudo tem que dar os mesmos pixels do repositório (uma vez só na matriz).
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: A arte do repositório sai de assets/lpc, sem rede
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: |
+          pip install pillow==12.3.0
+          python tools/art/build_art.py --check
 
   e2e:
     runs-on: ubuntu-latest

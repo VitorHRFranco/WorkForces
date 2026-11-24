@@ -2,11 +2,12 @@
 
 ## LPC Revised (OGA-BY 3.0)
 
-A arte do escritório vem do [LPC Revised](https://github.com/ElizaWy/LPC), no commit `f07f7f5892e67c932c68f70bb04472f2c64e46bc`, sob a licença [OGA-BY 3.0](https://static.opengameart.org/OGA-BY-3.0.txt) ([perguntas frequentes](https://opengameart.org/content/oga-by-30-faq)). Estes arquivos foram montados por `tools/art/build_art.py` a partir das peças listadas abaixo (recortes, camadas e empacotamento, sem redesenho) e continuam sob a OGA-BY 3.0:
+A arte do escritório vem do [LPC Revised](https://github.com/ElizaWy/LPC), no commit `f07f7f5892e67c932c68f70bb04472f2c64e46bc`, sob a licença [OGA-BY 3.0](https://static.opengameart.org/OGA-BY-3.0.txt) ([perguntas frequentes](https://opengameart.org/content/oga-by-30-faq)). Estes arquivos foram montados por `tools/art/build_art.py` a partir das peças listadas abaixo (recortes, camadas, empacotamento e troca de cores, sem redesenho) e continuam sob a OGA-BY 3.0:
 
 - `assets/map/office.png`: piso, paredes e bordas;
 - `packages/client/public/sprites/props.png`: móveis e decoração;
-- `packages/client/public/sprites/people.png`: as 12 pessoas (corpo, cabeça, cabelo e roupas em camadas).
+- `packages/client/public/sprites/parts/`: cada peça do personagem (corpo, cabeça, cabelos, barbas, roupas e acessórios) na cor de referência; o app troca as cores de cada peça pela cor que a pessoa escolhe e empilha as camadas;
+- `packages/client/test/fixtures/people-legacy.png`: as 12 pessoas de antes, montadas em camadas, guardadas para o teste que confere a montagem.
 
 Os arquivos originais que o projeto usa estão em `assets/lpc/`, sem modificação, no mesmo caminho do repositório de origem, junto com os `Credits.txt` de cada pasta (`assets/lpc/ORIGEM.md` diz de onde e quando vieram). Os créditos de cada peça vêm desses `Credits.txt`.
 
