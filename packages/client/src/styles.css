@@ -430,3 +430,50 @@ code {
   padding: 0;
   list-style: none;
 }
+
+/* Personalizar */
+.customize {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.customize-first {
+  max-width: 760px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+.character-preview {
+  image-rendering: pixelated;
+  align-self: center;
+}
+.customize-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  max-height: 55vh;
+  overflow: auto;
+}
+.customize-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #1d2027;
+}
+.swatch[aria-pressed="true"] {
+  outline: 2px solid #f4b41b;
+}
+.customize-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
