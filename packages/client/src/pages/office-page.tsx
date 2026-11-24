@@ -11,6 +11,7 @@ import { IpcSocket } from "../office/ipc-socket";
 import { ChatBox } from "../office/chat-box";
 import { AgentMenu } from "../office/agent-menu";
 import { ComputersModal } from "../office/computers-modal";
+import { CustomizeModal } from "../customize/customize-modal";
 import { DeskPanel } from "../office/desk-panel";
 import { InviteModal } from "../office/invite-modal";
 import { OfficeState, useOfficeVersion } from "../office/office-state";
@@ -33,7 +34,7 @@ export function OfficePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
-  const [modal, setModal] = useState<"computers" | "invite" | null>(null);
+  const [modal, setModal] = useState<"computers" | "invite" | "customize" | null>(null);
   /** O modal das pastas, que fica dentro do "Chamar agente". */
   const [agentModal, setAgentModal] = useState(false);
   /** O painel "Meus agentes" (com digitação) e se o terminal dele tem o foco. */
@@ -239,6 +240,9 @@ export function OfficePage() {
           </button>
         )}
         <span class="spacer" />
+        <button type="button" onClick={() => setModal("customize")}>
+          Personalizar
+        </button>
         <button type="button" onClick={() => navigate("/")}>
           Escritórios
         </button>
@@ -290,6 +294,7 @@ export function OfficePage() {
       </main>
       {modal === "computers" && <ComputersModal onClose={closeModal} />}
       {modal === "invite" && <InviteModal onClose={closeModal} />}
+      {modal === "customize" && <CustomizeModal putOffice={(appearance) => api.setAppearance(appearance)} onClose={closeModal} />}
     </div>
   );
 }

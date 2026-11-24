@@ -1,4 +1,4 @@
-import { Appearance, CreateTokenRequest, Credentials, LoginRequest, inviteAppLink, type Me, type TlsAnchor } from "@workforces/protocol";
+import { Appearance, appearanceKey, CreateTokenRequest, Credentials, LoginRequest, inviteAppLink, type Me, type TlsAnchor } from "@workforces/protocol";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccountServices } from "../accounts/index.js";
 import { INVITE_TTL_MS } from "../accounts/invites.js";
@@ -109,6 +109,9 @@ export function registerApi(app: FastifyInstance, deps: ApiDeps): void {
     const body = Appearance.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: "aparência inválida" });
     if (!appearanceChanges.tryAcquire(String(user.id))) return reply.code(429).send({ error: "mudanças demais na aparência; espere um pouco" });
+    // A mesma aparência de novo (cada entrada manda a do perfil) não grava nem avisa todo mundo outra vez.
+    const stored = accounts.appearances.get(user.id);
+    if (stored && appearanceKey(stored) === appearanceKey(body.data)) return reply.code(204).send();
     accounts.appearances.set(user.id, body.data);
     deps.onAppearanceChanged(user.id, body.data);
     return reply.code(204).send();

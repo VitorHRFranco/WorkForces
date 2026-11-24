@@ -11,10 +11,12 @@ import { _electron, errors, expect, type ElectronApplication, type Page } from "
 import { channelPath } from "@workforces/bridge/channel";
 import {
   AgentToApp,
+  LEGACY,
   LOCAL_PROTOCOL_VERSION,
   parseJson,
   parseOfficeMap,
   type AppBridge,
+  type Appearance,
   type LocalStart,
   type OfficeMap,
   type Point,
@@ -65,6 +67,11 @@ export interface Size {
 export interface LaunchOptions {
   /** Pasta de dados do app (padrão: uma nova dentro da pasta do teste); a mesma pasta reabre o mesmo perfil. */
   dataDir?: string;
+  /**
+   * Personagem gravado no perfil antes de abrir (só numa pasta de dados nova). Padrão: uma das 12 aparências de hoje,
+   * para o app não abrir no "Personalizar" da primeira vez; `null` deixa o perfil vazio (primeira vez).
+   */
+  profile?: Appearance | null;
   /** Link `workforces://` passado ao app ao abrir, como o sistema faz ao clicar num convite. */
   link?: string;
   /** Tamanho da área da página (padrão: 960 × 640). */
@@ -154,8 +161,16 @@ export async function startOffice(): Promise<Office> {
  * se `options.dataDir` não vier), sem registrar o `workforces://` no sistema e sem depender de servidor nenhum. No Linux
  * sem chaveiro, `--password-store=basic` deixa o `safeStorage` no modo de texto do Chromium, e a sessão sobrevive ao reabrir.
  */
+/** Quantos apps este processo já abriu: o perfil semeado vai variando entre as 12 aparências de hoje. */
+let launched = 0;
+
 export async function launchApp(dir: string, options: LaunchOptions = {}): Promise<LaunchedApp> {
   const dataDir = options.dataDir ?? mkdtempSync(join(dir, "app-"));
+  if (options.dataDir === undefined) {
+    const profile = options.profile === undefined ? LEGACY[launched % LEGACY.length]! : options.profile;
+    if (profile !== null) writeFileSync(join(dataDir, "profile.json"), JSON.stringify({ appearance: profile }));
+  }
+  launched++;
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
   // O app instalado já sabe onde está o próprio código: só o Electron do repositório recebe a pasta do app.

@@ -337,11 +337,20 @@ describe("PUT /api/me/appearance", () => {
 
   it("o 31º pedido no mesmo minuto dá 429, sem gravar nem avisar", async () => {
     const { put, accounts, user, appearanceChanges } = await ana();
-    for (let i = 0; i < 30; i++) expect((await put(LEGACY[0])).statusCode).toBe(204);
-    const response = await put(LEGACY[1]);
+    for (let i = 0; i < 30; i++) expect((await put(LEGACY[i % 2])).statusCode).toBe(204);
+    const response = await put(LEGACY[2]);
     expect(response.statusCode).toBe(429);
     expect(response.json()).toEqual({ error: "mudanças demais na aparência; espere um pouco" });
     expect(appearanceChanges).toHaveLength(30);
-    expect(accounts.appearances.get(user.id)).toEqual(LEGACY[0]);
+    expect(accounts.appearances.get(user.id)).toEqual(LEGACY[1]);
+  });
+
+  it("a mesma aparência de novo dá 204 sem gravar de novo nem avisar; outra avisa", async () => {
+    const { put, appearanceChanges } = await ana();
+    expect((await put(LEGACY[4])).statusCode).toBe(204);
+    expect((await put(LEGACY[4])).statusCode).toBe(204);
+    expect(appearanceChanges).toHaveLength(1);
+    expect((await put(LEGACY[5])).statusCode).toBe(204);
+    expect(appearanceChanges).toHaveLength(2);
   });
 });

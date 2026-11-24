@@ -43,6 +43,8 @@ export class OfficeState {
       case "playerMoved": {
         const player = this.players.get(message.playerId);
         if (!player) return;
+        // A cópia mantém a mesma referência de `appearance` de propósito: a cena compara por identidade para não remontar
+        // o personagem a cada passo.
         this.players.set(player.id, { ...player, x: message.x, y: message.y, dir: message.dir, moving: message.moving });
         break;
       }

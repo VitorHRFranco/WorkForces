@@ -1,6 +1,7 @@
 import type { AppRoute, OfficeSummary } from "@workforces/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { bridge } from "../bridge";
+import { CustomizeModal } from "../customize/customize-modal";
 import { takeFlash } from "../flash";
 import { navigate, routePath } from "../router";
 import { AddressChangedNotice, hostStateText, useHostStatus } from "./host-page";
@@ -18,6 +19,7 @@ export function LauncherPage() {
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
   const [reach, setReach] = useState<Record<string, Reach>>({});
   const [flash, setFlashText] = useState<string | null>(() => takeFlash());
+  const [customizing, setCustomizing] = useState(false);
   const [invite, setInvite] = useState("");
   const [showAddress, setShowAddress] = useState(false);
   const [address, setAddress] = useState("");
@@ -119,6 +121,10 @@ export function LauncherPage() {
     <main class="card launcher">
       <UpdateNotice />
       <h1>WorkForces</h1>
+      <button type="button" onClick={() => setCustomizing(true)}>
+        Personalizar
+      </button>
+      {customizing && <CustomizeModal putOffice={null} onClose={() => setCustomizing(false)} />}
       {flash && (
         <p class="error" role="alert">
           {flash}
