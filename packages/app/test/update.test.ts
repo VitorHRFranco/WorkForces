@@ -126,16 +126,18 @@ describe("restartToUpdate", () => {
   it("se o app não sai no prazo, avisa; uma segunda chamada não reinstala de novo", async () => {
     const quitAndInstall = vi.fn();
     const onFailed = vi.fn();
-    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
-    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
+    restartToUpdate({ quitAndInstall, onFailed, quitRequested: () => false, quit: vi.fn(), timeoutMs: 15_000 });
+    restartToUpdate({ quitAndInstall, onFailed, quitRequested: () => false, quit: vi.fn(), timeoutMs: 15_000 });
     expect(quitAndInstall).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(14_999);
     expect(onFailed).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(onFailed).toHaveBeenCalledTimes(1);
     // Depois da falha, a pessoa pode tentar de novo.
-    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
+    restartToUpdate({ quitAndInstall, onFailed, quitRequested: () => false, quit: vi.fn(), timeoutMs: 15_000 });
     expect(quitAndInstall).toHaveBeenCalledTimes(2);
+    // O reinício pendente é do módulo: termina aqui para não vazar para o próximo teste.
+    await vi.advanceTimersByTimeAsync(15_000);
   });
 });
 
@@ -143,16 +145,16 @@ describe("marca de religar o escritório", () => {
   it("vale uma vez só", () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-religar-"));
     try {
-      writeResumeMark(dir);
-      expect(takeResumeMark(dir)).toBe(true);
-      expect(takeResumeMark(dir)).toBe(false);
+      writeResumeMark(dir, "0.1.0");
+      expect(takeResumeMark(dir, "0.1.1")).toBe(true);
+      expect(takeResumeMark(dir, "0.1.1")).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it("numa pasta que não existe, não há marca", () => {
-    expect(takeResumeMark(join(tmpdir(), "wf-nao-existe-" + process.pid, "x"))).toBe(false);
+    expect(takeResumeMark(join(tmpdir(), "wf-nao-existe-" + process.pid, "x"), "0.1.1")).toBe(false);
   });
 });
 
@@ -162,5 +164,38 @@ describe("só verificar", () => {
     startUpdates({ updater: updater as unknown as Updater, enabled: true, notify: vi.fn(), log: vi.fn(), download: false }).stop();
     expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(false);
+  });
+});
+
+describe("revisão final", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("um Sair pedido durante o reinício não é desfeito pela falha: o app sai em vez de voltar", async () => {
+    const quitAndInstall = vi.fn();
+    const onFailed = vi.fn();
+    const quit = vi.fn();
+    restartToUpdate({ quitAndInstall, onFailed, quitRequested: () => true, quit, timeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a marca só religa se a versão mudou (instalador recusado não liga o escritório dias depois)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-religar-"));
+    try {
+      writeResumeMark(dir, "0.1.0");
+      expect(takeResumeMark(dir, "0.1.0")).toBe(false);
+      // A marca saiu mesmo assim: não fica para uma abertura futura.
+      writeResumeMark(dir, "0.1.0");
+      expect(takeResumeMark(dir, "0.1.1")).toBe(true);
+      expect(takeResumeMark(dir, "0.1.1")).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("updateFeed recusa usuário na URL, localhost com ponto e IPv6", () => {
+    for (const url of ["http://x@127.0.0.1:1/", "http://localhost.:1/", "http://[::1]:1/"]) expect(updateFeed({ WF_UPDATE_URL: url })).toBeNull();
   });
 });

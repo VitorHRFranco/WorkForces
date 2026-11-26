@@ -127,6 +127,8 @@ async function start(): Promise<void> {
   logger.info("app", versionLine);
   let initialLink = findInviteArg(process.argv);
   let quitting = false;
+  /** Alguém pediu para sair de verdade (before-quit): um reinício para atualizar que falha não desfaz isso. */
+  let quitAsked = false;
   let window: BrowserWindow | null = null;
   let state: AppState | null = null;
   let relay: SocketRelay | null = null;
@@ -187,6 +189,7 @@ async function start(): Promise<void> {
 
   app.on("before-quit", (event) => {
     quitting = true;
+    quitAsked = true;
     relay?.closeAll();
     // Só solta os canais: os agentes continuam rodando nas janelas deles, e o app os acha de novo ao reabrir.
     localAgents?.closeAll();
@@ -273,7 +276,7 @@ async function start(): Promise<void> {
   });
   host = officeHost;
   // Reiniciou para atualizar com o escritório ligado: ele volta sozinho, uma vez só (a marca sai antes de religar).
-  if (takeResumeMark(userData) && officeHost.status().settings) {
+  if (takeResumeMark(userData, app.getVersion()) && officeHost.status().settings) {
     logger.info("escritório", "religando o escritório deste computador depois da atualização");
     void officeHost.turnOn().catch((error: unknown) => logger.warn("escritório", withReason("não consegui religar o escritório depois da atualização", error)));
   }
@@ -641,7 +644,7 @@ async function start(): Promise<void> {
     const wasOn = host?.status().state === "on";
     // O escritório deste computador desliga antes, como na saída; `hostOff` evita que o `before-quit` espere de novo.
     // Estava ligado: a marca o religa na abertura da versão nova.
-    if (wasOn) writeResumeMark(userData);
+    if (wasOn) writeResumeMark(userData, app.getVersion());
     if (host && !hostOff && !hostStopping) {
       hostStopping = true;
       await host.turnOff().catch((error: unknown) => logger.warn("escritório", withReason("não consegui desligar o escritório ao atualizar", error)));
@@ -649,13 +652,19 @@ async function start(): Promise<void> {
     hostOff = true;
     restartToUpdate({
       quitAndInstall: () => updater.quitAndInstall(true, true),
+      quitRequested: () => quitAsked,
+      // Sair foi pedido no meio do reinício (o before-quit esperava o instalador): sai sem religar nada.
+      quit: () => {
+        logger.error("atualização", "o instalador da versão nova não abriu; saindo, como foi pedido");
+        app.quit();
+      },
       // O electron-updater não saiu: o app volta a funcionar como antes (e o escritório, se estava ligado, religa).
       onFailed: () => {
         logger.error("atualização", "o instalador da versão nova não abriu: o app continua nesta versão");
         quitting = false;
         hostOff = false;
         hostStopping = false;
-        takeResumeMark(userData);
+        takeResumeMark(userData, app.getVersion());
         if (wasOn) void host?.turnOn().catch((error: unknown) => logger.warn("escritório", withReason("não consegui religar o escritório", error)));
         sendToPage("app:updateFailed");
       },

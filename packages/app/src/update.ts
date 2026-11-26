@@ -1,4 +1,4 @@
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** O que o app usa do `autoUpdater` do electron-updater (o de verdade entra pelo main.ts; os testes usam um falso). */
@@ -96,14 +96,22 @@ let restartPending = false;
 
 /**
  * Chama o `quitAndInstall` uma vez. O electron-updater não lança quando não consegue sair: se o processo continua vivo
- * depois do prazo, `onFailed` desfaz o "fechando" e a pessoa pode tentar de novo.
+ * depois do prazo, `onFailed` desfaz o "fechando" e a pessoa pode tentar de novo. Se no meio alguém pediu para sair de
+ * verdade (Sair na bandeja, o `--quit` do instalador), a falha não desfaz isso: `quit` sai.
  */
-export function restartToUpdate(deps: { quitAndInstall(): void; onFailed(): void; timeoutMs?: number }): void {
+export function restartToUpdate(deps: {
+  quitAndInstall(): void;
+  onFailed(): void;
+  quitRequested(): boolean;
+  quit(): void;
+  timeoutMs?: number;
+}): void {
   if (restartPending) return;
   restartPending = true;
   const timer = setTimeout(() => {
     restartPending = false;
-    deps.onFailed();
+    if (deps.quitRequested()) deps.quit();
+    else deps.onFailed();
   }, deps.timeoutMs ?? RESTART_TIMEOUT_MS);
   timer.unref();
   try {
@@ -115,23 +123,31 @@ export function restartToUpdate(deps: { quitAndInstall(): void; onFailed(): void
 
 const RESUME_MARK = "religar-escritorio";
 
-/** Marca que o escritório deste computador estava ligado ao reiniciar para atualizar: a abertura seguinte o religa. */
-export function writeResumeMark(dir: string): void {
+/**
+ * Marca que o escritório deste computador estava ligado ao reiniciar para atualizar, com a versão de antes: a abertura
+ * seguinte o religa só se a versão mudou (um instalador recusado não liga o escritório numa abertura qualquer depois).
+ */
+export function writeResumeMark(dir: string, version: string): void {
   try {
-    writeFileSync(join(dir, RESUME_MARK), "");
+    writeFileSync(join(dir, RESUME_MARK), version);
   } catch {
     // Sem a marca, o escritório só não religa sozinho.
   }
 }
 
-/** Apaga a marca antes de devolver: um erro ao religar não vira um laço. */
-export function takeResumeMark(dir: string): boolean {
+/** Apaga a marca antes de devolver (um erro ao religar não vira um laço); vale só se a versão de agora é outra. */
+export function takeResumeMark(dir: string, version: string): boolean {
   const path = join(dir, RESUME_MARK);
+  let before: string;
   try {
-    if (!existsSync(path)) return false;
-    rmSync(path, { force: true });
-    return true;
+    before = readFileSync(path, "utf8").trim();
   } catch {
     return false;
   }
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    return false;
+  }
+  return before !== version;
 }
