@@ -30,6 +30,25 @@ jobs:
         run: pnpm --filter @workforces/app run stage
       - name: Gera o instalador
         run: pnpm --filter @workforces/app exec electron-builder --config release/electron-builder.json --win nsis --x64 --publish never
+      # A versão seguinte (patch + 1, com -ci), só para o E2E de atualização: o package.json volta logo depois, e ela não
+      # entra nos artefatos.
+      - name: Monta a versão seguinte para o teste de atualização
+        run: |
+          $manifest = "packages/app/package.json"
+          $current = (Get-Content $manifest -Raw | ConvertFrom-Json).version
+          $parts = $current.Split("-")[0].Split(".")
+          $next = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)-ci"
+          "WF_NEXT_VERSION=$next" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          (Get-Content $manifest -Raw).Replace("`"version`": `"$current`"", "`"version`": `"$next`"") | Set-Content $manifest -NoNewline -Encoding utf8
+          try {
+            pnpm --filter @workforces/app run stage
+            if ($LASTEXITCODE -ne 0) { throw "a montagem da versão $next falhou" }
+            pnpm --filter @workforces/app exec electron-builder --config release/electron-builder.json --win nsis --x64 --publish never "-c.directories.output=release/out-next"
+            if ($LASTEXITCODE -ne 0) { throw "o instalador da versão $next falhou" }
+          } finally {
+            git checkout -- $manifest
+          }
+          Get-ChildItem packages/app/release/out-next -File | ForEach-Object { Write-Host $_.Name }
       # Só para mim, numa pasta escolhida com espaço e acento (o /D= vai por último e sem aspas, como o NSIS pede).
       - name: Instala sem perguntas, só para o usuário, na pasta escolhida
         run: |
@@ -92,6 +111,19 @@ jobs:
         run: |
           $env:WF_PACKAGED_EXE = "$env:WF_INSTALL\WorkForces.exe"
           pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep Releases
+      # Uma atualização de verdade, sem sair do runner: o app instalado acha a versão seguinte servida em 127.0.0.1, baixa,
+      # reinicia pelo "Reiniciar agora" e volta já nela.
+      - name: O app instalado baixa a versão seguinte, reinicia e volta nela (E2E)
+        run: |
+          $env:WF_PACKAGED_EXE = "$env:WF_INSTALL\WorkForces.exe"
+          $env:WF_UPDATE_FEED_DIR = (Resolve-Path packages/app/release/out-next).Path
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep Atualiza
+          $version = (Get-Item "$env:WF_INSTALL\WorkForces.exe").VersionInfo.ProductVersion
+          Write-Host "versão instalada depois da atualização: $version"
+          if ($version -notlike "$env:WF_NEXT_VERSION*") { throw "esperava a versão $env:WF_NEXT_VERSION instalada e achei $version" }
+          # Os passos seguintes partem da versão do branch de novo.
+          $process = Start-Process $env:WF_SETUP -ArgumentList "/S --updated /D=$env:WF_INSTALL" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "a volta para a versão do branch saiu com $($process.ExitCode)" }
       # O electron-updater roda o instalador com /S --updated: nada aparece e as escolhas da pessoa ficam.
       - name: A atualização é silenciosa e não recria o atalho apagado nem mexe nos dados
         run: |
@@ -114,7 +146,7 @@ jobs:
           $env:WF_NO_UPDATE = "1"
           Start-Process "$env:WF_INSTALL\WorkForces.exe"
           $deadline = (Get-Date).AddSeconds(60)
-          while (-not ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -Pattern "WorkForces 0.1.0" -SimpleMatch -Quiet)) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          while (-not ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -Pattern "· Electron" -SimpleMatch -Quiet)) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
           if (-not (Test-Path -LiteralPath $log)) { throw "o app não abriu (sem $log)" }
           Start-Process "$env:WF_INSTALL\Uninstall WorkForces.exe" -ArgumentList "/S" -Wait
           $deadline = (Get-Date).AddSeconds(60)

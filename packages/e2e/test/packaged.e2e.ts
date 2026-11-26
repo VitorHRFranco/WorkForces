@@ -3,7 +3,9 @@ import { connect } from "node:net";
 import { EOL, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { PASSWORD, closeApp, freePort, launchApp } from "./support/office.js";
+import { serveUpdateFeed } from "./support/update-feed.js";
 
 /** O WorkForces.exe instalado pelo CI do instalador (package.yml). Sem ele, o teste não roda (o E2E do Linux continua igual). */
 const EXE = process.env.WF_PACKAGED_EXE;
@@ -161,7 +163,10 @@ test("o app instalado, com a atualização ligada, verifica os Releases e contin
   expect(process.env.WF_NO_UPDATE, "o teste precisa da atualização ligada").toBeUndefined();
   const root = mkdtempSync(join(tmpdir(), "wf-e2e-atualizacao-"));
   dirs.push(root);
-  const { app, page } = await withEnv({ WF_RUNTIME_DIR: join(root, "runtime") }, () => launchApp(root, { executablePath: EXE! }));
+  // Só verifica: um release mais novo que a versão do branch nunca é baixado nem instalado ao fechar (#15).
+  const { app, page } = await withEnv({ WF_RUNTIME_DIR: join(root, "runtime"), WF_UPDATE_NO_DOWNLOAD: "1" }, () =>
+    launchApp(root, { executablePath: EXE! }),
+  );
   const log: string[] = [];
   const updateLog: string[] = [];
   let result: string | undefined;
@@ -193,4 +198,52 @@ test("o app instalado, com a atualização ligada, verifica os Releases e contin
   // 4. E fecha sozinho, sem precisar ser morto.
   opened = undefined;
   expect(await closeApp(app)).toBe(true);
+});
+
+/** A pasta com o release mais novo que o CI monta (o latest.yml, o instalador e o .blockmap de 0.1.1-ci). */
+const FEED_DIR = process.env.WF_UPDATE_FEED_DIR;
+const NEXT_VERSION = process.env.WF_NEXT_VERSION ?? "";
+/** Achar a versão nova, baixar ~150 MB de dentro do runner, instalar em silêncio e reabrir. */
+const UPDATE_ROUND_MS = 240_000;
+
+test("Atualiza: baixa a versão nova servida no runner, reinicia e volta já nela", async () => {
+  test.skip(!FEED_DIR, "só roda com WF_UPDATE_FEED_DIR apontando para o release mais novo");
+  test.setTimeout(UPDATE_ROUND_MS + 120_000);
+  const feed = await serveUpdateFeed(FEED_DIR!);
+  const root = mkdtempSync(join(tmpdir(), "wf-e2e-atualiza-"));
+  dirs.push(root);
+  try {
+    const { app, page, dataDir } = await withEnv({ WF_RUNTIME_DIR: join(root, "runtime"), WF_UPDATE_URL: feed.url }, () =>
+      launchApp(root, { executablePath: EXE! }),
+    );
+    const log: string[] = [];
+    app.on("console", (message) => {
+      log.push(message.text());
+      if (log.length > LOG_KEEP) log.shift();
+    });
+    opened = { app, page, log };
+
+    // 1. A versão nova é achada e baixada em segundo plano; o aviso aparece na tela inicial.
+    await expect(page.getByText(`versão ${NEXT_VERSION} baixada`)).toBeVisible({ timeout: UPDATE_ROUND_MS });
+
+    // 2. "Reiniciar agora": o app sai e o instalador da versão nova roda em silêncio e reabre o app.
+    opened = undefined;
+    const closed = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
+    await page.getByRole("button", { name: "Reiniciar agora" }).click();
+    await closed;
+
+    // 3. O app reaberto é o novo. O instalador o abre como o usuário, sem o ambiente deste teste: o log pode estar na pasta
+    //    de dados do teste ou na padrão.
+    const logs = [join(dataDir, "logs", "app.log"), join(process.env.APPDATA ?? "", "@workforces", "app", "logs", "app.log")];
+    const read = (): string => logs.map((path) => (existsSync(path) ? readFileSync(path, "utf8") : "")).join(EOL);
+    await expect.poll(read, { timeout: UPDATE_ROUND_MS, message: "o app não voltou na versão nova" }).toContain(`WorkForces ${NEXT_VERSION} ·`);
+  } finally {
+    await feed.close();
+    // O app que o instalador reabriu não é do Playwright: sai aqui, para os passos seguintes do CI.
+    try {
+      execFileSync("taskkill", ["/IM", "WorkForces.exe", "/F"], { stdio: "ignore" });
+    } catch {
+      // Nenhum aberto.
+    }
+  }
 });
