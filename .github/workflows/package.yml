@@ -117,10 +117,12 @@ jobs:
         run: |
           $env:WF_PACKAGED_EXE = "$env:WF_INSTALL\WorkForces.exe"
           $env:WF_UPDATE_FEED_DIR = (Resolve-Path packages/app/release/out-next).Path
-          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep Atualiza
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep "Atualiza:"
           $version = (Get-Item "$env:WF_INSTALL\WorkForces.exe").VersionInfo.ProductVersion
           Write-Host "versão instalada depois da atualização: $version"
-          if ($version -notlike "$env:WF_NEXT_VERSION*") { throw "esperava a versão $env:WF_NEXT_VERSION instalada e achei $version" }
+          # O Windows guarda a versão do exe só com números (0.1.1-ci vira 0.1.1.0).
+          $expected = $env:WF_NEXT_VERSION.Split("-")[0]
+          if ($version -notlike "$expected*") { throw "esperava a versão $expected instalada e achei $version" }
           # Os passos seguintes partem da versão do branch de novo.
           $process = Start-Process $env:WF_SETUP -ArgumentList "/S --updated /D=$env:WF_INSTALL" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "a volta para a versão do branch saiu com $($process.ExitCode)" }
