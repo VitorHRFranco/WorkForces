@@ -57,6 +57,7 @@ const bridge: AppBridge = {
     input: (agentId, data) => ipcRenderer.send("agents:input", agentId, data),
     onEvent: (listener) => subscribe<[LocalAgentEvent]>("agents:event", listener),
   },
+  log: { error: (message) => ipcRenderer.send("app:pageLog", message) },
 };
 
 contextBridge.exposeInMainWorld("workforces", bridge);

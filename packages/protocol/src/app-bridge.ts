@@ -115,6 +115,8 @@ export interface AppBridge {
     input(agentId: string, data: string): void;
     onEvent(listener: (event: LocalAgentEvent) => void): () => void;
   };
+  /** Os erros da página vão para o log do app (só de ida; o app limita quantos e de que tamanho). */
+  log: { error(message: string): void };
 }
 
 /** Um agente deste computador, como o app o enxerga pelo canal local. */

@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { hostname } from "node:os";
+import { hostname, release } from "node:os";
 import { join, resolve } from "node:path";
 import * as tls from "node:tls";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,9 @@ import { EmbeddedServer } from "./host/server-process.js";
 import { HostSettingsStore } from "./host/settings.js";
 import { upnpPortMapper } from "./host/wan.js";
 import { findInviteArg } from "./links.js";
+import { createLogger } from "./log/logger.js";
+import { mainLog, setMainLogger, withReason } from "./log/main-log.js";
+import { PageLogGate } from "./log/page-log.js";
 import { cleanupRuntimes, ensureRuntime } from "./runtime/install.js";
 import { packagedSource, pageFiles, runtimeRootDir, userDataDir, type Runtime } from "./runtime/layout.js";
 import { checkReachable } from "./net/forward.js";
@@ -72,7 +75,7 @@ let tray: Tray | null = null; // no módulo: sem referência o coletor de lixo r
 
 // Falha ao iniciar não pode deixar um processo sem janela segurando o bloqueio de instância única.
 const fail = (error: unknown): void => {
-  console.error(error);
+  mainLog.error("app", "o WorkForces não conseguiu abrir", error);
   app.exit(1);
 };
 
@@ -85,12 +88,30 @@ function trustSystemCertificates(): void {
   try {
     tls.setDefaultCACertificates([...tls.getCACertificates("default"), ...tls.getCACertificates("system")]);
   } catch (error) {
-    console.warn("não consegui usar os certificados do sistema; só as CAs do Node valem", error);
+    logger.warn("app", withReason("não consegui usar os certificados do sistema; só as CAs do Node valem", error));
   }
 }
 
 // A pasta de dados precisa ser trocada antes de qualquer uso (o E2E usa uma por instância).
 app.setPath("userData", userDataDir(process.env, app.getPath("appData")));
+
+// O log único do processo principal, na pasta de dados já fixada.
+const logger = createLogger({ dir: join(app.getPath("userData"), "logs") });
+setMainLogger(logger);
+
+/** Um `log(message)` dos módulos que grava com a origem; tira o prefixo que a mensagem já traz (ex.: "[escritório] "). */
+const logTo =
+  (source: string, level: "info" | "warn" = "warn", prefix?: string) =>
+  (message: string): void => {
+    const text = prefix !== undefined && message.startsWith(prefix) ? message.slice(prefix.length) : message;
+    logger[level](source, text);
+  };
+
+// Só registra: o `uncaughtExceptionMonitor` não muda o que o Electron faz depois (a caixa de erro dele continua). Uma
+// promessa rejeitada sem tratamento chega aqui também, com a origem "unhandledRejection".
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  logger.error("app", origin === "unhandledRejection" ? "promessa rejeitada sem tratamento" : "exceção sem tratamento", error);
+});
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
@@ -98,6 +119,10 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else start().catch(fail);
 
 async function start(): Promise<void> {
+  logger.info(
+    "app",
+    `WorkForces ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform} ${release()} · ${app.isPackaged ? "instalado" : "em desenvolvimento"}`,
+  );
   let initialLink = findInviteArg(process.argv);
   let quitting = false;
   let window: BrowserWindow | null = null;
@@ -149,7 +174,7 @@ async function start(): Promise<void> {
       currentRelay.closeAll();
       stopWatching();
       sendToPage("app:route", current.openInvite(prepared.invite, prepared.anchor));
-    }, console.warn);
+    }, (error: unknown) => logger.warn("app", withReason("não consegui abrir o convite", error)));
   });
 
   app.on("before-quit", (event) => {
@@ -165,7 +190,7 @@ async function start(): Promise<void> {
       hostStopping = true;
       void host
         .turnOff()
-        .catch((error: unknown) => console.warn("não consegui desligar o escritório ao sair", error))
+        .catch((error: unknown) => logger.warn("escritório", withReason("não consegui desligar o escritório ao sair", error)))
         .finally(() => {
           hostOff = true;
           app.quit();
@@ -214,7 +239,7 @@ async function start(): Promise<void> {
     try {
       const source = packagedSource(process.resourcesPath);
       runtime = await ensureRuntime(source, root, app.getVersion());
-      void cleanupRuntimes(root, runtime.keep).catch((error: unknown) => console.warn("não consegui limpar o runtime antigo", error));
+      void cleanupRuntimes(root, runtime.keep).catch((error: unknown) => logger.warn("runtime", withReason("não consegui limpar o runtime antigo", error)));
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       dialog.showErrorBox("WorkForces", `não consegui preparar os arquivos do WorkForces em ${root} (${reason}). Libere espaço no disco e abra o app de novo.`);
@@ -226,9 +251,9 @@ async function start(): Promise<void> {
 
   // O escritório deste computador: liga só quando a pessoa pede (abrir o app não liga).
   const officeHost = new Host({
-    settings: HostSettingsStore.load(join(userData, "host.json"), console.warn),
-    server: new EmbeddedServer({ log: console.log }),
-    portMapper: upnpPortMapper({ log: console.warn }),
+    settings: HostSettingsStore.load(join(userData, "host.json"), logTo("escritório")),
+    server: new EmbeddedServer({ log: logTo("escritório", "info", "[escritório] ") }),
+    portMapper: upnpPortMapper({ log: logTo("escritório") }),
     findNode: nodePath,
     addresses: () => listAddresses(),
     confirmLocal: async (url, pin) => (await fetchAnchor(url, pin)).ok,
@@ -236,11 +261,11 @@ async function start(): Promise<void> {
     mapFile: runtime?.mapFile ?? null,
     dataDir: join(userData, "office"),
     emit: (status) => sendToPage("host:status", status),
-    log: console.warn,
+    log: logTo("escritório"),
   });
   host = officeHost;
 
-  const appState = new AppState(OfficeStore.load(join(userData, "offices.json"), box, console.warn), () => officeHost.hostedPin());
+  const appState = new AppState(OfficeStore.load(join(userData, "offices.json"), box, logTo("app")), () => officeHost.hostedPin());
   state = appState;
 
   const { clientDir, preload } = pageFiles(app.isPackaged, import.meta.url);
@@ -252,7 +277,7 @@ async function start(): Promise<void> {
       try {
         appState.unauthorized();
       } catch (error) {
-        console.warn("não consegui apagar a sessão guardada", error);
+        logger.warn("app", withReason("não consegui apagar a sessão guardada", error));
       }
     },
   );
@@ -269,10 +294,10 @@ async function start(): Promise<void> {
   );
 
   // Agentes deste computador: as pastas liberadas, os canais locais e o "Chamar agente".
-  const folders = FolderStore.load(join(app.getPath("userData"), "agents.json"), console.warn);
+  const folders = FolderStore.load(join(app.getPath("userData"), "agents.json"), logTo("agentes"));
   // Os agentes que este app abriu: "Meus agentes" só conecta aos canais registrados aqui.
-  const records = new AgentRecordStore(join(app.getPath("userData"), "local-agents.json"), console.warn);
-  const agents = new LocalAgents({ dir: channelDir(), records, emit: (event) => sendToPage("agents:event", event), log: console.warn });
+  const records = new AgentRecordStore(join(app.getPath("userData"), "local-agents.json"), logTo("agentes"));
+  const agents = new LocalAgents({ dir: channelDir(), records, emit: (event) => sendToPage("agents:event", event), log: logTo("agentes") });
   localAgents = agents;
   void agents.scan();
 
@@ -293,7 +318,7 @@ async function start(): Promise<void> {
           appState.saveBridgeToken(office.id, result.token);
         } catch (error) {
           // O token vale nesta execução; sem gravar, o próximo início cria outro.
-          console.warn("não consegui guardar o token da ponte", error);
+          logger.warn("agentes", withReason("não consegui guardar o token da ponte", error));
         }
       }
       return result;
@@ -305,9 +330,9 @@ async function start(): Promise<void> {
         .then(({ minimizeWindow }) => minimizeWindow(title))
         .then((done) => {
           // Sem a janela no prazo (ou com erro, já registrado): o roteiro manual separa isso do sucesso.
-          if (!done) console.warn("não consegui minimizar a janela do agente", title);
+          if (!done) logger.warn("janela", `não consegui minimizar a janela do agente ${title}`);
         })
-        .catch((error: unknown) => console.warn("não consegui minimizar a janela do agente", error));
+        .catch((error: unknown) => logger.warn("janela", withReason("não consegui minimizar a janela do agente", error)));
     },
     // O agente não respondeu (no-answer): o motivo está escrito na janela dele, que volta à tela.
     async onNoAnswer(title) {
@@ -315,13 +340,13 @@ async function start(): Promise<void> {
       await import("./win/minimize.js")
         .then(({ restoreWindow }) => restoreWindow(title))
         .then((done) => {
-          if (!done) console.warn("não consegui restaurar a janela do agente", title);
+          if (!done) logger.warn("janela", `não consegui restaurar a janela do agente ${title}`);
         })
-        .catch((error: unknown) => console.warn("não consegui restaurar a janela do agente", error));
+        .catch((error: unknown) => logger.warn("janela", withReason("não consegui restaurar a janela do agente", error)));
     },
     deliver: (channelId, start, owner) => agents.deliver(channelId, start, owner),
     now: () => Date.now(),
-    log: console.warn,
+    log: logTo("agentes"),
   });
 
   // IPC: cada handler confere o remetente e os argumentos antes de tocar no estado.
@@ -413,7 +438,7 @@ async function start(): Promise<void> {
       socketRelay.closeAll();
       stopWatching();
       const change = appState.changeAddress(hosted, after);
-      if (!change.ok) console.warn("não consegui trocar o endereço do escritório deste computador", change.error);
+      if (!change.ok) logger.warn("escritório", `não consegui trocar o endereço do escritório deste computador (${change.error})`);
     }
     return result;
   });
@@ -442,6 +467,13 @@ async function start(): Promise<void> {
       sendToPage("app:route", { page: "launcher" } satisfies AppRoute);
     }
     return officeHost.status();
+  });
+
+  // Os erros da página (só de ida): o portão limita quantos e de que tamanho, para uma página em laço não encher o disco.
+  const pageLog = new PageLogGate();
+  on("app:pageLog", (message) => {
+    const text = pageLog.accept(message);
+    if (text !== null) logger.error("página", text);
   });
 
   on("socket:open", (id) => {
@@ -540,7 +572,7 @@ async function start(): Promise<void> {
     updater,
     enabled: updatesEnabled,
     notify: (version) => sendToPage("app:update", version),
-    log: console.warn,
+    log: logTo("atualização", "warn", "atualização: "),
   });
   app.on("will-quit", updates.stop);
   // O perfil local: uma aparência só, para todos os escritórios (mandá-la ao escritório aberto é com a página).
@@ -559,7 +591,7 @@ async function start(): Promise<void> {
     // O escritório deste computador desliga antes, como na saída; `hostOff` evita que o `before-quit` espere de novo.
     if (host && !hostOff && !hostStopping) {
       hostStopping = true;
-      await host.turnOff().catch((error: unknown) => console.warn("não consegui desligar o escritório ao atualizar", error));
+      await host.turnOff().catch((error: unknown) => logger.warn("escritório", withReason("não consegui desligar o escritório ao atualizar", error)));
     }
     hostOff = true;
     updater.quitAndInstall(true, true);

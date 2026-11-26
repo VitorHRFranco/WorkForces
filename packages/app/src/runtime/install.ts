@@ -1,5 +1,6 @@
 import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { mainLog, withReason } from "../log/main-log.js";
 import type { Runtime, RuntimeSource } from "./layout.js";
 
 const exists = (path: string): Promise<boolean> =>
@@ -134,7 +135,7 @@ export async function cleanupRuntimes(root: string, keep: string[], fs: CleanupF
   try {
     names = await fs.readdir(root);
   } catch (error) {
-    console.warn("não consegui listar o runtime para limpar", error);
+    mainLog.warn("runtime", withReason("não consegui listar o runtime para limpar", error));
     return;
   }
   for (const name of names) {
@@ -153,7 +154,7 @@ export async function cleanupRuntimes(root: string, keep: string[], fs: CleanupF
       await fs.rename(path, old);
       await fs.rm(old, { recursive: true, force: true });
     } catch (error) {
-      console.warn("não consegui apagar", path, error);
+      mainLog.warn("runtime", withReason(`não consegui apagar ${path}`, error));
     }
   }
 }

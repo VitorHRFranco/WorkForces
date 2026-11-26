@@ -16,6 +16,27 @@ function go(route: AppRoute): void {
   bumpGeneration();
 }
 
+/** O texto do erro com a pilha, quando há; nunca lança. */
+function describeError(value: unknown): string {
+  try {
+    if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+    return String(value);
+  } catch {
+    return "erro sem descrição";
+  }
+}
+
+/** Os erros sem tratamento da página vão para o log do app. */
+function reportErrors(): void {
+  window.addEventListener("error", (event) => {
+    const detail = event.error != null ? describeError(event.error) : `${event.message} (${event.filename}:${event.lineno}:${event.colno})`;
+    bridge.log.error(`erro na página: ${detail}`);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    bridge.log.error(`promessa rejeitada sem tratamento na página: ${describeError(event.reason)}`);
+  });
+}
+
 if (!hasBridge()) {
   render(
     <main class="card">
@@ -24,6 +45,7 @@ if (!hasBridge()) {
     root,
   );
 } else {
+  reportErrors();
   bridge.onRoute(go);
   bridge
     .startup()

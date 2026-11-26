@@ -1,4 +1,5 @@
 import { forwardToOffice, jsonError } from "../net/forward.js";
+import { mainLog, withReason } from "../log/main-log.js";
 import type { AuthChange, ForwardTarget } from "../state.js";
 import { servePageFile } from "./files.js";
 
@@ -35,7 +36,7 @@ export function createPageHandler(deps: PageHandlerDeps): (request: Request) => 
           if (forwarded.unauthorized) deps.onUnauthorized();
         } catch (error) {
           // Gravar o perfil falhou (antivírus segurando o arquivo): a sessão já vale na memória, e a resposta do escritório chega à página.
-          console.warn("não consegui guardar a sessão do escritório", error);
+          mainLog.warn("página", withReason("não consegui guardar a sessão do escritório", error));
         }
       }
       return forwarded.response;

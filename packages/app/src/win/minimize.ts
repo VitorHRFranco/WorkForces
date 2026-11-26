@@ -1,3 +1,5 @@
+import { mainLog, withReason } from "../log/main-log.js";
+
 /** SW_SHOWMINNOACTIVE: minimiza sem tirar o foco de quem está usando o computador. */
 const SW_SHOWMINNOACTIVE = 7;
 /** SW_RESTORE: desfaz o minimizar e mostra a janela no tamanho e lugar de antes. */
@@ -107,7 +109,7 @@ export async function minimizeWindow(marker: string, timeoutMs = 5_000): Promise
     api.minimize(hwnd);
     return true;
   } catch (error) {
-    console.warn("não consegui minimizar a janela do agente; ela fica aberta", error);
+    mainLog.warn("janela", withReason("não consegui minimizar a janela do agente; ela fica aberta", error));
     return false;
   }
 }
@@ -125,7 +127,7 @@ export async function restoreWindow(marker: string, timeoutMs = 2_000): Promise<
     api.restore(hwnd);
     return true;
   } catch (error) {
-    console.warn("não consegui restaurar a janela do agente", error);
+    mainLog.warn("janela", withReason("não consegui restaurar a janela do agente", error));
     return false;
   }
 }
