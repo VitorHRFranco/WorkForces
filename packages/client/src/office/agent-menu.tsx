@@ -103,7 +103,7 @@ export function AgentMenu({ onModalChange }: { onModalChange: (open: boolean) =>
             </button>
           </div>
           <ul>
-            {folders.length === 0 && <li class="agent-menu-hint">Nenhuma pasta liberada ainda.</li>}
+            {folders.length === 0 && <li class="agent-menu-hint">Escolha uma pasta para abrir o Claude: libere uma em Pastas…</li>}
             {folders.map((folder) => (
               <li key={folder.alias}>
                 <button type="button" disabled={!folder.exists} onClick={() => spawn(folder.alias)}>
