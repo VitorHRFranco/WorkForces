@@ -183,7 +183,10 @@ jobs:
           $deadline = (Get-Date).AddSeconds(60)
           while (@(& $left).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
           $remaining = @(& $left)
-          if ($remaining.Count -gt 0) { throw "a desinstalação para todos deixou: $($remaining -join ', ')" }
+          if ($remaining.Count -gt 0) {
+            if (Test-Path -LiteralPath $userLink) { Write-Host "o link em HKCU aponta para: $((Get-ItemProperty -LiteralPath "$userLink\shell\open\command").'(default)')" }
+            throw "a desinstalação para todos deixou: $($remaining -join ', ')"
+          }
           if (-not (Test-Path -LiteralPath "$env:APPDATA\@workforces\app\marca-ci")) { throw "a desinstalação para todos apagou a pasta de dados" }
       - uses: actions/upload-artifact@v7
         with:

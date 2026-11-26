@@ -3,6 +3,12 @@
 
 !include "nsDialogs.nsh"
 
+; Usadas pelo wfDropStaleUserLink, no instalador e no desinstalador (sem mexer nos $0 a $3 do electron-builder).
+Var wfLink
+Var wfExe
+Var wfPos
+Var wfChar
+
 !ifndef BUILD_UNINSTALLER
   ; "1" cria o atalho na área de trabalho. Em silêncio a página não aparece e vale o padrão (vazio = criar).
   Var wfDesktop
@@ -38,6 +44,27 @@
   FunctionEnd
 !macroend
 
+; Apaga o link workforces:// em HKCU quando ele aponta para esta instalação ou para um exe que não existe mais. Um link
+; para outra instalação que ainda existe fica. O comando é '"<exe>" "%1"': o exe é o que está entre as primeiras aspas.
+!macro wfDropStaleUserLink
+  ReadRegStr $wfLink HKCU "Software\Classes\workforces\shell\open\command" ""
+  ${if} $wfLink != ""
+    StrCpy $wfExe ""
+    StrCpy $wfPos 1
+    ${Do}
+      StrCpy $wfChar $wfLink 1 $wfPos
+      ${IfThen} $wfChar == '"' ${|} ${ExitDo} ${|}
+      ${IfThen} $wfChar == "" ${|} ${ExitDo} ${|}
+      StrCpy $wfExe "$wfExe$wfChar"
+      IntOp $wfPos $wfPos + 1
+    ${Loop}
+    ${if} $wfExe == "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    ${OrIfNot} ${FileExists} "$wfExe"
+      DeleteRegKey HKCU "Software\Classes\workforces"
+    ${endIf}
+  ${endIf}
+!macroend
+
 ; $DESKTOP e $SMPROGRAMS seguem o modo escolhido: do usuário ("só para mim") ou de todos ("para todos os usuários").
 !macro customInstall
   ; O link workforces:// abre o app instalado. O "protocols" do electron-builder só vale no macOS: no Windows, o registro
@@ -57,6 +84,8 @@
     Delete "$SMPROGRAMS\WorkForces\Desinstalar WorkForces.lnk"
     RMDir "$SMPROGRAMS\WorkForces"
     SetShellVarContext all
+    ; O link em HKCU da instalação por usuário também fica para trás, apontando para o exe que ela já apagou.
+    !insertmacro wfDropStaleUserLink
   ${endIf}
 
   ; Numa atualização, o atalho da área de trabalho fica como a pessoa deixou (inclusive apagado); os do Menu Iniciar
@@ -101,11 +130,8 @@
     ${endIf}
 
     ; O app grava o link também em HKCU ao abrir (setAsDefaultProtocolClient), inclusive na instalação para todos: sem
-    ; isto, ele ficaria apontando para o exe apagado. Só apaga se apontar para esta instalação.
-    ReadRegStr $0 HKCU "Software\Classes\workforces\shell\open\command" ""
-    ${if} $0 == '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
-      DeleteRegKey HKCU "Software\Classes\workforces"
-    ${endIf}
+    ; isto, ele ficaria apontando para o exe apagado.
+    !insertmacro wfDropStaleUserLink
 
     RMDir /r "$LOCALAPPDATA\WorkForces\runtime"
     ; Só sai se ficou vazia.
