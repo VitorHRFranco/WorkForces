@@ -17,8 +17,8 @@ const PORT_FREE_MS = 10_000;
 const LOG_KEEP = 200;
 /** A primeira verificação de atualização sai 10 s depois de a janela abrir (FIRST_CHECK_MS do app); a ida aos Releases leva o resto. */
 const UPDATE_CHECK_MS = 120_000;
-/** O fim de uma verificação no log do app (update.ts), com sucesso ou com falha. */
-const CHECK_DONE = /^atualização: verificação (terminou|falhou)/;
+/** O fim de uma verificação no log do app (update.ts), com sucesso ou com falha. O console traz a linha com data, nível e origem na frente. */
+const CHECK_DONE = /atualização: verificação (terminou|falhou)/;
 
 test.skip(!EXE, "só roda com WF_PACKAGED_EXE apontando para o app instalado");
 
@@ -172,7 +172,7 @@ test("o app instalado, com a atualização ligada, verifica os Releases e contin
   // 2. A primeira verificação termina (sem release publicado, falha; com o da mesma versão, não acha nada novo) e só vai ao log.
   await expect.poll(() => result, { timeout: UPDATE_CHECK_MS, message: "a primeira verificação de atualização não terminou" }).toBeDefined();
   console.log(`verificação de atualização no app instalado:${EOL}${updateLog.join(EOL)}`);
-  expect(updateLog).toContain("atualização: verificando os Releases");
+  expect(updateLog.some((line) => line.includes("atualização: verificando os Releases"))).toBe(true);
 
   // 3. O app continua de pé: o processo principal e a janela respondem.
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
