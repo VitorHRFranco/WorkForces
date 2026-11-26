@@ -11,6 +11,11 @@
       "source": "./src/channel/index.ts",
       "types": "./dist/channel/index.d.ts",
       "default": "./dist/channel/index.js"
+    },
+    "./masking": {
+      "source": "./src/masking/index.ts",
+      "types": "./dist/masking/index.d.ts",
+      "default": "./dist/masking/index.js"
     }
   },
   "files": ["dist"],
