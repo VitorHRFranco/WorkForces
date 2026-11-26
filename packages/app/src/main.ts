@@ -662,6 +662,16 @@ async function start(): Promise<void> {
     });
   });
 
+  // O koffi (minimizar a janela do agente) carrega uma vez ao abrir: o log diz se o app instalado o tem de pé.
+  if (process.platform === "win32") {
+    void import("./win/minimize.js").then(
+      async ({ probeKoffi }) => {
+        if (await probeKoffi()) logger.info("janela", "koffi carregado");
+      },
+      (error: unknown) => logger.warn("janela", withReason("koffi não carregou", error)),
+    );
+  }
+
   tray = new Tray(icon.resize({ height: 16 }));
   tray.setToolTip("WorkForces");
   tray.setContextMenu(

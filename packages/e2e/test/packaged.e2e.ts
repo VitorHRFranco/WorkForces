@@ -135,6 +135,16 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
       }
     })
     .toMatch(/info \[app\] WorkForces \S+ · Electron /);
+  // O koffi (módulo nativo do minimizar a janela do agente) carrega no app instalado.
+  await expect
+    .poll(() => {
+      try {
+        return readFileSync(join(dataDir, "logs", "app.log"), "utf8");
+      } catch {
+        return "";
+      }
+    })
+    .toContain("info [janela] koffi carregado");
 
   // 6. Sair desliga o escritório, e nenhum processo dele fica segurando a porta.
   expect(await answers(port)).toBe(true);

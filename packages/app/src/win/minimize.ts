@@ -23,6 +23,17 @@ function user32(): Promise<User32> {
   return loaded;
 }
 
+/** Carrega o koffi e o user32.dll pelo mesmo caminho do minimizar: é o que o app instalado prova ao abrir. */
+export async function probeKoffi(): Promise<boolean> {
+  try {
+    await user32();
+    return true;
+  } catch (error) {
+    mainLog.warn("janela", withReason("koffi não carregou", error));
+    return false;
+  }
+}
+
 async function load(): Promise<User32> {
   const { default: koffi } = await import("koffi");
   const lib = koffi.load("user32.dll");
