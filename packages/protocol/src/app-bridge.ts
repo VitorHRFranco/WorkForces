@@ -101,6 +101,8 @@ export interface AppBridge {
     current(): Promise<string | null>;
     onReady(listener: (version: string) => void): () => void;
     restart(): Promise<void>;
+    /** O "Reiniciar agora" não conseguiu fechar o app no prazo: o app continua de pé, como antes. */
+    onFailed(listener: () => void): () => void;
   };
   /** A aparência do perfil local, a mesma em todos os escritórios; o `set` só grava (mandar ao escritório aberto é com a página). */
   appearance: {

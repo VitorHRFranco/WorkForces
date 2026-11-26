@@ -48,7 +48,7 @@ import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
 import { AppState } from "./state.js";
 import { ProfileStore } from "./profile.js";
-import { startUpdates, type Updater } from "./update.js";
+import { restartToUpdate, startUpdates, takeResumeMark, updateFeed, writeResumeMark, type Updater } from "./update.js";
 
 const PAGE_PREFIX = `app://${PAGE_HOST}/`;
 const MAX_TEXT = 2048;
@@ -264,6 +264,11 @@ async function start(): Promise<void> {
     log: logTo("escritório"),
   });
   host = officeHost;
+  // Reiniciou para atualizar com o escritório ligado: ele volta sozinho, uma vez só (a marca sai antes de religar).
+  if (takeResumeMark(userData) && officeHost.status().settings) {
+    logger.info("escritório", "religando o escritório deste computador depois da atualização");
+    void officeHost.turnOn().catch((error: unknown) => logger.warn("escritório", withReason("não consegui religar o escritório depois da atualização", error)));
+  }
 
   const appState = new AppState(OfficeStore.load(join(userData, "offices.json"), box, logTo("app")), () => officeHost.hostedPin());
   state = appState;
@@ -599,9 +604,15 @@ async function start(): Promise<void> {
   const updatesEnabled = app.isPackaged && !process.env.WF_NO_UPDATE;
   const inert: Updater = { autoDownload: false, autoInstallOnAppQuit: false, checkForUpdates: () => Promise.resolve(null), quitAndInstall: () => {}, on: () => undefined };
   const updater: Updater = updatesEnabled ? electronUpdater.autoUpdater : inert;
+  if (updatesEnabled && process.env.WF_UPDATE_URL) {
+    const feed = updateFeed(process.env);
+    if (feed) electronUpdater.autoUpdater.setFeedURL(feed);
+    else logger.warn("atualização", "WF_UPDATE_URL ignorado: só vale http em 127.0.0.1 ou localhost");
+  }
   const updates = startUpdates({
     updater,
     enabled: updatesEnabled,
+    download: !process.env.WF_UPDATE_NO_DOWNLOAD,
     notify: (version) => sendToPage("app:update", version),
     log: (message, level) => logTo("atualização", level ?? "warn", "atualização: ")(message),
   });
@@ -619,13 +630,28 @@ async function start(): Promise<void> {
   handle("app:restartToUpdate", async () => {
     if (updates.downloaded() === null || quitting) return;
     quitting = true;
+    const wasOn = host?.status().state === "on";
     // O escritório deste computador desliga antes, como na saída; `hostOff` evita que o `before-quit` espere de novo.
+    // Estava ligado: a marca o religa na abertura da versão nova.
+    if (wasOn) writeResumeMark(userData);
     if (host && !hostOff && !hostStopping) {
       hostStopping = true;
       await host.turnOff().catch((error: unknown) => logger.warn("escritório", withReason("não consegui desligar o escritório ao atualizar", error)));
     }
     hostOff = true;
-    updater.quitAndInstall(true, true);
+    restartToUpdate({
+      quitAndInstall: () => updater.quitAndInstall(true, true),
+      // O electron-updater não saiu: o app volta a funcionar como antes (e o escritório, se estava ligado, religa).
+      onFailed: () => {
+        logger.error("atualização", "o instalador da versão nova não abriu: o app continua nesta versão");
+        quitting = false;
+        hostOff = false;
+        hostStopping = false;
+        takeResumeMark(userData);
+        if (wasOn) void host?.turnOn().catch((error: unknown) => logger.warn("escritório", withReason("não consegui religar o escritório", error)));
+        sendToPage("app:updateFailed");
+      },
+    });
   });
 
   tray = new Tray(icon.resize({ height: 16 }));

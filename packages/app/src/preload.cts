@@ -44,6 +44,7 @@ const bridge: AppBridge = {
     current: () => ipcRenderer.invoke("app:updateCurrent"),
     onReady: (listener) => subscribe<[string]>("app:update", listener),
     restart: () => ipcRenderer.invoke("app:restartToUpdate"),
+    onFailed: (listener) => subscribe<[]>("app:updateFailed", listener),
   },
   appearance: {
     get: () => ipcRenderer.invoke("app:appearanceGet"),

@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CHECK_EVERY_MS, FIRST_CHECK_MS, startUpdates, type Updater } from "../src/update.js";
+import { CHECK_EVERY_MS, FIRST_CHECK_MS, restartToUpdate, startUpdates, takeResumeMark, updateFeed, writeResumeMark, type Updater } from "../src/update.js";
 
 class FakeUpdater extends EventEmitter {
   autoDownload = false;
@@ -99,5 +102,65 @@ describe("startUpdates", () => {
     updates.stop();
     await vi.advanceTimersByTimeAsync(CHECK_EVERY_MS * 2);
     expect(updater.checks).toBe(0);
+  });
+});
+
+describe("updateFeed", () => {
+  it("aceita só http em 127.0.0.1 ou localhost", () => {
+    expect(updateFeed({ WF_UPDATE_URL: "http://127.0.0.1:8123/feed" })).toEqual({ provider: "generic", url: "http://127.0.0.1:8123/feed" });
+    expect(updateFeed({ WF_UPDATE_URL: "http://localhost:8123/" })).toEqual({ provider: "generic", url: "http://localhost:8123/" });
+  });
+
+  it("recusa qualquer outro endereço, e sem a variável não troca nada", () => {
+    for (const url of ["https://127.0.0.1:1/", "http://192.168.0.5:1/", "http://exemplo.com/", "file:///C:/x", "http://127.0.0.1.exemplo.com/", "nada"]) {
+      expect(updateFeed({ WF_UPDATE_URL: url })).toBeNull();
+    }
+    expect(updateFeed({})).toBeNull();
+  });
+});
+
+describe("restartToUpdate", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("se o app não sai no prazo, avisa; uma segunda chamada não reinstala de novo", async () => {
+    const quitAndInstall = vi.fn();
+    const onFailed = vi.fn();
+    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
+    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
+    expect(quitAndInstall).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(onFailed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    // Depois da falha, a pessoa pode tentar de novo.
+    restartToUpdate({ quitAndInstall, onFailed, timeoutMs: 15_000 });
+    expect(quitAndInstall).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("marca de religar o escritório", () => {
+  it("vale uma vez só", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-religar-"));
+    try {
+      writeResumeMark(dir);
+      expect(takeResumeMark(dir)).toBe(true);
+      expect(takeResumeMark(dir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("numa pasta que não existe, não há marca", () => {
+    expect(takeResumeMark(join(tmpdir(), "wf-nao-existe-" + process.pid, "x"))).toBe(false);
+  });
+});
+
+describe("só verificar", () => {
+  it("download: false não baixa nem instala ao fechar", () => {
+    const updater = new FakeUpdater();
+    startUpdates({ updater: updater as unknown as Updater, enabled: true, notify: vi.fn(), log: vi.fn(), download: false }).stop();
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
   });
 });
