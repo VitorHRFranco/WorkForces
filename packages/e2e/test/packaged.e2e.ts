@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { EOL, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -92,7 +92,7 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
   const path = splitPath(process.env.PATH ?? "");
   expect(path.withNode).not.toHaveLength(0);
   const env = { PATH: path.rest.join(delimiter), WF_RUNTIME_DIR: runtimeDir, WF_NO_UPDATE: "1" };
-  const { app, page } = await withEnv(env, () => launchApp(root, { executablePath: EXE! }));
+  const { app, page, dataDir } = await withEnv(env, () => launchApp(root, { executablePath: EXE! }));
   const log: string[] = [];
   app.on("console", (message) => {
     log.push(message.text());
@@ -125,7 +125,18 @@ test("o app instalado cria o escritório com o Node que traz, sem Node no PATH, 
   expect(nodes).toHaveLength(1);
   expect(existsSync(join(runtimeDir, nodes[0]!, "node.exe"))).toBe(true);
 
-  // 5. Sair desliga o escritório, e nenhum processo dele fica segurando a porta.
+  // 5. O app instalado grava o log na pasta de dados dele, com a linha de abertura (#25).
+  await expect
+    .poll(() => {
+      try {
+        return readFileSync(join(dataDir, "logs", "app.log"), "utf8");
+      } catch {
+        return "";
+      }
+    })
+    .toMatch(/info \[app\] WorkForces \S+ · Electron /);
+
+  // 6. Sair desliga o escritório, e nenhum processo dele fica segurando a porta.
   expect(await answers(port)).toBe(true);
   opened = undefined;
   await closeApp(app);
