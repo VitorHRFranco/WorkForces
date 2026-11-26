@@ -140,9 +140,11 @@ jobs:
       # Com o app aberto: o desinstalador pede que ele saia pelo caminho normal (--quit), antes de encerrar à força.
       - name: Desinstalar em silêncio com o app aberto pede que ele saia com calma
         run: |
-          $data = Join-Path $env:RUNNER_TEMP "wf-sair"
-          $log = "$data\logs\app.log"
-          $env:WF_APP_DATA_DIR = $data
+          # Na pasta de dados padrão, como o app de uma pessoa: a trava de instância única do Electron é por pasta de dados,
+          # e o `--quit` que o desinstalador manda (como o usuário, sem o ambiente deste passo) só acha o app aberto nela.
+          $logs = "$env:APPDATA\@workforces\app\logs"
+          Remove-Item -LiteralPath $logs -Recurse -Force -ErrorAction SilentlyContinue
+          $log = "$logs\app.log"
           $env:WF_NO_UPDATE = "1"
           Start-Process "$env:WF_INSTALL\WorkForces.exe"
           $deadline = (Get-Date).AddSeconds(60)
