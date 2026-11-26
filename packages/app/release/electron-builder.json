@@ -27,11 +27,20 @@
     "icon": "release/icon.png"
   },
   "nsis": {
-    "oneClick": true,
+    "oneClick": false,
     "perMachine": false,
-    "createDesktopShortcut": true,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "license": "release/stage/LICENSE.txt",
+    "createDesktopShortcut": false,
+    "createStartMenuShortcut": true,
+    "menuCategory": "WorkForces",
+    "shortcutName": "WorkForces",
+    "uninstallDisplayName": "WorkForces",
     "runAfterFinish": true,
     "deleteAppDataOnUninstall": false,
+    "installerLanguages": ["pt_BR"],
+    "language": "1046",
     "include": "release/installer.nsh"
   },
   "publish": {

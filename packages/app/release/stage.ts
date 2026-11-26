@@ -12,7 +12,17 @@ const RUNTIME_BANNER = 'import { createRequire } from "node:module"; const requi
 const MISMATCH = "o node.exe baixado não confere com release/node.json";
 
 export function stagedPackageJson(app: { version: string }, koffiVersion: string): object {
-  return { name: "workforces", productName: "WorkForces", version: app.version, type: "module", main: "main.js", dependencies: { koffi: koffiVersion } };
+  return {
+    name: "workforces",
+    productName: "WorkForces",
+    // O electron-builder leva os dois para "Aplicativos instalados" (editor e descrição).
+    description: "Escritório virtual 2D para times que trabalham com agentes de código.",
+    author: { name: "Vitor Hugo Ribeiro Franco" },
+    version: app.version,
+    type: "module",
+    main: "main.js",
+    dependencies: { koffi: koffiVersion },
+  };
 }
 
 export function sha256(file: string): Promise<string> {
@@ -158,6 +168,8 @@ async function main(): Promise<void> {
   const koffi = packageDir(appManifest, "koffi");
   const koffiVersion = (JSON.parse(readFileSync(join(koffi, "package.json"), "utf8")) as { version: string }).version;
   writeFileSync(join(appOut, "package.json"), `${JSON.stringify(stagedPackageJson(app, koffiVersion), null, 2)}\n`);
+  // A página da licença do instalador assistido lê daqui (o NSIS quer .txt, .rtf ou .html).
+  cpSync(join(repo, "LICENSE"), join(stage, "LICENSE.txt"));
   const modules = join(appOut, "node_modules");
   // Do koffi só o que roda: sem a documentação, o código-fonte em C++ e as dependências de compilação.
   const koffiRuntime = (rel: string): boolean => !startsWithAny(rel, ["doc/", "vendor/", "lib/"]) && !/\.(cc|hh|inc)$|CMakeLists\.txt$/.test(rel);

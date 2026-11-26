@@ -33,6 +33,9 @@ describe("peças da montagem", () => {
     expect(stagedPackageJson({ version: "0.3.0" }, "3.3.3")).toEqual({
       name: "workforces",
       productName: "WorkForces",
+      // O electron-builder leva os dois para "Aplicativos instalados" (editor e descrição).
+      description: "Escritório virtual 2D para times que trabalham com agentes de código.",
+      author: { name: "Vitor Hugo Ribeiro Franco" },
       version: "0.3.0",
       type: "module",
       main: "main.js",

@@ -7,7 +7,7 @@ interface BuilderConfig {
   productName?: string;
   artifactName?: string;
   npmRebuild?: boolean;
-  nsis?: { perMachine?: boolean; oneClick?: boolean };
+  nsis?: { perMachine?: boolean; oneClick?: boolean; allowElevation?: boolean; allowToChangeInstallationDirectory?: boolean; license?: string };
   protocols?: { schemes: string[] }[];
   publish?: unknown;
   extraResources?: unknown[];
@@ -29,9 +29,12 @@ describe("configuração do electron-builder", () => {
     expect(config.artifactName).toBe("WorkForces-Setup-${version}.${ext}");
   });
 
-  it("instala por usuário, sem perguntas", () => {
+  it("assistente: só para mim por padrão, para todos pedindo administrador, pasta escolhida e licença", () => {
+    expect(config.nsis?.oneClick).toBe(false);
     expect(config.nsis?.perMachine).toBe(false);
-    expect(config.nsis?.oneClick).toBe(true);
+    expect(config.nsis?.allowElevation).toBe(true);
+    expect(config.nsis?.allowToChangeInstallationDirectory).toBe(true);
+    expect(config.nsis?.license).toBe("release/stage/LICENSE.txt");
   });
 
   it("registra o link workforces://", () => {
