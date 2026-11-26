@@ -53,5 +53,9 @@ export const LocalInfo = z.object({
 });
 export type LocalInfo = z.infer<typeof LocalInfo>;
 
-export const AgentToApp = z.discriminatedUnion("type", [LocalInfo, AgentFrame, AgentStatus]);
+/** A ponte recusou o `hello` por versão: diz a dela antes de fechar, para o app parar de tentar (e não ficar no escuro). */
+export const LocalRefused = z.object({ type: z.literal("refused"), reason: z.literal("protocol"), protocol: z.number().int() });
+export type LocalRefused = z.infer<typeof LocalRefused>;
+
+export const AgentToApp = z.discriminatedUnion("type", [LocalInfo, AgentFrame, AgentStatus, LocalRefused]);
 export type AgentToApp = z.infer<typeof AgentToApp>;

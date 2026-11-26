@@ -103,7 +103,13 @@ export class LocalChannel {
         if (!authenticated) {
           if (message.type !== "hello") return this.drop(socket, `${message.type} antes do hello`);
           if (message.protocol !== LOCAL_PROTOCOL_VERSION) {
-            return this.drop(socket, `hello na versão ${message.protocol}; esta ponte usa a ${LOCAL_PROTOCOL_VERSION}`);
+            clearTimeout(helloTimer);
+            this.log(`canal local: hello na versão ${message.protocol}; esta ponte usa a ${LOCAL_PROTOCOL_VERSION}; conexão fechada`);
+            // Diz a versão desta ponte antes de fechar: o app de outra versão para de tentar este agente.
+            socket.end(`${JSON.stringify({ type: "refused", reason: "protocol", protocol: LOCAL_PROTOCOL_VERSION })}
+`);
+            pending = Buffer.alloc(0);
+            return;
           }
           authenticated = true;
           clearTimeout(helloTimer);

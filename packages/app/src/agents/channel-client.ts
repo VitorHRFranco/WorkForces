@@ -7,6 +7,14 @@ export const MAX_AGENT_LINE_BYTES = 1024 * 1024;
 const CONNECT_TIMEOUT_MS = 3_000;
 
 /** Cliente do canal local de um agente: uma mensagem JSON por linha, em named pipe ou socket Unix. */
+/** A ponte do agente é de outra versão do WorkForces e recusou este app (diz a versão do canal dela). */
+export class ProtocolRefused extends Error {
+  constructor(readonly protocol: number) {
+    super(`o agente usa o canal na versão ${protocol}; este app usa a ${LOCAL_PROTOCOL_VERSION}`);
+    this.name = "ProtocolRefused";
+  }
+}
+
 export class AgentChannelClient {
   /** Atualizado a cada `info` que o invólucro manda. */
   info!: LocalInfo;
@@ -17,6 +25,7 @@ export class AgentChannelClient {
   private buffer: Buffer = Buffer.alloc(0);
   private closed = false;
   private onFirstInfo: ((info: LocalInfo) => void) | null = null;
+  private onRefused: ((protocol: number) => void) | null = null;
 
   private constructor(private readonly socket: Socket) {
     socket.on("data", (chunk: Buffer) => this.read(chunk));
@@ -28,7 +37,10 @@ export class AgentChannelClient {
     socket.on("error", () => {});
   }
 
-  /** Conecta, manda o `hello` e espera o primeiro `info`; rejeita se recusar, demorar ou falar fora do protocolo. */
+  /**
+   * Conecta, manda o `hello` e espera o primeiro `info`; rejeita se recusar, demorar ou falar fora do protocolo. Uma ponte
+   * de outra versão rejeita com `ProtocolRefused`.
+   */
   static connect(path: string, timeoutMs = CONNECT_TIMEOUT_MS): Promise<AgentChannelClient> {
     return new Promise((resolve, reject) => {
       const socket = connect(path);
@@ -45,6 +57,13 @@ export class AgentChannelClient {
         clearTimeout(timer);
         client.onClose = null;
         resolve(client);
+      };
+      client.onRefused = (protocol) => {
+        clearTimeout(timer);
+        client.onFirstInfo = null;
+        client.onClose = null;
+        socket.destroy();
+        reject(new ProtocolRefused(protocol));
       };
       socket.on("error", (error) => fail(error.message));
       socket.on("connect", () => {
@@ -82,6 +101,13 @@ export class AgentChannelClient {
       const message = parseJson(AgentToApp, this.buffer.subarray(0, end).toString("utf8"));
       this.buffer = this.buffer.subarray(end + 1);
       if (!message) {
+        this.socket.destroy();
+        return;
+      }
+      if (message.type === "refused") {
+        const refused = this.onRefused;
+        this.onRefused = null;
+        if (refused) refused(message.protocol);
         this.socket.destroy();
         return;
       }

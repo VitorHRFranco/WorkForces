@@ -3,13 +3,14 @@ import { join } from "node:path";
 import { CHANNEL_PREFIX, isChannelId } from "@workforces/bridge/channel";
 import {
   LOCAL_INPUT_MAX,
+  LOCAL_PROTOCOL_VERSION,
   type AgentState,
   type AgentToApp,
   type LocalAgentEvent,
   type LocalAgentInfo,
   type LocalStart,
 } from "@workforces/protocol";
-import { AgentChannelClient } from "./channel-client.js";
+import { AgentChannelClient, ProtocolRefused } from "./channel-client.js";
 import type { AgentRecord, AgentRecordStore } from "./records.js";
 
 export interface LocalAgentsDeps {
@@ -229,7 +230,14 @@ export class LocalAgents {
         return;
       }
       this.register(channelId, client, record);
-    } catch {
+    } catch (error) {
+      // Outra versão do WorkForces: o agente segue na janela dele, mas este app não o acompanha; o registro sai.
+      if (error instanceof ProtocolRefused) {
+        this.deps.records.remove([channelId]);
+        this.deps.log(
+          `o agente ${record.agentId} é de outra versão do WorkForces (canal na versão ${error.protocol}, este app usa a ${LOCAL_PROTOCOL_VERSION}); ele continua na janela dele, mas este app não o acompanha`,
+        );
+      }
       // Recusou ou demorou: o agente pode estar ocupado. Ignora; o próximo scan tenta de novo.
     } finally {
       this.connecting.delete(channelId);

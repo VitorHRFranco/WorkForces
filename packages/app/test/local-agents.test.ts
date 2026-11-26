@@ -93,6 +93,23 @@ async function refusingChannel(id: string) {
   };
 }
 
+/** Um canal de uma ponte de outra versão: responde ao hello com `refused` e fecha. */
+async function otherVersionChannel(id: string) {
+  const path = join(dir, PREFIX + id);
+  const server = createServer((socket) => {
+    socket.on("error", () => {});
+    socket.once("data", () => socket.end(`${JSON.stringify({ type: "refused", reason: "protocol", protocol: 2 })}
+`));
+  });
+  await new Promise<void>((resolve) => server.listen(path, resolve));
+  return {
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (!windows) rmSync(path, { force: true });
+    },
+  };
+}
+
 function newRecords(): AgentRecordStore {
   return new AgentRecordStore(join(recordsDir, `local-agents-${newId()}.json`));
 }
@@ -267,6 +284,34 @@ describe("LocalAgents", () => {
     expect(calls.inputs).toEqual([]);
     expect(records.list()).toEqual([]);
     expect(logs.some((message) => message.includes(id))).toBe(true);
+  });
+
+  it("agente de outra versão: o registro sai, vai um aviso, e o app não tenta de novo", async () => {
+    const id = newId();
+    const agentId = randomUUID();
+    const old = await otherVersionChannel(id);
+    try {
+      const { app, records, logs } = newApp();
+      records.add({ channelId: id, agentId, office: OFFICE, user: USER, at: Date.now() });
+      await app.scan();
+      expect(records.list()).toEqual([]);
+      expect(logs.some((message) => message.includes(agentId) && message.includes("outra versão"))).toBe(true);
+    } finally {
+      await old.close();
+    }
+  });
+
+  it("canal que só fecha (ponte de hoje, sem refused) continua registrado para a próxima busca", async () => {
+    const id = newId();
+    const refusing = await refusingChannel(id);
+    try {
+      const { app, records } = newApp();
+      records.add({ channelId: id, agentId: randomUUID(), office: OFFICE, user: USER, at: Date.now() });
+      await app.scan();
+      expect(records.list().map((record) => record.channelId)).toEqual([id]);
+    } finally {
+      await refusing.close();
+    }
   });
 
   it("registro que não bate com o info é ignorado", async () => {

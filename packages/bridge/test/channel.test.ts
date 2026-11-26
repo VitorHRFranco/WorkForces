@@ -86,6 +86,14 @@ describe("LocalChannel", () => {
     expect(calls.watch).toEqual([true, false]);
   });
 
+  it("hello de outra versão recebe a versão desta ponte antes de fechar", async () => {
+    const { path } = await openChannel();
+    const app = client(path);
+    app.send(line({ type: "hello", protocol: 99 }));
+    await waitUntil(() => app.closed(), 5000, "fechar o canal");
+    expect(app.messages()).toEqual([{ type: "refused", reason: "protocol", protocol: LOCAL_PROTOCOL_VERSION }]);
+  });
+
   it("cliente calado é derrubado", async () => {
     const { path } = await openChannel({ helloTimeoutMs: 100 });
     const c = client(path);
