@@ -127,7 +127,19 @@ jobs:
           $process = Start-Process $env:WF_SETUP -ArgumentList "/S /allusers" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "o instalador saiu com $($process.ExitCode)" }
           $exe = "$env:ProgramFiles\WorkForces\WorkForces.exe"
-          if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
+          # Para todos, o instalador se reabre como administrador: a cópia de dentro pode terminar depois desta.
+          $deadline = (Get-Date).AddSeconds(120)
+          while (-not (Test-Path -LiteralPath $exe) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (-not (Test-Path -LiteralPath $exe)) {
+            Write-Host "--- entradas de desinstalação"
+            Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "WorkForces*" } | Format-List PSPath, DisplayName, InstallLocation, UninstallString | Out-String | Write-Host
+            Write-Host "--- onde está o WorkForces.exe"
+            Get-ChildItem "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:LOCALAPPDATA\Programs", "C:\Programas de Teste" -Filter WorkForces.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+            Write-Host "--- processos do instalador"
+            Get-Process | Where-Object { $_.Name -like "*WorkForces*" -or $_.Name -like "Un_*" } | Format-Table Name, Id | Out-String | Write-Host
+            throw "não achei $exe"
+          }
           $command = (Get-ItemProperty -LiteralPath "HKLM:\Software\Classes\workforces\shell\open\command").'(default)'
           if (-not $command -or $command.IndexOf($exe, [StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "o comando do workforces:// em HKLM é '$command', sem $exe" }
           $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\WorkForces"
