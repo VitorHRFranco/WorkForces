@@ -26,6 +26,9 @@ test("o app grava o log em arquivo com a linha de abertura, e um erro da página
 
   await expect.poll(() => readLog(dataDir)).toContain("WorkForces 0.1.0 · Electron");
 
+  // O ouvinte de erros da página nasce com o script dela: o erro de teste só vale depois de a tela inicial aparecer.
+  await expect(page.getByRole("button", { name: "Criar escritório" })).toBeVisible();
+
   const token = "wf_" + "a".repeat(30);
   await page.evaluate((secret) => {
     setTimeout(() => {
