@@ -23,7 +23,11 @@ function readTail(path: string, bytes: number): string | null {
       const length = Math.min(size, bytes);
       const buffer = Buffer.alloc(length);
       readSync(fd, buffer, 0, length, size - length);
-      return buffer.toString("utf8");
+      const text = buffer.toString("utf8");
+      if (size <= bytes) return text;
+      // Cortado no meio: começa na primeira linha inteira (um token partido perderia o prefixo que o redact reconhece).
+      const newline = text.indexOf("\n");
+      return newline === -1 ? "" : text.slice(newline + 1);
     } finally {
       closeSync(fd);
     }

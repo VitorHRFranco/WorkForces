@@ -42,10 +42,11 @@ describe("buildDiagnostic", () => {
 
   it("do log da ponte vêm só os últimos bytes", () => {
     const bridge = join(dir, "bridge.log");
-    writeFileSync(bridge, "A".repeat(299_000) + "B".repeat(1_000));
+    writeFileSync(bridge, ("A".repeat(99) + "\n").repeat(2_990) + ("B".repeat(99) + "\n").repeat(11));
     const out = buildDiagnostic({ header, logDir: dir, bridgeLog: bridge, bridgeTailBytes: 1_000 });
     const tail = out.slice(out.indexOf("===== bridge.log (fim) =====") + "===== bridge.log (fim) =====".length);
-    expect(tail).toContain("B".repeat(1_000));
+    expect(tail).toContain("B".repeat(99));
+    expect(tail.length).toBeLessThanOrEqual(1_000);
     expect(tail).not.toContain("A");
   });
 
@@ -55,5 +56,15 @@ describe("buildDiagnostic", () => {
     writeFileSync(bridge, `usou ${token}\n`);
     const out = buildDiagnostic({ header, logDir: dir, bridgeLog: bridge });
     expect(out).not.toContain("z".repeat(30));
+  });
+
+  it("quando o corte cai no meio de um token, o fim começa numa linha inteira", () => {
+    const bridge = join(dir, "bridge.log");
+    const newer = "linha nova completa\n";
+    writeFileSync(bridge, "antiga wf_" + "ABCDEFGHIJ".repeat(3) + "\n" + newer);
+    // 10 bytes do fim do token, o \n e a linha nova.
+    const out = buildDiagnostic({ header, logDir: dir, bridgeLog: bridge, bridgeTailBytes: newer.length + 1 + 10 });
+    expect(out).not.toContain("ABCDEFGHIJ");
+    expect(out).toContain("===== bridge.log (fim) =====\n" + newer);
   });
 });
