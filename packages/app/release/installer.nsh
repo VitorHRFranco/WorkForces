@@ -51,10 +51,17 @@
     ${if} $wfDesktop != "0"
       CreateShortCut "$DESKTOP\WorkForces.lnk" "$appExe"
       ClearErrors
+      WinShell::SetLnkAUMI "$DESKTOP\WorkForces.lnk" "${APP_ID}"
     ${endIf}
   ${endIf}
 
+  ; A pasta WorkForces do Menu Iniciar é feita aqui, e não pelo "menuCategory" do electron-builder: ele põe esse nome
+  ; também no caminho da instalação para todos (C:\Program Files\WorkForces\WorkForces). O AUMI liga o atalho às
+  ; notificações e à barra de tarefas do app, como o electron-builder faz nos atalhos dele.
   CreateDirectory "$SMPROGRAMS\WorkForces"
+  CreateShortCut "$SMPROGRAMS\WorkForces\WorkForces.lnk" "$appExe"
+  ClearErrors
+  WinShell::SetLnkAUMI "$SMPROGRAMS\WorkForces\WorkForces.lnk" "${APP_ID}"
   CreateShortCut "$SMPROGRAMS\WorkForces\Desinstalar WorkForces.lnk" "$INSTDIR\Uninstall WorkForces.exe"
   ClearErrors
 !macroend
@@ -65,9 +72,13 @@
 !macro customUnInstall
   ${ifNot} ${isUpdated}
     DeleteRegKey SHCTX "Software\Classes\workforces"
+    WinShell::UninstShortcut "$DESKTOP\WorkForces.lnk"
     Delete "$DESKTOP\WorkForces.lnk"
-    ; Apagado antes do atalho do app, para o electron-builder conseguir remover a pasta WorkForces do Menu Iniciar.
+    WinShell::UninstShortcut "$SMPROGRAMS\WorkForces\WorkForces.lnk"
+    Delete "$SMPROGRAMS\WorkForces\WorkForces.lnk"
     Delete "$SMPROGRAMS\WorkForces\Desinstalar WorkForces.lnk"
+    ; Só sai se ficou vazia.
+    RMDir "$SMPROGRAMS\WorkForces"
 
     ; Runtime e dados são de cada pessoa: na instalação para todos, o contexto é "all" e $LOCALAPPDATA apontaria para o
     ; ProgramData. Olha a pasta de quem desinstala e volta ao contexto de antes.
