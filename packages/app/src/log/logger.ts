@@ -44,12 +44,17 @@ export function createLogger(options: LoggerOptions): Logger {
       return;
     }
     if (size <= maxBytes) return;
-    rmSync(join(dir, fileName(files - 1)), { force: true });
+    // Cada passo tem o seu try: um arquivo travado (EPERM no Windows) não pode impedir a gravação.
+    try {
+      rmSync(join(dir, fileName(files - 1)), { force: true });
+    } catch {
+      // segue com a rotação
+    }
     for (let i = files - 2; i >= 0; i--) {
       try {
         renameSync(join(dir, fileName(i)), join(dir, fileName(i + 1)));
       } catch {
-        // arquivo ausente: nada a girar
+        // arquivo ausente ou travado: segue
       }
     }
   }

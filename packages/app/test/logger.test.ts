@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -46,6 +46,21 @@ describe("createLogger", () => {
     for (let i = 0; i < 100; i++) log.info("app", `linha número ${i}`);
     expect(readdirSync(dir).sort()).toEqual(["app.1.log", "app.2.log", "app.log"]);
     expect(statSync(join(dir, "app.log")).size).toBeLessThan(200 + 100);
+  });
+
+  it("mascara o cookie wf_session", () => {
+    const log = createLogger({ dir, now, echo: () => {} });
+    log.info("http", "Set-Cookie: wf_session=Zq9Xy8Wv7Tu6Sr5Qp4; Path=/");
+    expect(readFileSync(join(dir, "app.log"), "utf8")).not.toContain("Zq9Xy8Wv7Tu6Sr5Qp4");
+  });
+
+  it("segue gravando quando a rotação falha", () => {
+    const stuck = join(dir, "app.2.log");
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, "trava"), "x");
+    const log = createLogger({ dir, now, maxBytes: 50, files: 3, echo: () => {} });
+    for (let i = 0; i < 10; i++) log.info("app", `linha número ${i}`);
+    expect(readFileSync(join(dir, "app.log"), "utf8")).toContain("linha número 9");
   });
 
   it("engole erros de disco", () => {

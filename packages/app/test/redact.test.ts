@@ -22,8 +22,22 @@ describe("redact", () => {
     expect(redact("cookie=chocolate42")).not.toContain("chocolate42");
   });
 
+  it("mascara o convite no caminho da API", () => {
+    const out = redact("POST /api/invites/AbC123xyz/accept");
+    expect(out).not.toContain("AbC123xyz");
+    expect(out).toContain("/accept");
+  });
+
+  it("mascara o cookie wf_session em todas as formas", () => {
+    const secret = "Zq9-Xy8_Wv7Tu6Sr5Qp4";
+    expect(redact(`Set-Cookie: wf_session=${secret}; Path=/; HttpOnly`)).not.toContain(secret);
+    expect(redact(`cookie: wf_session=${secret}`)).not.toContain(secret);
+    expect(redact(`{"wf_session":"${secret}"}`)).not.toContain(secret);
+    expect(redact(`{ session: '${secret}' }`)).not.toContain(secret);
+  });
+
   it("deixa intacto o texto sem segredo", () => {
-    const text = "o escritório abriu com 3 agentes em C:\Users\ana";
+    const text = String.raw`o escritório abriu com 3 agentes em C:\Users\ana`;
     expect(redact(text)).toBe(text);
   });
 });
