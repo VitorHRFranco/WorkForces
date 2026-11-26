@@ -105,6 +105,27 @@ jobs:
           if (Test-Path -LiteralPath $desktopLink) { throw "a atualização recriou o atalho da área de trabalho que foi apagado" }
           if (-not (Test-Path -LiteralPath "$data\marca-ci")) { throw "a atualização apagou a pasta de dados" }
           if (-not (Test-Path -LiteralPath "$env:WF_INSTALL\WorkForces.exe")) { throw "depois da atualização, o app sumiu de $env:WF_INSTALL" }
+      # Com o app aberto: o desinstalador pede que ele saia pelo caminho normal (--quit), antes de encerrar à força.
+      - name: Desinstalar em silêncio com o app aberto pede que ele saia com calma
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "wf-sair"
+          $log = "$data\logs\app.log"
+          $env:WF_APP_DATA_DIR = $data
+          $env:WF_NO_UPDATE = "1"
+          Start-Process "$env:WF_INSTALL\WorkForces.exe"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not ((Test-Path -LiteralPath $log) -and (Select-String -LiteralPath $log -Pattern "WorkForces 0.1.0" -SimpleMatch -Quiet)) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (-not (Test-Path -LiteralPath $log)) { throw "o app não abriu (sem $log)" }
+          Start-Process "$env:WF_INSTALL\Uninstall WorkForces.exe" -ArgumentList "/S" -Wait
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path -LiteralPath $env:WF_INSTALL) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          Get-Content -LiteralPath $log | Write-Host
+          if (-not (Select-String -LiteralPath $log -Pattern "saindo a pedido do instalador" -SimpleMatch -Quiet)) { throw "o app não saiu a pedido do instalador (foi encerrado à força?)" }
+          $running = @(Get-Process -Name WorkForces -ErrorAction SilentlyContinue)
+          if ($running.Count -gt 0) { throw "ficou WorkForces rodando: $($running.Id -join ', ')" }
+          # Reinstala na mesma pasta para os passos seguintes.
+          $process = Start-Process $env:WF_SETUP -ArgumentList "/S /D=$env:WF_INSTALL" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "a reinstalação saiu com $($process.ExitCode)" }
       - name: Desinstalar em silêncio apaga a instalação, os atalhos, o link e o runtime, e deixa os dados
         run: |
           $install = $env:WF_INSTALL

@@ -48,6 +48,7 @@ import { OfficeStore, type SecretBox } from "./offices/store.js";
 import { createPageHandler, PAGE_HOST } from "./page/handler.js";
 import { AppState } from "./state.js";
 import { ProfileStore } from "./profile.js";
+import { wantsQuit } from "./quit-arg.js";
 import { restartToUpdate, startUpdates, takeResumeMark, updateFeed, writeResumeMark, type Updater } from "./update.js";
 
 const PAGE_PREFIX = `app://${PAGE_HOST}/`;
@@ -117,7 +118,8 @@ process.on("uncaughtExceptionMonitor", (error, origin) => {
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// `--quit` é para a instância aberta (pelo second-instance). Sem nenhuma aberta, sai logo: não abre janela nem cria nada.
+if (!app.requestSingleInstanceLock() || wantsQuit(process.argv)) app.quit();
 else start().catch(fail);
 
 async function start(): Promise<void> {
@@ -159,6 +161,12 @@ async function start(): Promise<void> {
   };
 
   app.on("second-instance", (_event, argv) => {
+    if (wantsQuit(argv)) {
+      logger.info("app", "saindo a pedido do instalador");
+      quitting = true;
+      app.quit();
+      return;
+    }
     showWindow();
     const link = findInviteArg(argv);
     if (link === null || !state || !relay) return;

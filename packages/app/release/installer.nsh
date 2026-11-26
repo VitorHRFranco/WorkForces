@@ -2,6 +2,9 @@
 ; Salvo em UTF-8 com BOM: é assim que o NSIS lê os textos com acento.
 
 !include "nsDialogs.nsh"
+; O StdUtils.nsh o electron-builder já inclui antes deste arquivo. O customCheckAppRunning abaixo substitui o do electron-builder, que então deixa de trazer estes dois.
+!include "getProcessInfo.nsh"
+Var pid
 
 ; Usadas pelo wfDropStaleUserLink, no instalador e no desinstalador (sem mexer nos $0 a $3 do electron-builder).
 Var wfLink
@@ -65,6 +68,29 @@ Var wfChar
   ${endIf}
 !macroend
 
+; Antes de fechar à força, pede ao app aberto que saia pelo caminho normal (desliga o escritório deste computador e solta
+; os canais dos agentes): `WorkForces.exe --quit` chega à instância aberta pelo second-instance. Roda como o usuário, não
+; como administrador, para achar a instância dele. Depois, segue o que o electron-builder faz (perguntar e encerrar).
+!macro customCheckAppRunning
+  !insertmacro IS_POWERSHELL_AVAILABLE
+  ${ifNot} ${isUpdated}
+    !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+    ${if} $R0 == 0
+    ${andIf} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+      DetailPrint "Pedindo ao WorkForces aberto que saia"
+      ${StdUtils.ExecShellAsUser} $R1 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" "--quit"
+      StrCpy $R1 0
+      ${Do}
+        Sleep 500
+        IntOp $R1 $R1 + 1
+        !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+        ${IfThen} $R0 != 0 ${|} ${ExitDo} ${|}
+      ${LoopUntil} $R1 >= 30
+    ${endIf}
+  ${endIf}
+  !insertmacro _CHECK_APP_RUNNING
+!macroend
+
 ; $DESKTOP e $SMPROGRAMS seguem o modo escolhido: do usuário ("só para mim") ou de todos ("para todos os usuários").
 !macro customInstall
   ; O link workforces:// abre o app instalado. O "protocols" do electron-builder só vale no macOS: no Windows, o registro
@@ -95,6 +121,10 @@ Var wfChar
       CreateShortCut "$DESKTOP\WorkForces.lnk" "$appExe"
       ClearErrors
       WinShell::SetLnkAUMI "$DESKTOP\WorkForces.lnk" "${APP_ID}"
+    ${else}
+      ; Reinstalar com a caixa desmarcada tira o atalho que já existia.
+      WinShell::UninstShortcut "$DESKTOP\WorkForces.lnk"
+      Delete "$DESKTOP\WorkForces.lnk"
     ${endIf}
   ${endIf}
 
@@ -132,6 +162,17 @@ Var wfChar
     ; O app grava o link também em HKCU ao abrir (setAsDefaultProtocolClient), inclusive na instalação para todos: sem
     ; isto, ele ficaria apontando para o exe apagado.
     !insertmacro wfDropStaleUserLink
+
+    ; Agentes abertos usam o node.exe do runtime, que então não sai. Com janela, pede para fechá-los; em silêncio, os
+    ; arquivos em uso ficam. Encerrar os agentes à força perderia o trabalho do Claude.
+    ${ifNot} ${Silent}
+      wfAgentsOpen:
+      nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -C "if ((Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$LOCALAPPDATA\WorkForces\runtime', 'CurrentCultureIgnoreCase')}).Count -gt 0) { exit 0 } else { exit 1 }"`
+      Pop $wfChar
+      ${if} $wfChar == 0
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Há agentes do WorkForces abertos. Feche as janelas deles e clique em Repetir para remover tudo, ou em Cancelar para deixar os arquivos deles para trás." IDRETRY wfAgentsOpen
+      ${endIf}
+    ${endIf}
 
     RMDir /r "$LOCALAPPDATA\WorkForces\runtime"
     ; Só sai se ficou vazia.
