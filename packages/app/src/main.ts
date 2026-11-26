@@ -102,7 +102,7 @@ setMainLogger(logger);
 
 /** Um `log(message)` dos módulos que grava com a origem; tira o prefixo que a mensagem já traz (ex.: "[escritório] "). */
 const logTo =
-  (source: string, level: "info" | "warn" = "warn", prefix?: string) =>
+  (source: string, level: "info" | "warn" | "error" = "warn", prefix?: string) =>
   (message: string): void => {
     const text = prefix !== undefined && message.startsWith(prefix) ? message.slice(prefix.length) : message;
     logger[level](source, text);
@@ -110,6 +110,7 @@ const logTo =
 
 // Só registra: o `uncaughtExceptionMonitor` não muda o que o Electron faz depois (a caixa de erro dele continua). Uma
 // promessa rejeitada sem tratamento chega aqui também, com a origem "unhandledRejection".
+// Não registrar `process.on("unhandledRejection")`: as rejeições deixariam de chegar a este monitor (e o Electron mudaria de comportamento).
 process.on("uncaughtExceptionMonitor", (error, origin) => {
   logger.error("app", origin === "unhandledRejection" ? "promessa rejeitada sem tratamento" : "exceção sem tratamento", error);
 });
@@ -251,7 +252,7 @@ async function start(): Promise<void> {
   // O escritório deste computador: liga só quando a pessoa pede (abrir o app não liga).
   const officeHost = new Host({
     settings: HostSettingsStore.load(join(userData, "host.json"), logTo("escritório")),
-    server: new EmbeddedServer({ log: logTo("escritório", "info", "[escritório] ") }),
+    server: new EmbeddedServer({ log: (message, level) => logTo("escritório", level, "[escritório] ")(message) }),
     portMapper: upnpPortMapper({ log: logTo("escritório") }),
     findNode: nodePath,
     addresses: () => listAddresses(),
@@ -378,6 +379,7 @@ async function start(): Promise<void> {
       shell.showItemInFolder(result.filePath);
     } catch (error) {
       logger.error("app", "não consegui exportar o diagnóstico", error);
+      dialog.showErrorBox("Não consegui exportar o diagnóstico", error instanceof Error ? error.message : String(error));
     }
   };
   const openLogsFolder = async (): Promise<void> => {
@@ -601,7 +603,7 @@ async function start(): Promise<void> {
     updater,
     enabled: updatesEnabled,
     notify: (version) => sendToPage("app:update", version),
-    log: logTo("atualização", "warn", "atualização: "),
+    log: (message, level) => logTo("atualização", level ?? "warn", "atualização: ")(message),
   });
   app.on("will-quit", updates.stop);
   // O perfil local: uma aparência só, para todos os escritórios (mandá-la ao escritório aberto é com a página).

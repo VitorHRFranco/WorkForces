@@ -18,6 +18,9 @@ export type ServerStart =
   | { ok: true; pin: string; anchor: string; adminInvite: string | null }
   | { ok: false; error: "port-in-use" | "failed" | "timeout" };
 
+/** O nível de cada linha do log do servidor embutido: o `stdout` é rotina; o `stderr` e as falhas da subida são erro. */
+export type EmbeddedLogLevel = "info" | "error";
+
 const READY_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 5_000;
 
@@ -26,10 +29,10 @@ export class EmbeddedServer {
   private child: ChildProcess | null = null;
   private exitListeners: Array<() => void> = [];
   private readonly fork: typeof nodeFork;
-  private readonly log: (message: string) => void;
+  private readonly log: (message: string, level: EmbeddedLogLevel) => void;
   private readonly readyTimeoutMs: number;
 
-  constructor(deps: { fork?: typeof nodeFork; log(message: string): void; readyTimeoutMs?: number }) {
+  constructor(deps: { fork?: typeof nodeFork; log(message: string, level: EmbeddedLogLevel): void; readyTimeoutMs?: number }) {
     this.fork = deps.fork ?? nodeFork;
     this.log = deps.log;
     this.readyTimeoutMs = deps.readyTimeoutMs ?? READY_TIMEOUT_MS;
@@ -59,8 +62,8 @@ export class EmbeddedServer {
     if (launch.mapFile) env.WF_MAP = launch.mapFile;
     const child = this.fork(launch.entry, [], { execPath: launch.node, execArgv: [], env, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true });
     this.child = child;
-    for (const stream of [child.stdout, child.stderr]) {
-      if (stream) createInterface({ input: stream }).on("line", (line) => this.log(`[escritório] ${line}`));
+    for (const [stream, level] of [[child.stdout, "info"], [child.stderr, "error"]] as const) {
+      if (stream) createInterface({ input: stream }).on("line", (line) => this.log(`[escritório] ${line}`, level));
     }
     return new Promise<ServerStart>((resolve) => {
       let settled = false;
@@ -78,6 +81,7 @@ export class EmbeddedServer {
         // fechamento dele, que espera a subida. Solto já, para a próxima tentativa não esbarrar nele.
         child.kill("SIGKILL");
         if (this.child === child) this.child = null;
+        if (!settled) this.log(`[escritório] o servidor não respondeu em ${Math.round(this.readyTimeoutMs / 1000)} s; parei o processo`, "error");
         settle({ ok: false, error: "timeout" });
       }, this.readyTimeoutMs);
       child.on("message", (message: EmbeddedToHost) => {
@@ -85,17 +89,20 @@ export class EmbeddedServer {
         if (message?.type === "ready") {
           ready = true;
           settle({ ok: true, pin: message.pin, anchor: message.anchor, adminInvite: message.adminInvite });
-        } else if (message?.type === "failed") settle({ ok: false, error: message.reason === "port-in-use" ? "port-in-use" : "failed" });
+        } else if (message?.type === "failed") {
+          this.log(`[escritório] o servidor não ligou: ${message.message}`, "error");
+          settle({ ok: false, error: message.reason === "port-in-use" ? "port-in-use" : "failed" });
+        }
       });
       child.on("error", (error) => {
-        this.log(`[escritório] erro no processo: ${error.message}`);
+        this.log(`[escritório] erro no processo: ${error.message}`, "error");
         // Sem processo (ex.: o Node não existe) não vem "exit": solta o filho aqui, ou o app nunca mais tenta.
         if (child.pid === undefined && this.child === child) this.child = null;
         settle({ ok: false, error: "failed" });
       });
       child.on("exit", (code) => {
         if (this.child === child) this.child = null;
-        if (!settled) this.log(`[escritório] o servidor saiu antes de responder (código ${code})`);
+        if (!settled) this.log(`[escritório] o servidor saiu antes de responder (código ${code})`, "error");
         settle({ ok: false, error: "failed" });
         if (ready && !expected && !this.stopping.has(child)) for (const listener of this.exitListeners) listener();
       });

@@ -15,7 +15,8 @@ export interface UpdateDeps {
   updater: Updater;
   enabled: boolean;
   notify(version: string): void;
-  log(m: string): void;
+  /** Sem nível é aviso; o começo e o fim de uma verificação que deu certo são rotina (`info`). */
+  log(m: string, level?: "info"): void;
   firstMs?: number;
   everyMs?: number;
 }
@@ -41,10 +42,10 @@ export function startUpdates(deps: UpdateDeps): { downloaded(): string | null; s
 
   const failed = (error: unknown): void => log(`atualização: verificação falhou: ${error instanceof Error ? error.message : String(error)}`);
   const check = (): void => {
-    log("atualização: verificando os Releases");
+    log("atualização: verificando os Releases", "info");
     // Um erro síncrono do atualizador também não pode derrubar o timer.
     try {
-      updater.checkForUpdates().then(() => log("atualização: verificação terminou"), failed);
+      updater.checkForUpdates().then(() => log("atualização: verificação terminou", "info"), failed);
     } catch (error) {
       failed(error);
     }

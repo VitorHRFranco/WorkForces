@@ -12,6 +12,8 @@ if (mode === "output") {
   process.send(ready);
 } else if (mode === "port") {
   process.send({ type: "failed", reason: "port-in-use", message: "porta em uso" }, () => process.exit(0));
+} else if (mode === "fail") {
+  process.send({ type: "failed", reason: "error", message: "o servidor não gerou o certificado" }, () => process.exit(0));
 } else if (mode === "crash") {
   process.send(ready);
   setTimeout(() => process.exit(3), 200);

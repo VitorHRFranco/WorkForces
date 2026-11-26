@@ -175,6 +175,7 @@ export class Host {
   }
 
   private async failed(error: string): Promise<HostTurnOn> {
+    this.deps.log(`não consegui ligar o escritório: ${error}`);
     // Sem servidor, a porta aberta no roteador não leva a nada.
     await this.closeMapping();
     this.clearLive();

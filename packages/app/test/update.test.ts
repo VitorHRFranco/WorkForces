@@ -73,6 +73,8 @@ describe("startUpdates", () => {
     await vi.advanceTimersByTimeAsync(FIRST_CHECK_MS);
     expect(updater.checks).toBe(1);
     expect(log.mock.calls.map(([line]) => line)).toEqual(["atualização: proxy", START, "atualização: verificação falhou: sem rede"]);
+    // A rotina (começo da verificação) é info; as falhas ficam sem nível (aviso).
+    expect(log.mock.calls).toEqual([["atualização: proxy"], [START, "info"], ["atualização: verificação falhou: sem rede"]]);
     expect(notify).not.toHaveBeenCalled();
     expect(updates.downloaded()).toBeNull();
     updater.failNext = false;

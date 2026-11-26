@@ -58,10 +58,14 @@ const launchFor = (entry: string, port: number): ServerLaunch => ({
 /** `mode` em lista: um modo por filho, na ordem dos `start`. */
 function fakeServer(mode: string | string[], extra: { readyTimeoutMs?: number; envSeen?: NodeJS.ProcessEnv[]; children?: ChildProcess[] } = {}) {
   const logs: string[] = [];
+  const entries: Array<{ message: string; level: string | undefined }> = [];
   const modes = typeof mode === "string" ? [] : [...mode];
   const next = (): string => (typeof mode === "string" ? mode : (modes.shift() ?? "ready"));
   const server = new EmbeddedServer({
-    log: (message) => logs.push(message),
+    log: (message, level) => {
+      logs.push(message);
+      entries.push({ message, level });
+    },
     readyTimeoutMs: extra.readyTimeoutMs,
     fork: ((entry, args, options) => {
       extra.envSeen?.push(options?.env ?? {});
@@ -71,7 +75,7 @@ function fakeServer(mode: string | string[], extra: { readyTimeoutMs?: number; e
     }) as typeof nodeFork,
   });
   servers.push(server);
-  return { server, logs };
+  return { server, logs, entries };
 }
 
 describe("EmbeddedServer com o dublê", () => {
@@ -164,6 +168,29 @@ describe("EmbeddedServer com o dublê", () => {
     const { server, logs } = fakeServer("output");
     await server.start(launchFor(fakeEntry, 4700));
     await expect.poll(() => logs).toEqual(expect.arrayContaining(["[escritório] linha-stdout", "[escritório] linha-stderr"]));
+  });
+
+  it("o stdout do filho vai como info e o stderr como erro", async () => {
+    const { server, entries } = fakeServer("output");
+    await server.start(launchFor(fakeEntry, 4700));
+    await expect.poll(() => entries).toEqual(
+      expect.arrayContaining([
+        { message: "[escritório] linha-stdout", level: "info" },
+        { message: "[escritório] linha-stderr", level: "error" },
+      ]),
+    );
+  });
+
+  it("failed com motivo: o motivo do filho chega ao log como erro", async () => {
+    const { server, entries } = fakeServer("fail");
+    expect(await server.start(launchFor(fakeEntry, 4700))).toEqual({ ok: false, error: "failed" });
+    expect(entries).toContainEqual({ message: expect.stringContaining("o servidor não gerou o certificado"), level: "error" });
+  });
+
+  it("prazo estourado vai ao log como erro", async () => {
+    const { server, entries } = fakeServer("silent", { readyTimeoutMs: 300 });
+    expect(await server.start(launchFor(fakeEntry, 4700))).toEqual({ ok: false, error: "timeout" });
+    expect(entries).toContainEqual({ message: expect.stringContaining("não respondeu"), level: "error" });
   });
 
   it("Node inexistente: failed, não trava e uma nova tentativa funciona", async () => {

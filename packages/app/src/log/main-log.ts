@@ -21,7 +21,12 @@ export const mainLog: Logger = {
   },
 };
 
-/** "mensagem (motivo)": o aviso leva o motivo do erro no próprio texto. */
+/**
+ * "mensagem (motivo)": o aviso leva o motivo do erro no próprio texto. Com `cause` (o `fetch` do Node só diz "fetch
+ * failed"; o motivo real, como ECONNREFUSED, vem nela), o motivo dela vai junto.
+ */
 export function withReason(message: string, error: unknown): string {
-  return `${message} (${error instanceof Error ? error.message : String(error)})`;
+  const text = (value: unknown): string => (value instanceof Error ? value.message : String(value));
+  const cause = error instanceof Error && error.cause !== undefined ? `: ${text(error.cause)}` : "";
+  return `${message} (${text(error)}${cause})`;
 }

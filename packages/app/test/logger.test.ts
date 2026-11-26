@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLogger } from "../src/log/logger.js";
+import { withReason } from "../src/log/main-log.js";
 
 let dir: string;
 beforeEach(() => {
@@ -72,5 +73,13 @@ describe("createLogger", () => {
       log.warn("app", "b");
       log.error("app", "c", new Error("d"));
     }).not.toThrow();
+  });
+});
+
+describe("withReason", () => {
+  it("leva o motivo e, quando há, o da causa (o fetch do Node só diz \"fetch failed\")", () => {
+    expect(withReason("não consegui", new Error("x"))).toBe("não consegui (x)");
+    expect(withReason("não consegui", new Error("fetch failed", { cause: new Error("connect ECONNREFUSED") }))).toBe("não consegui (fetch failed: connect ECONNREFUSED)");
+    expect(withReason("não consegui", "texto")).toBe("não consegui (texto)");
   });
 });
