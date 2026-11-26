@@ -231,6 +231,11 @@ export function LauncherPage() {
           Já tenho conta
         </button>
       )}
+      <footer>
+        <button type="button" onClick={() => void bridge.diagnostic.export()}>
+          Exportar diagnóstico
+        </button>
+      </footer>
     </main>
   );
 }

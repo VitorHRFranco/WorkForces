@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { hostname, release } from "node:os";
 import { join, resolve } from "node:path";
 import * as tls from "node:tls";
@@ -34,6 +34,7 @@ import { EmbeddedServer } from "./host/server-process.js";
 import { HostSettingsStore } from "./host/settings.js";
 import { upnpPortMapper } from "./host/wan.js";
 import { findInviteArg } from "./links.js";
+import { buildDiagnostic, bridgeLogPath } from "./log/diagnostic.js";
 import { createLogger } from "./log/logger.js";
 import { mainLog, setMainLogger, withReason } from "./log/main-log.js";
 import { PageLogGate } from "./log/page-log.js";
@@ -119,10 +120,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else start().catch(fail);
 
 async function start(): Promise<void> {
-  logger.info(
-    "app",
-    `WorkForces ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform} ${release()} · ${app.isPackaged ? "instalado" : "em desenvolvimento"}`,
-  );
+  const versionLine = `WorkForces ${app.getVersion()} · Electron ${process.versions.electron} · ${process.platform} ${release()} · ${app.isPackaged ? "instalado" : "em desenvolvimento"}`;
+  logger.info("app", versionLine);
   let initialLink = findInviteArg(process.argv);
   let quitting = false;
   let window: BrowserWindow | null = null;
@@ -361,6 +360,36 @@ async function start(): Promise<void> {
       if (fromPage(event)) fn(...args);
     });
   };
+  const logsDir = join(app.getPath("userData"), "logs");
+  const exportDiagnostic = async (): Promise<void> => {
+    try {
+      const now = new Date();
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+      const options = {
+        title: "Exportar diagnóstico",
+        defaultPath: join(app.getPath("downloads"), `workforces-diagnostico-${stamp}.txt`),
+        filters: [{ name: "Texto", extensions: ["txt"] }],
+      };
+      const result = window && !window.isDestroyed() ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return;
+      const body = buildDiagnostic({ header: [versionLine, `gerado em ${now.toISOString()}`], logDir: logsDir, bridgeLog: bridgeLogPath() });
+      writeFileSync(result.filePath, body, "utf8");
+      shell.showItemInFolder(result.filePath);
+    } catch (error) {
+      logger.error("app", "não consegui exportar o diagnóstico", error);
+    }
+  };
+  const openLogsFolder = async (): Promise<void> => {
+    try {
+      mkdirSync(logsDir, { recursive: true });
+      const failure = await shell.openPath(logsDir);
+      if (failure) logger.warn("app", `não consegui abrir a pasta de logs (${failure})`);
+    } catch (error) {
+      logger.error("app", "não consegui abrir a pasta de logs", error);
+    }
+  };
+  handle("app:exportDiagnostic", () => exportDiagnostic());
   const text = (value: unknown): string => {
     if (!isText(value, MAX_TEXT)) throw new Error("argumento inválido");
     return value;
@@ -602,6 +631,8 @@ async function start(): Promise<void> {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir o WorkForces", click: showWindow },
+      { label: "Exportar diagnóstico…", click: () => void exportDiagnostic() },
+      { label: "Abrir pasta de logs", click: () => void openLogsFolder() },
       { type: "separator" },
       {
         label: "Sair",

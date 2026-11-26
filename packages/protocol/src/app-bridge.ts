@@ -115,6 +115,8 @@ export interface AppBridge {
     input(agentId: string, data: string): void;
     onEvent(listener: (event: LocalAgentEvent) => void): () => void;
   };
+  /** Junta os logs do app e da ponte num arquivo que o usuário escolhe onde salvar (cancelar não faz nada). */
+  diagnostic: { export(): Promise<void> };
   /** Os erros da página vão para o log do app (só de ida; o app limita quantos e de que tamanho). */
   log: { error(message: string): void };
 }

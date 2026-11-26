@@ -57,6 +57,7 @@ const bridge: AppBridge = {
     input: (agentId, data) => ipcRenderer.send("agents:input", agentId, data),
     onEvent: (listener) => subscribe<[LocalAgentEvent]>("agents:event", listener),
   },
+  diagnostic: { export: () => ipcRenderer.invoke("app:exportDiagnostic") },
   log: { error: (message) => ipcRenderer.send("app:pageLog", message) },
 };
 
