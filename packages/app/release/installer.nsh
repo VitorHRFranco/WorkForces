@@ -46,7 +46,21 @@
   WriteRegStr SHCTX "Software\Classes\workforces" "URL Protocol" ""
   WriteRegStr SHCTX "Software\Classes\workforces\shell\open\command" "" '"$appExe" "%1"'
 
-  ; Numa atualização, os atalhos ficam como a pessoa deixou (inclusive o da área de trabalho que ela apagou).
+  ; Trocar de "só para mim" para "para todos": o electron-builder roda o desinstalador da instalação por usuário como
+  ; atualização (--updated), e aí ele não apaga os atalhos dela. Sem isto, ficam quebrados e repetidos ao lado dos novos.
+  ${if} $installMode == "all"
+    SetShellVarContext current
+    WinShell::UninstShortcut "$DESKTOP\WorkForces.lnk"
+    Delete "$DESKTOP\WorkForces.lnk"
+    WinShell::UninstShortcut "$SMPROGRAMS\WorkForces\WorkForces.lnk"
+    Delete "$SMPROGRAMS\WorkForces\WorkForces.lnk"
+    Delete "$SMPROGRAMS\WorkForces\Desinstalar WorkForces.lnk"
+    RMDir "$SMPROGRAMS\WorkForces"
+    SetShellVarContext all
+  ${endIf}
+
+  ; Numa atualização, o atalho da área de trabalho fica como a pessoa deixou (inclusive apagado); os do Menu Iniciar
+  ; são refeitos, apontando para o mesmo lugar.
   ${ifNot} ${isUpdated}
     ${if} $wfDesktop != "0"
       CreateShortCut "$DESKTOP\WorkForces.lnk" "$appExe"
@@ -84,6 +98,13 @@
     ; ProgramData. Olha a pasta de quem desinstala e volta ao contexto de antes.
     ${if} $installMode == "all"
       SetShellVarContext current
+    ${endIf}
+
+    ; O app grava o link também em HKCU ao abrir (setAsDefaultProtocolClient), inclusive na instalação para todos: sem
+    ; isto, ele ficaria apontando para o exe apagado. Só apaga se apontar para esta instalação.
+    ReadRegStr $0 HKCU "Software\Classes\workforces\shell\open\command" ""
+    ${if} $0 == '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
+      DeleteRegKey HKCU "Software\Classes\workforces"
     ${endIf}
 
     RMDir /r "$LOCALAPPDATA\WorkForces\runtime"
