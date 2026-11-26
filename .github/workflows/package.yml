@@ -1,7 +1,7 @@
 name: Instalador
 
-# Monta o instalador do Windows (NSIS, por usuário), instala sem perguntas, abre o app instalado sem Node no PATH e
-# desinstala. Nos branches plano-* é um ensaio do release; numa tag v*, o instalador é o que vai para o release.
+# Monta o instalador do Windows (NSIS com assistente), instala sem perguntas só para o usuário e para todos, abre o app
+# instalado sem Node no PATH, simula a atualização e desinstala. Nos branches plano-* é um ensaio do release; numa tag v*, o instalador é o que vai para o release.
 on:
   push:
     branches: ["plano-*"]
@@ -30,30 +30,44 @@ jobs:
         run: pnpm --filter @workforces/app run stage
       - name: Gera o instalador
         run: pnpm --filter @workforces/app exec electron-builder --config release/electron-builder.json --win nsis --x64 --publish never
-      - name: Instala sem perguntas, só para o usuário
+      # Só para mim, numa pasta escolhida com espaço e acento (o /D= vai por último e sem aspas, como o NSIS pede).
+      - name: Instala sem perguntas, só para o usuário, na pasta escolhida
         run: |
           $setup = @(Get-ChildItem packages/app/release/out -Filter "WorkForces-Setup-*.exe")
           if ($setup.Count -ne 1) { throw "esperava um instalador em release/out e achei $($setup.Count)" }
-          $process = Start-Process $setup[0].FullName -ArgumentList "/S" -Wait -PassThru
+          $install = "C:\Programas de Teste\Produção\WorkForces"
+          "WF_SETUP=$($setup[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WF_INSTALL=$install" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $process = Start-Process $setup[0].FullName -ArgumentList "/S /D=$install" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "o instalador saiu com $($process.ExitCode)" }
-      - name: O app fica em LOCALAPPDATA\Programs, com o endereço das atualizações
+      - name: O app fica na pasta escolhida, com o endereço das atualizações
         run: |
-          $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          $exe = "$env:WF_INSTALL\WorkForces.exe"
           if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
-          $update = "$env:LOCALAPPDATA\Programs\WorkForces\resources\app-update.yml"
+          $update = "$env:WF_INSTALL\resources\app-update.yml"
           if (-not (Select-String -LiteralPath $update -Pattern "provider: github" -Quiet)) { throw "o $update não aponta para os releases do GitHub" }
+      - name: Atalhos, Desinstalar no Menu Iniciar e o editor em Aplicativos instalados
+        run: |
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkForces"
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          foreach ($link in @("$menu\WorkForces.lnk", "$menu\Desinstalar WorkForces.lnk", "$desktop\WorkForces.lnk")) {
+            if (-not (Test-Path -LiteralPath $link)) { throw "não achei o atalho $link" }
+          }
+          $entry = @(Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object { $_.DisplayName -like "WorkForces*" })
+          if ($entry.Count -ne 1) { throw "esperava uma entrada do WorkForces em Aplicativos instalados e achei $($entry.Count)" }
+          if ($entry[0].Publisher -ne "Vitor Hugo Ribeiro Franco") { throw "o editor é '$($entry[0].Publisher)'" }
       - name: Os créditos da arte vão dentro do app instalado
         run: |
-          $credits = "$env:LOCALAPPDATA\Programs\WorkForces\resources\CREDITS.md"
+          $credits = "$env:WF_INSTALL\resources\CREDITS.md"
           if (-not (Select-String -LiteralPath $credits -Pattern "OGA-BY 3.0" -SimpleMatch -Quiet)) { throw "não achei os créditos da arte em $credits" }
       - name: O link workforces:// abre o app instalado
         run: |
-          $exe = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          $exe = "$env:WF_INSTALL\WorkForces.exe"
           $command = (Get-ItemProperty -LiteralPath "HKCU:\Software\Classes\workforces\shell\open\command").'(default)'
           if (-not $command -or $command.IndexOf($exe, [StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "o comando do workforces:// é '$command', sem $exe" }
       - name: O app.asar leva o koffi montado, e só ele
         run: |
-          $resources = "$env:LOCALAPPDATA\Programs\WorkForces\resources"
+          $resources = "$env:WF_INSTALL\resources"
           # O índice do asar: um JSON logo depois de 16 bytes, com o tamanho nos bytes 12 a 15.
           $asar = [IO.File]::ReadAllBytes("$resources\app.asar")
           $index = [Text.Encoding]::UTF8.GetString($asar, 16, [BitConverter]::ToUInt32($asar, 12)) | ConvertFrom-Json
@@ -63,7 +77,7 @@ jobs:
           if ($natives.Count -ne 1 -or $natives[0].Name -ne "koffi.node") { throw "módulos nativos fora do asar: $($natives.FullName -join ', ')" }
       - name: O node-pty abre um terminal no Node embutido
         run: |
-          $runtime = "$env:LOCALAPPDATA\Programs\WorkForces\resources\runtime"
+          $runtime = "$env:WF_INSTALL\resources\runtime"
           $pty = "$runtime\bridge\node_modules\@lydell\node-pty".Replace("\", "/")
           # No Windows, o require não carrega o conpty.node: só o spawn. Um cmd que sai com 7 prova a volta inteira, com prazo.
           $script = "const p = require('$pty').spawn('cmd.exe', ['/c', 'exit 7'], {}); p.onExit((e) => { if (e.exitCode !== 7) console.error('o cmd saiu com ' + e.exitCode); process.exit(e.exitCode === 7 ? 0 : 3); }); setTimeout(() => { console.error('o terminal não saiu em 15 s'); process.exit(2); }, 15000);"
@@ -72,26 +86,79 @@ jobs:
       # Um teste por passo, escolhido por uma palavra só do nome dele (sem espaço nem acento para atravessar o pnpm).
       - name: O app instalado cria o escritório sem Node no PATH (E2E)
         run: |
-          $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          $env:WF_PACKAGED_EXE = "$env:WF_INSTALL\WorkForces.exe"
           pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep PATH
       - name: O app instalado, com a atualização ligada, verifica os Releases e continua de pé (E2E)
         run: |
-          $env:WF_PACKAGED_EXE = "$env:LOCALAPPDATA\Programs\WorkForces\WorkForces.exe"
+          $env:WF_PACKAGED_EXE = "$env:WF_INSTALL\WorkForces.exe"
           pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep Releases
-      - name: Desinstalar apaga a instalação, o link e o runtime
+      # O electron-updater roda o instalador com /S --updated: nada aparece e as escolhas da pessoa ficam.
+      - name: A atualização é silenciosa e não recria o atalho apagado nem mexe nos dados
         run: |
-          $install = "$env:LOCALAPPDATA\Programs\WorkForces"
+          $desktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "WorkForces.lnk"
+          Remove-Item -LiteralPath $desktopLink
+          $data = "$env:APPDATA\@workforces\app"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          New-Item -ItemType File -Force "$data\marca-ci" | Out-Null
+          $process = Start-Process $env:WF_SETUP -ArgumentList "/S --updated /D=$env:WF_INSTALL" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "a atualização saiu com $($process.ExitCode)" }
+          if (Test-Path -LiteralPath $desktopLink) { throw "a atualização recriou o atalho da área de trabalho que foi apagado" }
+          if (-not (Test-Path -LiteralPath "$data\marca-ci")) { throw "a atualização apagou a pasta de dados" }
+          if (-not (Test-Path -LiteralPath "$env:WF_INSTALL\WorkForces.exe")) { throw "depois da atualização, o app sumiu de $env:WF_INSTALL" }
+      - name: Desinstalar em silêncio apaga a instalação, os atalhos, o link e o runtime, e deixa os dados
+        run: |
+          $install = $env:WF_INSTALL
           $link = "HKCU:\Software\Classes\workforces"
           $runtime = "$env:LOCALAPPDATA\WorkForces\runtime"
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkForces"
           New-Item -ItemType Directory -Force $runtime | Out-Null
           New-Item -ItemType File -Force "$runtime\marca" | Out-Null
           Start-Process "$install\Uninstall WorkForces.exe" -ArgumentList "/S" -Wait
           # O desinstalador do NSIS se copia para o %TEMP% e roda de lá: o Start-Process pode voltar antes do fim.
-          $left = { @($install, $link, $runtime) | Where-Object { Test-Path -LiteralPath $_ } }
+          $left = { @($install, $link, $runtime, $menu) | Where-Object { Test-Path -LiteralPath $_ } }
           $deadline = (Get-Date).AddSeconds(60)
           while (@(& $left).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
           $remaining = @(& $left)
           if ($remaining.Count -gt 0) { throw "a desinstalação deixou: $($remaining -join ', ')" }
+          if (-not (Test-Path -LiteralPath "$env:APPDATA\@workforces\app\marca-ci")) { throw "a desinstalação em silêncio apagou a pasta de dados" }
+      # Para todos os usuários: o runner do GitHub já é administrador, então o /allusers não pede nada.
+      - name: Instala sem perguntas, para todos os usuários
+        run: |
+          $process = Start-Process $env:WF_SETUP -ArgumentList "/S /allusers" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "o instalador saiu com $($process.ExitCode)" }
+          $exe = "$env:ProgramFiles\WorkForces\WorkForces.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "não achei $exe" }
+          $command = (Get-ItemProperty -LiteralPath "HKLM:\Software\Classes\workforces\shell\open\command").'(default)'
+          if (-not $command -or $command.IndexOf($exe, [StringComparison]::OrdinalIgnoreCase) -lt 0) { throw "o comando do workforces:// em HKLM é '$command', sem $exe" }
+          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\WorkForces"
+          foreach ($link in @("$menu\WorkForces.lnk", "$menu\Desinstalar WorkForces.lnk", "$env:PUBLIC\Desktop\WorkForces.lnk")) {
+            if (-not (Test-Path -LiteralPath $link)) { throw "não achei o atalho $link" }
+          }
+          # O instalador é de 32 bits: a entrada pode cair na vista de 32 bits do registro.
+          $keys = @("HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
+          $entry = @(Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "WorkForces*" })
+          if ($entry.Count -ne 1) { throw "esperava uma entrada do WorkForces para todos em Aplicativos instalados e achei $($entry.Count)" }
+          if ($entry[0].Publisher -ne "Vitor Hugo Ribeiro Franco") { throw "o editor é '$($entry[0].Publisher)'" }
+      - name: O app instalado para todos cria o escritório sem Node no PATH (E2E)
+        run: |
+          $env:WF_PACKAGED_EXE = "$env:ProgramFiles\WorkForces\WorkForces.exe"
+          pnpm --filter @workforces/e2e exec playwright test packaged.e2e.ts --grep PATH
+      - name: Desinstalar a instalação para todos apaga o runtime de quem desinstala e deixa os dados
+        run: |
+          $install = "$env:ProgramFiles\WorkForces"
+          $link = "HKLM:\Software\Classes\workforces"
+          $runtime = "$env:LOCALAPPDATA\WorkForces\runtime"
+          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\WorkForces"
+          $desktopLink = "$env:PUBLIC\Desktop\WorkForces.lnk"
+          New-Item -ItemType Directory -Force $runtime | Out-Null
+          New-Item -ItemType File -Force "$runtime\marca" | Out-Null
+          Start-Process "$install\Uninstall WorkForces.exe" -ArgumentList "/S" -Wait
+          $left = { @($install, $link, $runtime, $menu, $desktopLink) | Where-Object { Test-Path -LiteralPath $_ } }
+          $deadline = (Get-Date).AddSeconds(60)
+          while (@(& $left).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          $remaining = @(& $left)
+          if ($remaining.Count -gt 0) { throw "a desinstalação para todos deixou: $($remaining -join ', ')" }
+          if (-not (Test-Path -LiteralPath "$env:APPDATA\@workforces\app\marca-ci")) { throw "a desinstalação para todos apagou a pasta de dados" }
       - uses: actions/upload-artifact@v7
         with:
           name: instalador
