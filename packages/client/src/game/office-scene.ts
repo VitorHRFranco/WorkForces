@@ -146,6 +146,10 @@ export class OfficeScene extends Phaser.Scene {
     for (const layer of walls) this.physics.add.collider(this.player, layer);
     this.physics.add.collider(this.player, solids);
     this.nameTag = this.label(me.name);
+    // A física (60 passos/s) move o avatar só depois do `update()`, no POST_UPDATE, e só nos quadros em que deu um passo:
+    // posicionado no `update()`, o nome ficava um passo para trás nesses quadros e "tremia" em telas acima de 60 Hz.
+    // Este ouvinte vem depois do da física (registrado ao iniciar a cena), então lê a posição já atualizada.
+    this.events.on(Phaser.Scenes.Events.POST_UPDATE, () => this.nameTag.setPosition(this.player.x, this.player.y - NAME_ABOVE_FEET));
 
     this.cameras.main.setZoom(ZOOM).setRoundPixels(true).startFollow(this.player, true);
     const onResize = () => this.applyCamera();
@@ -220,7 +224,6 @@ export class OfficeScene extends Phaser.Scene {
       this.player.setVelocity((vx / length) * SPEED, (vy / length) * SPEED);
     }
     this.player.setDepth(SPRITE_DEPTH + this.player.y).play(animKey(this.textureKey, poseOf(moving, this.dir, this.seat?.dir ?? null)), true);
-    this.nameTag.setPosition(this.player.x, this.player.y - NAME_ABOVE_FEET);
 
     const position = { x: Math.round(this.player.x), y: Math.round(this.player.y) };
     this.deps.onMove({ ...position, dir: this.dir, moving });
