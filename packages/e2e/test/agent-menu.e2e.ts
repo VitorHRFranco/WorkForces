@@ -22,8 +22,9 @@ test("Chamar agente: sem pasta, o menu diz o que fazer, e Pastas… abre a janel
   await expect(dialog).toBeVisible();
   // Clicar e digitar de verdade: o Playwright falha se outro elemento (o jogo) estiver por cima da janela.
   await dialog.getByRole("textbox", { name: "Apelido" }).click();
-  await dialog.getByRole("textbox", { name: "Apelido" }).fill("projeto");
-  await expect(dialog.getByRole("textbox", { name: "Apelido" })).toHaveValue("projeto");
+  // Com maiúscula, tecla por tecla: o campo já põe em minúsculas, como o apelido precisa ser.
+  await dialog.getByRole("textbox", { name: "Apelido" }).pressSequentially("Meu-Projeto");
+  await expect(dialog.getByRole("textbox", { name: "Apelido" })).toHaveValue("meu-projeto");
   await dialog.getByRole("button", { name: "Fechar" }).click();
   await expect(dialog).toBeHidden();
 });

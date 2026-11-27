@@ -3,6 +3,17 @@ import { useEffect, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import { Modal } from "./modal";
 
+/** O apelido só aceita minúsculas: o campo já as põe enquanto a pessoa digita ("Teste" vira "teste"), sem mover o cursor. */
+function lowercaseInPlace(input: HTMLInputElement): string {
+  const lower = input.value.toLowerCase();
+  if (lower !== input.value) {
+    const { selectionStart, selectionEnd } = input;
+    input.value = lower;
+    input.setSelectionRange(selectionStart, selectionEnd);
+  }
+  return lower;
+}
+
 export function FoldersModal({ onClose }: { onClose: () => void }) {
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [alias, setAlias] = useState("");
@@ -59,7 +70,7 @@ export function FoldersModal({ onClose }: { onClose: () => void }) {
         ))}
       </ul>
       <form class="inline" onSubmit={pick}>
-        <input placeholder="Apelido" aria-label="Apelido" value={alias} maxLength={32} onInput={(e) => setAlias(e.currentTarget.value)} required />
+        <input placeholder="Apelido" aria-label="Apelido" value={alias} maxLength={32} onInput={(e) => setAlias(lowercaseInPlace(e.currentTarget))} required />
         <button type="submit" disabled={busy}>
           Escolher pasta…
         </button>
