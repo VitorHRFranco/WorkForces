@@ -189,6 +189,19 @@ describe("LocalAgents", () => {
     expect(second.app.list(OFFICE, "bia")).toEqual([]);
   });
 
+  it("o deliver guarda a pasta, e openAgents lista os abertos com ela até o canal fechar", async () => {
+    const { id, channel, agentId } = await openChannel();
+    const { app, events, records } = newApp();
+    expect(await app.deliver(id, START, { user: USER, folder: "C:\\proj\\teste" })).toBe(true);
+    expect(records.list()[0]!.folder).toBe("C:\\proj\\teste");
+    expect(app.openAgents()).toEqual([{ agentId, label: START.label, folder: "C:\\proj\\teste" }]);
+    events.length = 0;
+
+    await channel.close();
+    await waitUntil(() => events.some((event) => event.type === "changed"), "aviso de mudança");
+    expect(app.openAgents()).toEqual([]);
+  });
+
   it("canal registrado que fecha com o app ligado perde o registro na hora", async () => {
     const { id, channel } = await openChannel();
     const { app, events, records } = newApp();

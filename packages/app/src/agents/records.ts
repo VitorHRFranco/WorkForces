@@ -14,6 +14,8 @@ export interface AgentRecord {
   office: string;
   user: string;
   at: number;
+  /** A pasta (o caminho) em que o agente foi chamado; ausente nos registros de antes dela. */
+  folder?: string;
 }
 
 const RecordsFile = z.object({ version: z.literal(1), agents: z.array(z.unknown()) });
@@ -23,6 +25,7 @@ const Entry = z.object({
   office: z.string().min(1),
   user: z.string().min(1),
   at: z.number(),
+  folder: z.string().min(1).optional(),
 });
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));

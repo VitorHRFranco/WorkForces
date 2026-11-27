@@ -44,6 +44,16 @@ describe("AgentRecordStore", () => {
     expect(new AgentRecordStore(file).list()).toEqual([second]);
   });
 
+  it("registro de antes da pasta (sem folder) continua valendo, e o novo guarda a pasta", () => {
+    const old = record();
+    writeFileSync(file, JSON.stringify({ version: 1, agents: [old] }));
+    const store = new AgentRecordStore(file);
+    expect(store.list()).toEqual([old]);
+    const withFolder = record({ folder: "C:\\proj\\teste" });
+    store.add(withFolder);
+    expect(new AgentRecordStore(file).list()).toContainEqual(withFolder);
+  });
+
   it("arquivo quebrado ou entrada inválida viram lista vazia, sem lançar", () => {
     const logs: string[] = [];
     const store = new AgentRecordStore(file, (message) => logs.push(message));

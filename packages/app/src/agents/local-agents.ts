@@ -1,3 +1,4 @@
+import type { OpenAgent } from "./agent-choice.js";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CHANNEL_PREFIX, isChannelId } from "@workforces/bridge/channel";
@@ -86,7 +87,7 @@ export class LocalAgents {
   }
 
   /** Manda o `start` a um agente recém-aberto; true quando ele confirma o escritório. Confirmado, o agente fica registrado em nome de `owner`. */
-  async deliver(channelId: string, start: LocalStart, owner: { user: string }, timeoutMs = DELIVER_TIMEOUT_MS): Promise<boolean> {
+  async deliver(channelId: string, start: LocalStart, owner: { user: string; folder?: string }, timeoutMs = DELIVER_TIMEOUT_MS): Promise<boolean> {
     if (!isChannelId(channelId)) return false;
     const deadline = Date.now() + timeoutMs;
     const left = () => deadline - Date.now();
@@ -108,6 +109,7 @@ export class LocalAgents {
             if (!this.closedAll && (await this.sendStart(client, start, Math.max(1, left())))) {
               // Registra mesmo se o app estiver saindo: o agente segue rodando, e o próximo início o acha pelo registro.
               const record: AgentRecord = { channelId, agentId: client.info.agentId, office: start.server, user: owner.user, at: Date.now() };
+              if (owner.folder !== undefined) record.folder = owner.folder;
               this.deps.records.add(record);
               if (this.closedAll) {
                 client.close();
@@ -137,6 +139,11 @@ export class LocalAgents {
       agents.push({ agentId: info.agentId, label: info.label ?? "", office, state, cols: info.cols, rows: info.rows });
     }
     return agents;
+  }
+
+  /** Todos os agentes abertos neste computador (canal vivo), de qualquer escritório ou conta, com a pasta do registro. */
+  openAgents(): OpenAgent[] {
+    return [...this.entries.values()].map(({ client, record }) => ({ agentId: client.info.agentId, label: client.info.label ?? "", folder: record.folder ?? null }));
   }
 
   watch(agentId: string): void {
