@@ -69,9 +69,10 @@ export interface LaunchOptions {
   dataDir?: string;
   /**
    * Personagem gravado no perfil antes de abrir (só numa pasta de dados nova). Padrão: uma das 12 aparências de hoje,
-   * para o app não abrir no "Personalizar" da primeira vez; `null` deixa o perfil vazio (primeira vez).
+   * para o app não abrir no "Personalizar" da primeira vez; `null` deixa o perfil vazio (primeira vez); `"broken"` põe uma
+   * pasta no lugar do `profile.json`: a leitura dá vazio (primeira vez) e toda gravação do perfil falha, como um disco que recusa.
    */
-  profile?: Appearance | null;
+  profile?: Appearance | null | "broken";
   /** Link `workforces://` passado ao app ao abrir, como o sistema faz ao clicar num convite. */
   link?: string;
   /** Tamanho da área da página (padrão: 960 × 640). */
@@ -168,7 +169,8 @@ export async function launchApp(dir: string, options: LaunchOptions = {}): Promi
   const dataDir = options.dataDir ?? mkdtempSync(join(dir, "app-"));
   if (options.dataDir === undefined) {
     const profile = options.profile === undefined ? LEGACY[launched % LEGACY.length]! : options.profile;
-    if (profile !== null) writeFileSync(join(dataDir, "profile.json"), JSON.stringify({ appearance: profile }));
+    if (profile === "broken") mkdirSync(join(dataDir, "profile.json"));
+    else if (profile !== null) writeFileSync(join(dataDir, "profile.json"), JSON.stringify({ appearance: profile }));
   }
   launched++;
   const env: Record<string, string> = {};

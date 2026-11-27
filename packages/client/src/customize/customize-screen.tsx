@@ -78,12 +78,18 @@ function OptionalPiece({ label, value, onChange }: { label: string; value: strin
   );
 }
 
-/** A tela "Personalizar": prévia andando, as escolhas de cada parte, "Aleatório", "Pronto" e (fora da primeira vez) "Cancelar". */
+/**
+ * A tela "Personalizar": prévia andando, as escolhas de cada parte, "Aleatório", "Pronto" e (fora da primeira vez) "Cancelar".
+ * Se o perfil não grava, a tela continua editável para tentar de novo (e, na primeira vez, deixa continuar assim mesmo).
+ * Se o escritório recusou ou não respondeu, o personagem já está no perfil: a tela trava com o aviso, e a saída é o "Fechar" do modal.
+ */
 export function CustomizeScreen({ mode, initial, putOffice, onDone, onBusyChange }: CustomizeScreenProps) {
   const [look, setLook] = useState<Appearance>(initial);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Exclude<SaveResult, "saved"> | null>(null);
   const set = (patch: Partial<Appearance>) => setLook((current) => ({ ...current, ...patch }));
+  /** O escritório recusou ou não respondeu: o salvar já aconteceu no perfil, não há mais o que editar. */
+  const settled = result === "office-refused" || result === "office-unreachable";
   // Um salvar que termina depois de a tela sair de cena não faz nada: o `onDone` dele fecharia o modal que estiver aberto agora.
   const mounted = useRef(true);
   useEffect(
@@ -113,7 +119,8 @@ export function CustomizeScreen({ mode, initial, putOffice, onDone, onBusyChange
         </>
       )}
       <CharacterPreview appearance={look} />
-      <div class="customize-form">
+      {/* Um <fieldset> desabilitado desabilita tudo o que está dentro: é a tela travada depois do aviso do escritório. */}
+      <fieldset class="customize-form" disabled={settled}>
         <fieldset class="customize-group">
           <legend>Corpo</legend>
           {(["feminine", "masculine"] as const).map((body) => (
@@ -182,31 +189,33 @@ export function CustomizeScreen({ mode, initial, putOffice, onDone, onBusyChange
           />
           {look.glasses && <ColorField label="Óculos" family="metal" value={look.glasses.color} onChange={(color) => set({ glasses: { ...look.glasses!, color } })} />}
         </fieldset>
-      </div>
+      </fieldset>
       {result && (
         <p class="customize-status" role="status">
           {SAVE_MESSAGES[result]}
+          {mode === "first" && result === "invalid" && " Você pode tentar de novo ou continuar; o WorkForces pergunta de novo na próxima vez que abrir."}
         </p>
       )}
-      <div class="customize-actions">
-        <button type="button" disabled={busy} onClick={() => setLook(randomAppearance())}>
-          Aleatório
-        </button>
-        {mode === "edit" && result === null && (
-          <button type="button" disabled={busy} onClick={onDone}>
-            Cancelar
+      {!settled && (
+        <div class="customize-actions">
+          <button type="button" disabled={busy} onClick={() => setLook(randomAppearance())}>
+            Aleatório
           </button>
-        )}
-        {result !== null && result !== "invalid" ? (
-          <button type="button" onClick={onDone}>
-            Fechar
-          </button>
-        ) : (
+          {mode === "edit" && (
+            <button type="button" disabled={busy} onClick={onDone}>
+              Cancelar
+            </button>
+          )}
+          {mode === "first" && result === "invalid" && (
+            <button type="button" disabled={busy} onClick={onDone}>
+              Continuar assim mesmo
+            </button>
+          )}
           <button type="button" disabled={busy} onClick={() => void save()}>
             Pronto
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -81,3 +81,21 @@ test("no escritório: Personalizar troca o personagem para todos, e Cancelar nã
   await biaPage.waitForTimeout(1_500);
   await biaPage.screenshot({ path: "test-results/personagem-livre.png" });
 });
+
+test("perfil que não grava: a primeira vez deixa continuar, e o Personalizar ainda cancela", async () => {
+  const { app, page } = await office.launchApp({ profile: "broken" });
+  await expect(page.getByRole("heading", { name: "Seu personagem" })).toBeVisible();
+  await page.getByRole("button", { name: "Pronto" }).click();
+  await expect(page.getByRole("status")).toContainText("Não consegui salvar o personagem.");
+  await page.getByRole("button", { name: "Continuar assim mesmo" }).click();
+  await expect(page.getByRole("heading", { name: "WorkForces" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Personalizar" }).click();
+  const dialog = page.getByRole("dialog", { name: "Personalizar" });
+  await dialog.getByRole("button", { name: "Pronto" }).click();
+  await expect(dialog.getByRole("status")).toContainText("Não consegui salvar o personagem.");
+  await expect(dialog.getByRole("button", { name: "Pronto" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  await expect(dialog).toBeHidden();
+  await office.closeApp(app);
+});

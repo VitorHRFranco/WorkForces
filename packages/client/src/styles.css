@@ -449,6 +449,11 @@ code {
   align-self: center;
 }
 .customize-form {
+  /* É um <fieldset> (para travar tudo de uma vez): sem a borda e o recuo padrão. */
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
