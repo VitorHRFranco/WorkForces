@@ -1,5 +1,5 @@
 import { BEARDS, BROWS, FEET, GLASSES, HAIR_STYLES, LEGS, SKINS, TOPS, RAMPS, type Appearance } from "@workforces/protocol";
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { bridge } from "../bridge";
 import type { Family } from "../game/compose";
 import { CharacterPreview } from "./character-preview";
@@ -12,6 +12,8 @@ export interface CustomizeScreenProps {
   /** Manda ao escritório aberto; null fora de um escritório. */
   putOffice: ((appearance: Appearance) => Promise<void>) | null;
   onDone(): void;
+  /** Avisa quando um salvar começa (true) e termina (false): o modal não fecha no meio. */
+  onBusyChange?(busy: boolean): void;
 }
 
 /** O valor que o `<input type="color">` mostra: a cor livre, ou o tom do meio da cor pronta. */
@@ -77,16 +79,27 @@ function OptionalPiece({ label, value, onChange }: { label: string; value: strin
 }
 
 /** A tela "Personalizar": prévia andando, as escolhas de cada parte, "Aleatório", "Pronto" e (fora da primeira vez) "Cancelar". */
-export function CustomizeScreen({ mode, initial, putOffice, onDone }: CustomizeScreenProps) {
+export function CustomizeScreen({ mode, initial, putOffice, onDone, onBusyChange }: CustomizeScreenProps) {
   const [look, setLook] = useState<Appearance>(initial);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Exclude<SaveResult, "saved"> | null>(null);
   const set = (patch: Partial<Appearance>) => setLook((current) => ({ ...current, ...patch }));
+  // Um salvar que termina depois de a tela sair de cena não faz nada: o `onDone` dele fecharia o modal que estiver aberto agora.
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   const save = async () => {
     setBusy(true);
+    onBusyChange?.(true);
     const saved = await saveAppearance(look, { setProfile: (appearance) => bridge.appearance.set(appearance), putOffice });
+    if (!mounted.current) return;
     setBusy(false);
+    onBusyChange?.(false);
     if (saved === "saved") onDone();
     else setResult(saved);
   };

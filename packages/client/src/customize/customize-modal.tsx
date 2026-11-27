@@ -8,6 +8,8 @@ import { randomAppearance } from "./options";
 /** O "Personalizar" num modal, começando do personagem do perfil. `putOffice` manda ao escritório aberto (null fora dele). */
 export function CustomizeModal({ putOffice, onClose }: { putOffice: ((appearance: Appearance) => Promise<void>) | null; onClose(): void }) {
   const [initial, setInitial] = useState<Appearance | null>(null);
+  /** Salvando: o modal não fecha até o resultado chegar (o escritório tem no máximo 10 s). */
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -25,8 +27,8 @@ export function CustomizeModal({ putOffice, onClose }: { putOffice: ((appearance
   }, []);
 
   return (
-    <Modal title="Personalizar" onClose={onClose}>
-      {initial && <CustomizeScreen mode="edit" initial={initial} putOffice={putOffice} onDone={onClose} />}
+    <Modal title="Personalizar" onClose={onClose} locked={busy}>
+      {initial && <CustomizeScreen mode="edit" initial={initial} putOffice={putOffice} onDone={onClose} onBusyChange={setBusy} />}
     </Modal>
   );
 }
