@@ -1,6 +1,9 @@
 import type { Appearance } from "@workforces/protocol";
 import { ApiError } from "../api";
 
+/** Quanto o salvar espera o escritório antes de dizer que não conseguiu avisar. */
+export const OFFICE_TIMEOUT_MS = 10_000;
+
 export type SaveResult = "saved" | "office-refused" | "office-unreachable" | "invalid";
 
 export interface SaveDeps {
@@ -25,11 +28,18 @@ export async function saveAppearance(appearance: Appearance, deps: SaveDeps): Pr
     return "invalid";
   }
   if (!deps.putOffice) return "saved";
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await deps.putOffice(appearance);
+    // Sem resposta em OFFICE_TIMEOUT_MS, a tela não espera mais: o perfil já está salvo. O pedido pode ainda chegar depois, e tudo bem.
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("o escritório não respondeu")), OFFICE_TIMEOUT_MS);
+    });
+    await Promise.race([deps.putOffice(appearance), timeout]);
     return "saved";
   } catch (error) {
     // 400: o catálogo do escritório não aceita esta aparência; 404: o escritório é de antes da aparência no servidor.
     return error instanceof ApiError && (error.status === 400 || error.status === 404) ? "office-refused" : "office-unreachable";
+  } finally {
+    clearTimeout(timer);
   }
 }

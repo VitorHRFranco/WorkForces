@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { LEGACY } from "@workforces/protocol";
 import { ApiError } from "../src/api";
-import { saveAppearance } from "../src/customize/save";
+import { OFFICE_TIMEOUT_MS, saveAppearance } from "../src/customize/save";
 
 const appearance = LEGACY[3];
 const okProfile = () => vi.fn(async () => ({ ok: true as const }));
@@ -51,5 +51,19 @@ describe("saveAppearance", () => {
     const setProfile = vi.fn(async () => ({ ok: false as const, error: "aparência inválida" }));
     expect(await saveAppearance(appearance, { setProfile, putOffice })).toBe("invalid");
     expect(putOffice).not.toHaveBeenCalled();
+  });
+
+  it("um escritório que não responde em 10 s conta como não avisado, com o perfil gravado", async () => {
+    vi.useFakeTimers();
+    try {
+      const setProfile = okProfile();
+      const putOffice = vi.fn(() => new Promise<void>(() => {}));
+      const result = saveAppearance(appearance, { setProfile, putOffice });
+      await vi.advanceTimersByTimeAsync(OFFICE_TIMEOUT_MS);
+      expect(await result).toBe("office-unreachable");
+      expect(setProfile).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
