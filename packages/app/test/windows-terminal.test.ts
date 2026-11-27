@@ -5,7 +5,7 @@ const CLI = "C:\\ProjLocais\\WorkForces\\packages\\bridge\\dist\\cli.js";
 const AGENT = "123e4567-e89b-42d3-a456-426614174000";
 
 function agentWindow(folder: string): AgentWindow {
-  return { folder, title: windowTitle("loja", AGENT), node: "C:\\node\\node.exe", agentId: AGENT, channelId: "ab".repeat(16) };
+  return { folder, title: windowTitle("loja", AGENT), node: "C:\\node\\node.exe", agentId: AGENT, channelId: "ab".repeat(16), resume: false };
 }
 
 describe("janela do agente", () => {
@@ -28,6 +28,14 @@ describe("janela do agente", () => {
     ]);
     expect(() => windowCommand(agentWindow("C:\\proj\\a;b"), CLI)).toThrow(SpawnFailure);
     expect(() => windowCommand(agentWindow("C:\\proj\\a;b"), CLI)).toThrow(expect.objectContaining({ reason: "spawn-failed" }));
+  });
+});
+
+describe("continuar a conversa", () => {
+  it("com resume, o --continue vai para o claude, depois do canal", () => {
+    const command = windowCommand({ ...agentWindow("C:\\proj\\loja"), resume: true }, CLI);
+    expect(command.slice(-3)).toEqual(["--channel", "ab".repeat(16), "--continue"]);
+    expect(windowCommand(agentWindow("C:\\proj\\loja"), CLI)).not.toContain("--continue");
   });
 });
 

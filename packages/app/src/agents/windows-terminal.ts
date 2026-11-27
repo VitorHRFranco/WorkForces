@@ -9,6 +9,8 @@ export interface AgentWindow {
   node: string;
   agentId: string;
   channelId: string;
+  /** Abre o `claude` com `--continue`: volta à última conversa da pasta. */
+  resume: boolean;
 }
 
 /** Abre uma janela nova rodando `workforces claude` na pasta. Linux e macOS entram depois, atrás desta interface. */
@@ -47,6 +49,8 @@ export function windowCommand(window: AgentWindow, cliPath: string): string[] {
     window.agentId,
     "--channel",
     window.channelId,
+    // Depois do canal, o resto vai para o `claude`.
+    ...(window.resume ? ["--continue"] : []),
   ];
   // O Windows Terminal usa ";" para separar comandos.
   if (args.some((arg) => arg.includes(";"))) throw new SpawnFailure("spawn-failed", "o Windows Terminal não aceita ; no caminho");

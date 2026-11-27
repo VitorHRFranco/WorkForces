@@ -26,6 +26,7 @@ import { FolderStore, INVALID_ALIAS } from "./agents/folders.js";
 import { AgentLauncher } from "./agents/launcher.js";
 import { LocalAgents } from "./agents/local-agents.js";
 import { AgentRecordStore } from "./agents/records.js";
+import { AgentIdStore } from "./agents/agent-ids.js";
 import { countOpenAgents } from "./agents/open-agents.js";
 import { findNode, windowsTerminalSpawner } from "./agents/windows-terminal.js";
 import { listAddresses } from "./host/addresses.js";
@@ -313,6 +314,8 @@ async function start(): Promise<void> {
   const folders = FolderStore.load(join(app.getPath("userData"), "agents.json"), logTo("agentes"));
   // Os agentes que este app abriu: "Meus agentes" só conecta aos canais registrados aqui.
   const records = new AgentRecordStore(join(app.getPath("userData"), "local-agents.json"), logTo("agentes"));
+  // A identidade do último agente de cada pasta, nome e conta: chamar a pasta de novo volta ao mesmo agente.
+  const agentIds = new AgentIdStore(join(app.getPath("userData"), "agent-ids.json"), logTo("agentes"));
   const agents = new LocalAgents({ dir: channelDir(), records, emit: (event) => sendToPage("agents:event", event), log: logTo("agentes") });
   localAgents = agents;
   void agents.scan();
@@ -325,6 +328,8 @@ async function start(): Promise<void> {
     isDirectory,
     // Instalado, conta pela pasta do runtime: acha agentes de qualquer versão do app (o filtro `claude` deixa o servidor de fora).
     countOpenAgents: () => countOpenAgents(runtime?.root ?? cliPath),
+    openAgents: () => agents.openAgents(),
+    agentIds,
     findNode: nodePath,
     // O escritório é a foto tirada no pedido (agents:spawn): o token e o endereço do start saem do mesmo, mesmo que o aberto mude.
     async ensureToken(office) {

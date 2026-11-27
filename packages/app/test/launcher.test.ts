@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LocalStart } from "@workforces/protocol";
 import { AgentLauncher, MAX_OPEN_AGENTS, SPAWN_INTERVAL_MS, type AgentLauncherDeps, type SpawnOffice } from "../src/agents/launcher.js";
 import { SpawnFailure, type AgentWindow } from "../src/agents/windows-terminal.js";
+import type { AgentKey } from "../src/agents/agent-ids.js";
 
 const OFFICE: SpawnOffice = { id: "of-1", url: "https://escritorio.exemplo", userName: "ana", session: "sessao", bridgeToken: null, anchor: null };
 
@@ -9,9 +10,11 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
   const opened: AgentWindow[] = [];
   const minimized: string[] = [];
   const restored: string[] = [];
-  const delivered: Array<{ channelId: string; start: LocalStart; owner: { user: string } }> = [];
+  const delivered: Array<{ channelId: string; start: LocalStart; owner: { user: string; folder: string } }> = [];
   const logs: string[] = [];
   const clock = { now: 0 };
+  const ids = new Map<string, string>();
+  const keyOf = (key: AgentKey) => JSON.stringify([key.office, key.user, key.folder, key.label]);
   const base: AgentLauncherDeps = {
     platform: "win32",
     folders: {
@@ -20,6 +23,8 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
     },
     isDirectory: (path) => path !== "C:\\proj\\apagada",
     countOpenAgents: async () => 0,
+    openAgents: () => [],
+    agentIds: { get: (key) => ids.get(keyOf(key)) ?? null, set: (key, agentId) => void ids.set(keyOf(key), agentId) },
     findNode: async () => "C:\\node\\node.exe",
     ensureToken: async () => ({ ok: true, token: "tok", created: false }),
     spawner: { open: async (window) => void opened.push(window) },
@@ -32,7 +37,7 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
     now: () => clock.now,
     log: (message) => logs.push(message),
   };
-  return { deps: { ...base, ...overrides }, opened, minimized, restored, delivered, logs, clock };
+  return { deps: { ...base, ...overrides }, opened, minimized, restored, delivered, logs, clock, ids, keyOf };
 }
 
 describe("AgentLauncher", () => {
@@ -51,9 +56,39 @@ describe("AgentLauncher", () => {
       {
         channelId: window.channelId,
         start: { type: "start", server: OFFICE.url, token: "tok", label: "loja", secretPatterns: ["segredo-\\d+"], anchor: null },
-        owner: { user: OFFICE.userName },
+        owner: { user: OFFICE.userName, folder: "C:\\proj\\loja" },
       },
     ]);
+  });
+
+  it("primeira chamada da pasta: nome do apelido, volta à conversa e guarda a identidade", async () => {
+    const { deps, opened, delivered, ids, keyOf } = setup();
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
+    expect(opened[0]!.resume).toBe(true);
+    expect(delivered[0]!.start.label).toBe("loja");
+    expect(ids.get(keyOf({ office: OFFICE.url, user: "ana", folder: "C:\\proj\\loja", label: "loja" }))).toBe(opened[0]!.agentId);
+  });
+
+  it("com um agente aberto na pasta: loja 2, conversa nova", async () => {
+    const { deps, opened, delivered } = setup({ openAgents: () => [{ agentId: "x", label: "loja", folder: "C:\\proj\\loja" }] });
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
+    expect(opened[0]!.resume).toBe(false);
+    expect(delivered[0]!.start.label).toBe("loja 2");
+    expect(opened[0]!.title).toContain("loja 2");
+  });
+
+  it("com a identidade guardada do agente fechado, reaproveita", async () => {
+    const kept = "5b1f6c1e-2a4d-4c3b-9e8f-0a1b2c3d4e5f";
+    const { deps, opened, ids, keyOf } = setup();
+    ids.set(keyOf({ office: OFFICE.url, user: "ana", folder: "C:\\proj\\loja", label: "loja" }), kept);
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
+    expect(opened[0]!.agentId).toBe(kept);
+  });
+
+  it("a chamada sem resposta não guarda a identidade", async () => {
+    const { deps, ids } = setup({ deliver: async () => false });
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: false, error: "no-answer" });
+    expect(ids.size).toBe(0);
   });
 
   it("leva a âncora do escritório no start", async () => {
@@ -170,7 +205,7 @@ describe("AgentLauncher", () => {
     expect(delivered).toHaveLength(1);
     expect(delivered[0]!.start.server).toBe(office.url);
     expect(delivered[0]!.start.token).toBe("tok-a");
-    expect(delivered[0]!.owner).toEqual({ user: "bia" });
+    expect(delivered[0]!.owner).toEqual({ user: "bia", folder: "C:\\proj\\loja" });
   });
 
   it("fora do Windows: unsupported", async () => {

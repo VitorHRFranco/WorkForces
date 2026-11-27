@@ -1,5 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { LocalStart, SpawnOutcome } from "@workforces/protocol";
+import { chooseAgent, type OpenAgent } from "./agent-choice.js";
+import type { AgentIdStore } from "./agent-ids.js";
 import type { TokenResult } from "./bridge-token.js";
 import type { FolderStore } from "./folders.js";
 import { SpawnFailure, windowTitle, type Spawner } from "./windows-terminal.js";
@@ -26,6 +28,10 @@ export interface AgentLauncherDeps {
   folders: Pick<FolderStore, "find" | "secretPatterns">;
   isDirectory(path: string): boolean;
   countOpenAgents(): Promise<number>;
+  /** Os agentes abertos neste computador (canal vivo), com a pasta: decidem o nome e se a conversa continua. */
+  openAgents(): OpenAgent[];
+  /** A identidade do último agente de cada pasta, nome e conta: chamar de novo volta ao mesmo agente. */
+  agentIds: Pick<AgentIdStore, "get" | "set">;
   findNode(): Promise<string | null>;
   /** Recebe o mesmo escritório do pedido: o aberto pode mudar enquanto a contagem e a busca do Node rodam. */
   ensureToken(office: SpawnOffice): Promise<TokenResult>;
@@ -37,7 +43,7 @@ export interface AgentLauncherDeps {
    * Windows Terminal mantém aberta. O app a traz de volta à tela. Melhor esforço: nunca rejeita.
    */
   onNoAnswer(title: string): Promise<void>;
-  deliver(channelId: string, start: LocalStart, owner: { user: string }): Promise<boolean>;
+  deliver(channelId: string, start: LocalStart, owner: { user: string; folder: string }): Promise<boolean>;
   now(): number;
   log(message: string): void;
 }
@@ -84,11 +90,14 @@ export class AgentLauncher {
     if (node === null) return { ok: false, error: "no-node" };
     const token = await deps.ensureToken(office);
     if (!token.ok) return { ok: false, error: token.error };
-    const agentId = randomUUID();
+    // O nome, a identidade e o --continue saem dos agentes abertos agora e do que foi guardado das chamadas anteriores.
+    const keyOf = (label: string) => ({ office: office.url, user: office.userName, folder: folder.path, label });
+    const choice = chooseAgent(alias, folder.path, deps.openAgents(), (label) => deps.agentIds.get(keyOf(label)));
+    const agentId = choice.agentId ?? randomUUID();
     const channelId = randomBytes(16).toString("hex");
-    const title = windowTitle(alias, agentId);
+    const title = windowTitle(choice.label, agentId);
     try {
-      await deps.spawner.open({ folder: folder.path, title, node, agentId, channelId });
+      await deps.spawner.open({ folder: folder.path, title, node, agentId, channelId, resume: choice.resume });
     } catch (error) {
       deps.log(`não consegui abrir a janela: ${(error as Error).message}`);
       return { ok: false, error: error instanceof SpawnFailure ? error.reason : "spawn-failed" };
@@ -96,10 +105,14 @@ export class AgentLauncher {
     const minimizing = deps.minimize(title).catch(() => {});
     const answered = await deps.deliver(
       channelId,
-      { type: "start", server: office.url, token: token.token, label: alias, secretPatterns: deps.folders.secretPatterns(), anchor: office.anchor },
-      { user: office.userName },
+      { type: "start", server: office.url, token: token.token, label: choice.label, secretPatterns: deps.folders.secretPatterns(), anchor: office.anchor },
+      { user: office.userName, folder: folder.path },
     );
-    if (answered) return { ok: true };
+    if (answered) {
+      // Só o agente que abriu de verdade é lembrado: chamar a pasta de novo com ele fechado volta a ele.
+      deps.agentIds.set(keyOf(choice.label), agentId);
+      return { ok: true };
+    }
     // Restaura só depois de a minimização terminar: senão a janela que voltou à tela poderia ser minimizada em seguida.
     await minimizing;
     await deps.onNoAnswer(title).catch(() => {});
