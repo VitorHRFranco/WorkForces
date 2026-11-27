@@ -23,7 +23,8 @@ function setup(overrides: Partial<AgentLauncherDeps> = {}) {
     },
     isDirectory: (path) => path !== "C:\\proj\\apagada",
     countOpenAgents: async () => 0,
-    openAgents: () => [],
+    openAgents: async () => [],
+    recordedAgentIds: () => [],
     agentIds: { get: (key) => ids.get(keyOf(key)) ?? null, set: (key, agentId) => void ids.set(keyOf(key), agentId) },
     findNode: async () => "C:\\node\\node.exe",
     ensureToken: async () => ({ ok: true, token: "tok", created: false }),
@@ -70,7 +71,7 @@ describe("AgentLauncher", () => {
   });
 
   it("com um agente aberto na pasta: loja 2, conversa nova", async () => {
-    const { deps, opened, delivered } = setup({ openAgents: () => [{ agentId: "x", label: "loja", folder: "C:\\proj\\loja" }] });
+    const { deps, opened, delivered } = setup({ openAgents: async () => [{ agentId: "x", label: "loja", folder: "C:\\proj\\loja" }] });
     expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
     expect(opened[0]!.resume).toBe(false);
     expect(delivered[0]!.start.label).toBe("loja 2");
@@ -83,6 +84,27 @@ describe("AgentLauncher", () => {
     ids.set(keyOf({ office: OFFICE.url, user: "ana", folder: "C:\\proj\\loja", label: "loja" }), kept);
     expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
     expect(opened[0]!.agentId).toBe(kept);
+  });
+
+  it("a identidade guardada de um agente que ainda está nos registros (talvez vivo, não adotado) não é reaproveitada", async () => {
+    const kept = "5b1f6c1e-2a4d-4c3b-9e8f-0a1b2c3d4e5f";
+    const { deps, opened, ids, keyOf } = setup({ recordedAgentIds: () => [kept] });
+    ids.set(keyOf({ office: OFFICE.url, user: "ana", folder: "C:\\proj\\loja", label: "loja" }), kept);
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
+    expect(opened[0]!.agentId).not.toBe(kept);
+  });
+
+  it("procura os agentes vivos antes de escolher o nome", async () => {
+    let scanned = false;
+    const { deps, delivered } = setup({
+      openAgents: async () => {
+        scanned = true;
+        return [{ agentId: "x", label: "loja", folder: "C:\\proj\\loja" }];
+      },
+    });
+    expect(await new AgentLauncher(deps).spawn("loja", OFFICE)).toEqual({ ok: true });
+    expect(scanned).toBe(true);
+    expect(delivered[0]!.start.label).toBe("loja 2");
   });
 
   it("a chamada sem resposta não guarda a identidade", async () => {

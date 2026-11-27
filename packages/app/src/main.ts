@@ -328,7 +328,11 @@ async function start(): Promise<void> {
     isDirectory,
     // Instalado, conta pela pasta do runtime: acha agentes de qualquer versão do app (o filtro `claude` deixa o servidor de fora).
     countOpenAgents: () => countOpenAgents(runtime?.root ?? cliPath),
-    openAgents: () => agents.openAgents(),
+    async openAgents() {
+      await agents.scan();
+      return agents.openAgents();
+    },
+    recordedAgentIds: () => records.list().map((record) => record.agentId),
     agentIds,
     findNode: nodePath,
     // O escritório é a foto tirada no pedido (agents:spawn): o token e o endereço do start saem do mesmo, mesmo que o aberto mude.

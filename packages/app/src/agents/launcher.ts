@@ -28,8 +28,13 @@ export interface AgentLauncherDeps {
   folders: Pick<FolderStore, "find" | "secretPatterns">;
   isDirectory(path: string): boolean;
   countOpenAgents(): Promise<number>;
-  /** Os agentes abertos neste computador (canal vivo), com a pasta: decidem o nome e se a conversa continua. */
-  openAgents(): OpenAgent[];
+  /**
+   * Os agentes abertos neste computador (canal vivo), com a pasta: decidem o nome e se a conversa continua. Procura de
+   * novo antes de responder, para contar também os que o app ainda não tinha adotado (logo depois de abrir o app).
+   */
+  openAgents(): Promise<OpenAgent[]>;
+  /** As identidades dos registros (agentes que podem estar vivos): nunca são reaproveitadas, nem se não responderam à busca. */
+  recordedAgentIds(): string[];
   /** A identidade do último agente de cada pasta, nome e conta: chamar de novo volta ao mesmo agente. */
   agentIds: Pick<AgentIdStore, "get" | "set">;
   findNode(): Promise<string | null>;
@@ -92,7 +97,13 @@ export class AgentLauncher {
     if (!token.ok) return { ok: false, error: token.error };
     // O nome, a identidade e o --continue saem dos agentes abertos agora e do que foi guardado das chamadas anteriores.
     const keyOf = (label: string) => ({ office: office.url, user: office.userName, folder: folder.path, label });
-    const choice = chooseAgent(alias, folder.path, deps.openAgents(), (label) => deps.agentIds.get(keyOf(label)));
+    const openNow = await deps.openAgents();
+    const recorded = new Set(deps.recordedAgentIds());
+    const remembered = (label: string) => {
+      const id = deps.agentIds.get(keyOf(label));
+      return id !== null && !recorded.has(id) ? id : null;
+    };
+    const choice = chooseAgent(alias, folder.path, openNow, remembered);
     const agentId = choice.agentId ?? randomUUID();
     const channelId = randomBytes(16).toString("hex");
     const title = windowTitle(choice.label, agentId);
