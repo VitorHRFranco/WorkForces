@@ -119,8 +119,8 @@ export function CustomizeScreen({ mode, initial, putOffice, onDone, onBusyChange
         </>
       )}
       <CharacterPreview appearance={look} />
-      {/* Um <fieldset> desabilitado desabilita tudo o que está dentro: é a tela travada depois do aviso do escritório. */}
-      <fieldset class="customize-form" disabled={settled}>
+      {/* Um <fieldset> desabilitado desabilita tudo o que está dentro: trava enquanto salva (o que vai ao perfil é o que está na tela) e depois do aviso do escritório. */}
+      <fieldset class="customize-form" disabled={settled || busy}>
         <fieldset class="customize-group">
           <legend>Corpo</legend>
           {(["feminine", "masculine"] as const).map((body) => (
